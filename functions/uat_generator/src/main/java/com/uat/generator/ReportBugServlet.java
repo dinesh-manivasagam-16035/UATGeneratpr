@@ -19,7 +19,7 @@ public class ReportBugServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json");
-        resp.setHeader("Access-Control-Allow-Origin", "*");
+        CorsSupport.apply(req, resp);
 
         try {
             JsonNode body = MAPPER.readTree(req.getInputStream());
@@ -72,10 +72,7 @@ public class ReportBugServlet extends HttpServlet {
 
     @Override
     protected void doOptions(HttpServletRequest req, HttpServletResponse resp) {
-        resp.setHeader("Access-Control-Allow-Origin", "*");
-        resp.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-        resp.setHeader("Access-Control-Allow-Headers", "Content-Type");
-        resp.setStatus(HttpServletResponse.SC_NO_CONTENT);
+        CorsSupport.applyOptions(req, resp);
     }
 
     private static String text(JsonNode body, String field, String fallback) {
