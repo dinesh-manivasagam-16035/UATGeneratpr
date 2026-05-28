@@ -1,0 +1,7 @@
+{
+  "name": "uat_generator_client",
+  "deploy": {
+    "files": ["**/*"],
+    "excludes": []
+  }
+}

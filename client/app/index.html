@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UAT Script Generator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>UAT Script Generator</h1>
+    <p class="sub">BRD &rarr; UAT cases &rarr; Execute in Zoho CRM &rarr; Push to Zoho Projects</p>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="input" data-step="1">
+      <span class="tab-num">1</span><span class="tab-label">Input</span><span class="tab-state"></span>
+    </button>
+    <button class="tab locked" data-tab="cases" data-step="2">
+      <span class="tab-num">2</span><span class="tab-label">Cases</span><span class="tab-state"></span>
+    </button>
+    <button class="tab locked" data-tab="execute" data-step="3">
+      <span class="tab-num">3</span><span class="tab-label">Execute</span><span class="tab-state"></span>
+    </button>
+    <button class="tab locked" data-tab="push" data-step="4">
+      <span class="tab-num">4</span><span class="tab-label">Push</span><span class="tab-state"></span>
+    </button>
+  </nav>
+
+  <main>
+
+    <!-- Tab 1: Input -->
+    <section class="tab-panel active" data-panel="input">
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text">Parsing BRD...</div>
+      </div>
+      <div class="panel-body">
+        <h2>Provide the BRD</h2>
+        <label for="module">Target module</label>
+        <select id="module">
+          <option value="crm.lead">CRM &mdash; Lead</option>
+          <option value="crm.deal">CRM &mdash; Deal</option>
+          <option value="crm.contact">CRM &mdash; Contact</option>
+          <option value="desk.ticket">Desk &mdash; Ticket</option>
+          <option value="desk.contact">Desk &mdash; Contact</option>
+        </select>
+
+        <label for="brd-file">Business Requirements Document</label>
+        <div class="file-drop" id="file-drop">
+          <input id="brd-file" type="file" accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+          <p class="file-drop-hint">Drop a <strong>.txt</strong>, <strong>.md</strong>, <strong>.pdf</strong>, or <strong>.docx</strong> here, or click to browse.</p>
+          <p class="file-drop-meta" id="file-meta"></p>
+        </div>
+
+        <div class="actions">
+          <button id="generate-btn" class="primary" disabled>Generate UAT cases &rarr;</button>
+        </div>
+        <p id="status-input" class="status"></p>
+      </div>
+    </section>
+
+    <!-- Tab 2: Cases -->
+    <section class="tab-panel" data-panel="cases" hidden>
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text">Generating UAT cases via LLM... (10–30s)</div>
+      </div>
+      <div class="panel-body">
+        <div class="panel-header">
+          <h2>Generated UAT cases</h2>
+          <p class="muted" id="cases-meta"></p>
+        </div>
+        <div id="cases"></div>
+        <div class="actions">
+          <button id="back-to-input" class="ghost">&larr; Back</button>
+          <button id="to-execute-btn" class="primary" disabled>Execute in Zoho CRM &rarr;</button>
+          <button id="download-btn" class="ghost" disabled>Download JSON</button>
+        </div>
+        <p id="status-cases" class="status"></p>
+      </div>
+    </section>
+
+    <!-- Tab 3: Execute -->
+    <section class="tab-panel" data-panel="execute" hidden>
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text" id="execute-loader-text">Executing test cases in Zoho CRM...</div>
+      </div>
+      <div class="panel-body">
+        <h2>Execute against Zoho CRM</h2>
+        <p class="hint">Leave credentials blank to simulate execution without hitting a real org.</p>
+        <div class="grid-2">
+          <div>
+            <label for="crm_org_id">Org ID</label>
+            <input id="crm_org_id" type="text" placeholder="e.g. 60012345678" />
+          </div>
+          <div>
+            <label for="crm_api_base">API base</label>
+            <input id="crm_api_base" type="text" placeholder="https://www.zohoapis.com" />
+          </div>
+          <div>
+            <label for="crm_client_id">Client ID</label>
+            <input id="crm_client_id" type="text" placeholder="1000.XXXXXXXXXX" />
+          </div>
+          <div>
+            <label for="crm_client_secret">Client Secret</label>
+            <input id="crm_client_secret" type="password" placeholder="(self-client secret)" />
+          </div>
+          <div class="grid-span-2">
+            <label for="crm_refresh_token">Refresh Token <span class="muted">(scope: ZohoCRM.modules.ALL)</span></label>
+            <input id="crm_refresh_token" type="password" placeholder="1000.xxxx.yyyy" />
+          </div>
+        </div>
+
+        <div id="exec-summary" class="exec-summary"></div>
+        <div id="exec-results"></div>
+
+        <div class="actions">
+          <button id="back-to-cases" class="ghost">&larr; Back</button>
+          <button id="execute-btn" class="primary">Run execution</button>
+          <button id="to-push-btn" class="primary" disabled>Push to Projects &rarr;</button>
+        </div>
+        <p id="status-execute" class="status"></p>
+      </div>
+    </section>
+
+    <!-- Tab 4: Push -->
+    <section class="tab-panel" data-panel="push" hidden>
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text" id="push-loader-text">Pushing to Zoho Projects...</div>
+      </div>
+      <div class="panel-body">
+        <h2>Push results to Zoho Projects</h2>
+        <p class="hint">A task is created for every executed case. Failed cases additionally create a Bug linked to the parent task.</p>
+        <div class="grid-2">
+          <div>
+            <label for="portal_id">Portal ID</label>
+            <input id="portal_id" type="text" placeholder="e.g. 60012345678" />
+          </div>
+          <div>
+            <label for="project_id">Project ID</label>
+            <input id="project_id" type="text" placeholder="e.g. 78900099112233" />
+          </div>
+        </div>
+
+        <div id="push-summary" class="exec-summary"></div>
+        <div id="push-results"></div>
+
+        <div class="actions">
+          <button id="back-to-execute" class="ghost">&larr; Back</button>
+          <button id="push-btn" class="primary">Push to Projects</button>
+          <button id="restart-btn" class="ghost">Start over</button>
+        </div>
+        <p id="status-push" class="status"></p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <small>Catalyst Java function <code>/server/uat_generator/</code></small>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

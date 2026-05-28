@@ -1,0 +1,33 @@
+# Build artifacts
+target/
+*.war
+*.jar
+*.class
+
+# Catalyst state
+.catalyst/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+secrets.json
+credentials.json
+*.pem
+*.key
+
+# Logs
+*.log
+logs/

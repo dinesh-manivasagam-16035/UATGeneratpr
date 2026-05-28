@@ -1,0 +1,15 @@
+{
+  "project": {
+    "id": "0",
+    "project_name": "uat_generator",
+    "domain": "https://console.catalyst.zoho.com",
+    "user_id": "",
+    "user_email": ""
+  },
+  "envs": {
+    "Development": {
+      "envName": "Development",
+      "envId": "0"
+    }
+  }
+}

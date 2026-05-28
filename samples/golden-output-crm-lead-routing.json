@@ -1,0 +1,112 @@
+{
+  "module": "crm.lead",
+  "provider": "claude",
+  "cases": [
+    {
+      "title": "Inbound web-form lead with mapped region gets auto-assigned",
+      "priority": "P0",
+      "tags": ["happy-path", "auto-assign", "create"],
+      "gherkin": "Given a region mapping exists for Country=US, State=California -> Rep_A\nWhen an inbound web-form lead is created with Country=US, State=California\nThen the lead Owner is set to Rep_A within 5 seconds\nAnd an audit log row records the inputs and the chosen Owner\nAnd Rep_A receives an in-app notification and an email within 60 seconds",
+      "steps": [
+        { "action": "Submit web form with country=US, state=California, valid contact details", "expected": "Lead is created in CRM" },
+        { "action": "Wait up to 5s and reload the lead", "expected": "Owner = Rep_A (the mapped rep for CA)" },
+        { "action": "Open audit log filtered by this lead", "expected": "One row with country=US, state=CA, region=US-West, owner=Rep_A, reason=auto-assigned" },
+        { "action": "Check Rep_A's inbox and in-app inbox", "expected": "Notification email + in-app entry with lead deep link, name, company, phone, source" }
+      ],
+      "acceptance": "Acceptance criterion A in BRD met."
+    },
+    {
+      "title": "Inbound lead from unmapped country uses ROW round-robin",
+      "priority": "P0",
+      "tags": ["happy-path", "round-robin", "row"],
+      "gherkin": "Given no region mapping exists for Country=Argentina\nAnd the ROW pool contains Rep_X, Rep_Y, Rep_Z (round-robin)\nWhen three inbound leads are created with Country=Argentina in succession\nThen the Owners are Rep_X, Rep_Y, Rep_Z respectively\nAnd each assignment is recorded in the audit log with reason=ROW round-robin",
+      "steps": [
+        { "action": "Create lead #1 with country=Argentina", "expected": "Owner = Rep_X" },
+        { "action": "Create lead #2 with country=Argentina", "expected": "Owner = Rep_Y" },
+        { "action": "Create lead #3 with country=Argentina", "expected": "Owner = Rep_Z" },
+        { "action": "Open audit log for the three leads", "expected": "Three rows with region=ROW and reason=ROW round-robin" }
+      ],
+      "acceptance": "Acceptance criterion B in BRD met."
+    },
+    {
+      "title": "Auto-assignment skips a rep who is on PTO",
+      "priority": "P0",
+      "tags": ["edge-case", "pto", "integration"],
+      "gherkin": "Given the ROW pool is Rep_X (PTO today), Rep_Y, Rep_Z\nWhen an inbound lead from an unmapped country is created\nThen Rep_X is skipped\nAnd the lead Owner is Rep_Y\nAnd the audit log shows skipped=Rep_X with reason=PTO",
+      "steps": [
+        { "action": "Mark Rep_X as on PTO in the HR system mock", "expected": "HR integration returns PTO=true for Rep_X" },
+        { "action": "Create an inbound lead from an unmapped country", "expected": "Owner = Rep_Y (next in pool)" },
+        { "action": "Open audit log for the lead", "expected": "Row contains skipped=[Rep_X (PTO)] and chosen=Rep_Y" }
+      ],
+      "acceptance": "Acceptance criterion D in BRD met."
+    },
+    {
+      "title": "Admin manual reassignment with reason updates audit log",
+      "priority": "P1",
+      "tags": ["override", "audit"],
+      "gherkin": "Given a lead is auto-assigned to Rep_A\nWhen a Sales Ops admin reassigns the lead to Rep_B with reason \"rep on leave\"\nThen the lead Owner is Rep_B\nAnd the audit log contains a row with action=manual_reassign, admin=<admin_user_id>, from=Rep_A, to=Rep_B, reason=\"rep on leave\"",
+      "steps": [
+        { "action": "Open the lead as a Sales Ops admin", "expected": "Reassign action is visible" },
+        { "action": "Reassign to Rep_B with reason \"rep on leave\"", "expected": "Save succeeds; Owner = Rep_B" },
+        { "action": "Try reassigning without entering a reason", "expected": "Save is blocked with validation error: reason is required" },
+        { "action": "Open audit log", "expected": "Row with action=manual_reassign, admin id, from/to, reason" }
+      ],
+      "acceptance": "Acceptance criterion C in BRD met."
+    },
+    {
+      "title": "Standard sales user cannot manually reassign a lead",
+      "priority": "P1",
+      "tags": ["permissions", "rbac", "negative"],
+      "gherkin": "Given a lead is auto-assigned to Rep_A\nAnd I am signed in as a standard sales user\nWhen I open the lead\nThen the reassign action is hidden or disabled\nAnd a direct API call to change Owner returns 403",
+      "steps": [
+        { "action": "Open the lead as a standard sales user", "expected": "Reassign control is not available" },
+        { "action": "Call PATCH /crm/v3/Leads/{id} with new Owner via REST API", "expected": "HTTP 403 with a permission-denied error" }
+      ],
+      "acceptance": "Reassignment is gated to Sales Ops admins only."
+    },
+    {
+      "title": "Region mapping with invalid Assigned_User is rejected at config save",
+      "priority": "P1",
+      "tags": ["validation", "settings"],
+      "gherkin": "Given I am a Sales Ops admin on the Region Mapping settings page\nWhen I add a row with Country=DE, Region=EMEA, Assigned_User=<deactivated user>\nThen Save is blocked with the error \"Assigned user must be an active CRM user\"",
+      "steps": [
+        { "action": "Open Region Mapping settings as Sales Ops admin", "expected": "Mapping table loads" },
+        { "action": "Add row with deactivated user as Assigned_User and click Save", "expected": "Validation error displayed; row not saved" }
+      ],
+      "acceptance": "Mapping config is robust against stale user references."
+    },
+    {
+      "title": "Auto-assignment completes within 5s p95",
+      "priority": "P1",
+      "tags": ["performance", "non-functional"],
+      "gherkin": "Given a load harness creates 100 leads in 60 seconds\nWhen measuring the time from lead create to Owner != \"Unassigned\"\nThen the p95 is <= 5 seconds",
+      "steps": [
+        { "action": "Run the load script to create 100 leads", "expected": "All 100 succeed" },
+        { "action": "Compute the p95 of (Owner-set timestamp - Create timestamp) from the audit log", "expected": "p95 <= 5000ms" }
+      ],
+      "acceptance": "Meets the non-functional latency target."
+    },
+    {
+      "title": "Existing duplicate-detection rule still fires on inbound lead",
+      "priority": "P2",
+      "tags": ["regression", "duplicate-detection"],
+      "gherkin": "Given a lead with Email=foo@bar.com already exists\nWhen an inbound web-form lead with Email=foo@bar.com is submitted\nThen the duplicate-detection rule fires as before\nAnd auto-assignment is not applied to the duplicate (it is merged or flagged per existing policy)",
+      "steps": [
+        { "action": "Pre-create a lead with Email=foo@bar.com", "expected": "Exists in CRM" },
+        { "action": "Submit a second lead with the same email", "expected": "Duplicate-detection treats it as a duplicate; no new auto-assignment audit row is created" }
+      ],
+      "acceptance": "No regression in duplicate detection."
+    }
+  ],
+  "projects_payload": {
+    "project_key": "ACME-UAT",
+    "tasks": [
+      {
+        "name": "Inbound web-form lead with mapped region gets auto-assigned",
+        "priority": "High",
+        "description": "Gherkin:\nGiven a region mapping exists for Country=US, State=California -> Rep_A\nWhen an inbound web-form lead is created with Country=US, State=California\nThen the lead Owner is set to Rep_A within 5 seconds\nAnd an audit log row records the inputs and the chosen Owner\nAnd Rep_A receives an in-app notification and an email within 60 seconds\n\nSteps:\n1. Submit web form with country=US, state=California, valid contact details -> Lead is created in CRM\n2. Wait up to 5s and reload the lead -> Owner = Rep_A (the mapped rep for CA)\n3. Open audit log filtered by this lead -> One row with country=US, state=CA, region=US-West, owner=Rep_A, reason=auto-assigned\n4. Check Rep_A's inbox and in-app inbox -> Notification email + in-app entry with lead deep link, name, company, phone, source\n\nAcceptance:\nAcceptance criterion A in BRD met.",
+        "tags": ["happy-path", "auto-assign", "create", "uat"]
+      }
+    ]
+  }
+}
