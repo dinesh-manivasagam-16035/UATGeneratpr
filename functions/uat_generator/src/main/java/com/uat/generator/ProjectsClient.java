@@ -2,6 +2,7 @@ package com.uat.generator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.entity.UrlEncodedFormEntity;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -15,7 +16,9 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ProjectsClient {
 
@@ -29,6 +32,8 @@ public class ProjectsClient {
 
     private String cachedAccessToken;
     private long tokenExpiresAt;
+
+    private final Map<String, String> portalIdCache = new HashMap<>();
 
     public ProjectsClient(String apiBase, String accountsBase, String clientId,
                           String clientSecret, String refreshToken) {
@@ -89,6 +94,57 @@ public class ProjectsClient {
     /** Package-private accessor so BugsClient can reuse the cached token. */
     synchronized String accessToken() throws Exception {
         return getAccessToken();
+    }
+
+    /**
+     * Returns a numeric portal id_string. If {@code portalOrSlug} is already
+     * all-digits, it's returned as-is. Otherwise we hit /restapi/portals/ and
+     * match the value against id_string / name / url. Results are cached for
+     * the lifetime of this client instance.
+     */
+    public synchronized String resolvePortalId(String portalOrSlug) throws Exception {
+        if (portalOrSlug == null || portalOrSlug.isEmpty()) return portalOrSlug;
+        if (portalOrSlug.chars().allMatch(Character::isDigit)) return portalOrSlug;
+        String cached = portalIdCache.get(portalOrSlug);
+        if (cached != null) return cached;
+
+        String accessToken = getAccessToken();
+        URI url = new URIBuilder(apiBase + "/restapi/portals/").build();
+        try (CloseableHttpClient http = HttpClients.createDefault()) {
+            HttpGet get = new HttpGet(url);
+            get.setHeader("Authorization", "Zoho-oauthtoken " + accessToken);
+            String resolved = http.execute(get, response -> {
+                String body = EntityUtils.toString(response.getEntity());
+                if (response.getCode() >= 400) {
+                    throw new RuntimeException("Projects portals lookup failed "
+                            + response.getCode() + ": " + body);
+                }
+                JsonNode root = MAPPER.readTree(body);
+                JsonNode portals = root.path("portals");
+                if (!portals.isArray()) return null;
+                String wanted = portalOrSlug.toLowerCase();
+                for (JsonNode p : portals) {
+                    String id = p.path("id_string").asText(p.path("id").asText(""));
+                    String name = p.path("name").asText("").toLowerCase();
+                    String slug = p.path("url").asText("").toLowerCase();
+                    String company = p.path("company_name").asText("").toLowerCase();
+                    if (id.equalsIgnoreCase(portalOrSlug)
+                            || name.equals(wanted)
+                            || slug.equals(wanted)
+                            || company.equals(wanted)
+                            || slug.endsWith("/" + wanted)) {
+                        return id;
+                    }
+                }
+                return null;
+            });
+            if (resolved == null) {
+                throw new RuntimeException("Portal '" + portalOrSlug
+                        + "' not found. Refresh token may not have access to it.");
+            }
+            portalIdCache.put(portalOrSlug, resolved);
+            return resolved;
+        }
     }
 
     private synchronized String getAccessToken() throws Exception {

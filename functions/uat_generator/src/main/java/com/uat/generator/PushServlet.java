@@ -39,19 +39,41 @@ public class PushServlet extends HttpServlet {
 
         try {
             JsonNode body = MAPPER.readTree(req.getInputStream());
-            String portalId = text(body, "portal_id", System.getenv("ZOHO_PROJECTS_PORTAL_ID"));
-            String projectId = text(body, "project_id", System.getenv("ZOHO_PROJECTS_PROJECT_ID"));
+            String portalId = text(body, "portal_id",
+                    firstNonEmpty(System.getenv("ZOHO_PROJECTS_PORTAL_ID"),
+                                  ProjectDefaults.portal()));
+            String projectId = text(body, "project_id",
+                    firstNonEmpty(System.getenv("ZOHO_PROJECTS_PROJECT_ID"),
+                                  ProjectDefaults.project()));
             JsonNode cases = body.get("cases");
 
-            if (portalId == null || projectId == null || cases == null || !cases.isArray()) {
+            if (cases == null || !cases.isArray()) {
                 writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
-                        "Fields 'portal_id', 'project_id', and 'cases' (array) are required.");
+                        "Field 'cases' (array) is required.");
+                return;
+            }
+            if (portalId == null || projectId == null) {
+                writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
+                        "No portal/project configured. Set ZOHO_PROJECTS_PORTAL_ID + "
+                                + "ZOHO_PROJECTS_PROJECT_ID env vars, or place values "
+                                + "in project-defaults.properties.");
                 return;
             }
 
             boolean haveProjectsCreds = System.getenv("ZOHO_REFRESH_TOKEN") != null;
             ProjectsClient projects = haveProjectsCreds ? ProjectsClient.fromEnv() : null;
             BugsClient bugs = haveProjectsCreds ? BugsClient.fromEnv() : null;
+
+            if (projects != null) {
+                try {
+                    portalId = projects.resolvePortalId(portalId);
+                } catch (Exception ex) {
+                    LOG.log(Level.WARNING, "portal slug -> id resolution failed", ex);
+                    writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
+                            "Could not resolve portal '" + portalId + "': " + ex.getMessage());
+                    return;
+                }
+            }
 
             ArrayNode results = MAPPER.createArrayNode();
             int tasksCreated = 0, tasksFailed = 0, bugsCreated = 0, bugsFailed = 0;
@@ -212,6 +234,14 @@ public class PushServlet extends HttpServlet {
         String v = n == null || n.isNull() ? "" : n.asText("").trim();
         if (!v.isEmpty()) return v;
         return fallback == null || fallback.isEmpty() ? null : fallback;
+    }
+
+    private static String firstNonEmpty(String... vals) {
+        if (vals == null) return null;
+        for (String v : vals) {
+            if (v != null && !v.trim().isEmpty()) return v;
+        }
+        return null;
     }
 
     private static void writeError(HttpServletResponse resp, int status, String message) throws IOException {

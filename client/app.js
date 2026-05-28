@@ -445,12 +445,6 @@
   }
 
   async function pushToProjects() {
-    const portal_id = els.portal.value.trim();
-    const project_id = els.project.value.trim();
-    if (!portal_id || !project_id) {
-      setStatus("push", "Portal ID and Project ID are required.", "warn");
-      return;
-    }
     if (!state.executed) {
       setStatus("push", "Execute the cases first.", "warn");
       return;
@@ -462,10 +456,17 @@
     els.pushResults.innerHTML = "";
 
     try {
+      // Portal and project come from project-defaults.properties on the server.
+      // We can optionally override them from the UI fields (hidden by default).
+      const portal_id = els.portal && els.portal.value.trim();
+      const project_id = els.project && els.project.value.trim();
+      const payload = { cases: state.cases };
+      if (portal_id) payload.portal_id = portal_id;
+      if (project_id) payload.project_id = project_id;
       const res = await fetch(FUNCTION_BASE + "/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ portal_id, project_id, cases: state.cases }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Push failed");
