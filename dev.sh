@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting static client server on :8000 ..."
-( cd client/app && python3 -m http.server 8000 ) &
+( cd client && python3 -m http.server 8000 ) &
 STATIC_PID=$!
 
 echo "Starting Jetty on :9000 ..."
