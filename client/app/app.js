@@ -1,8 +1,9 @@
 (function () {
   const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
+  const APPSAIL_BASE = "https://uatgenerator-50042610479.development.catalystappsail.in";
   const FUNCTION_BASE = isLocal
     ? "http://localhost:9000/uat_generator"
-    : "/server/uat_generator";
+    : APPSAIL_BASE + "/uat_generator";
 
   const TABS = ["input", "cases", "execute", "push"];
 

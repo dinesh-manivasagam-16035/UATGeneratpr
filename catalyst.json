@@ -1,15 +1,22 @@
 {
   "project": {
-    "id": "0",
-    "project_name": "uat_generator",
+    "id": "41726000000048001",
+    "project_name": "UATGenerator",
     "domain": "https://console.catalyst.zoho.com",
     "user_id": "",
-    "user_email": ""
+    "user_email": "dinesh.manivasagam@zohocorp.com"
   },
   "envs": {
     "Development": {
       "envName": "Development",
-      "envId": "0"
+      "envId": "60071738809"
     }
+  },
+  "functions": {
+    "targets": ["uat_generator"],
+    "source": "functions"
+  },
+  "client": {
+    "source": "client"
   }
 }

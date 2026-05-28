@@ -1,13 +1,13 @@
 {
   "deployment": {
     "name": "uat_generator",
-    "type": "AdvancedIO",
+    "type": "advancedio",
     "stack": "java11",
     "memory": 512,
     "timeout": 30,
     "source": "target/uat_generator.war"
   },
   "execution": {
-    "main_class": ""
+    "main": "GenerateServlet"
   }
 }
