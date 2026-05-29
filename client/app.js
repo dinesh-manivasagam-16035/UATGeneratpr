@@ -90,6 +90,13 @@
       const active = p.dataset.panel === name;
       p.classList.toggle("active", active);
       p.hidden = !active;
+      if (active) {
+        // Restart the panel-enter animation so each tab switch animates in.
+        p.style.animation = "none";
+        // Force reflow so the animation restarts when re-applied.
+        void p.offsetWidth;
+        p.style.animation = "";
+      }
     });
   }
   function markStepDone(name) {
