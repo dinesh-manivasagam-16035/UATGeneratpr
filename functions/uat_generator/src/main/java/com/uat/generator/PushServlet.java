@@ -60,7 +60,9 @@ public class PushServlet extends HttpServlet {
                 return;
             }
 
-            boolean haveProjectsCreds = System.getenv("ZOHO_REFRESH_TOKEN") != null;
+            boolean haveProjectsCreds =
+                    CatalystConnectionAuth.configuredConnectionName() != null
+                    || System.getenv("ZOHO_REFRESH_TOKEN") != null;
             ProjectsClient projects = haveProjectsCreds ? ProjectsClient.fromEnv() : null;
             BugsClient bugs = haveProjectsCreds ? BugsClient.fromEnv() : null;
 

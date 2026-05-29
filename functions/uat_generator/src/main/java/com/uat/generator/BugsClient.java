@@ -49,13 +49,12 @@ public class BugsClient {
         String reporter = req.path("reporter").asText("");
         String associatedTaskIds = req.path("associated_taskids").asText("");
 
-        String accessToken = delegate.accessToken();
         URI url = new URIBuilder(apiBase + "/restapi/portal/" + portalId
                 + "/projects/" + projectId + "/bugs/").build();
 
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(url);
-            post.setHeader("Authorization", "Zoho-oauthtoken " + accessToken);
+            delegate.attachAuth(post);
 
             List<NameValuePair> form = new ArrayList<>();
             form.add(new BasicNameValuePair("title", title));

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.entity.UrlEncodedFormEntity;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
@@ -29,6 +30,7 @@ public class ProjectsClient {
     private final String clientId;
     private final String clientSecret;
     private final String refreshToken;
+    private final CatalystConnectionAuth catalystAuth;
 
     private String cachedAccessToken;
     private long tokenExpiresAt;
@@ -36,27 +38,40 @@ public class ProjectsClient {
     private final Map<String, String> portalIdCache = new HashMap<>();
 
     public ProjectsClient(String apiBase, String accountsBase, String clientId,
-                          String clientSecret, String refreshToken) {
+                          String clientSecret, String refreshToken,
+                          CatalystConnectionAuth catalystAuth) {
         this.apiBase = apiBase;
         this.accountsBase = accountsBase;
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.refreshToken = refreshToken;
+        this.catalystAuth = catalystAuth;
     }
 
+    /**
+     * Resolves auth from the environment. Prefers a Catalyst Connection
+     * (env var {@code ZOHO_CONNECTION_NAME}) when present; falls back to
+     * the self-client refresh-token flow.
+     */
     public static ProjectsClient fromEnv() {
         String apiBase = System.getenv().getOrDefault(
             "ZOHO_PROJECTS_API_BASE", "https://projectsapi.zoho.com");
         String accountsBase = System.getenv().getOrDefault(
             "ZOHO_ACCOUNTS_BASE", "https://accounts.zoho.com");
+
+        String connectionName = CatalystConnectionAuth.configuredConnectionName();
+        if (connectionName != null) {
+            return new ProjectsClient(apiBase, accountsBase, null, null, null,
+                    new CatalystConnectionAuth(connectionName));
+        }
         String clientId = require("ZOHO_CLIENT_ID");
         String clientSecret = require("ZOHO_CLIENT_SECRET");
         String refreshToken = require("ZOHO_REFRESH_TOKEN");
-        return new ProjectsClient(apiBase, accountsBase, clientId, clientSecret, refreshToken);
+        return new ProjectsClient(apiBase, accountsBase, clientId, clientSecret,
+                refreshToken, null);
     }
 
     public String createTask(String portalId, String projectId, JsonNode testCase) throws Exception {
-        String accessToken = getAccessToken();
         String name = trimName(testCase.path("title").asText("UAT Case"));
         String description = buildDescription(testCase);
 
@@ -65,7 +80,7 @@ public class ProjectsClient {
 
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(url);
-            post.setHeader("Authorization", "Zoho-oauthtoken " + accessToken);
+            attachAuth(post);
 
             List<NameValuePair> form = new ArrayList<>();
             form.add(new BasicNameValuePair("name", name));
@@ -91,8 +106,39 @@ public class ProjectsClient {
         }
     }
 
-    /** Package-private accessor so BugsClient can reuse the cached token. */
+    /**
+     * Attaches the appropriate auth headers to the request. Uses Catalyst
+     * Connection when configured; otherwise falls back to the cached
+     * self-client access token.
+     */
+    public void attachAuth(HttpUriRequestBase req) throws Exception {
+        if (catalystAuth != null) {
+            catalystAuth.authHeaders().forEach(req::setHeader);
+        } else {
+            req.setHeader("Authorization", "Zoho-oauthtoken " + getAccessToken());
+        }
+    }
+
+    /** Whether this client uses a Catalyst Connection for auth. */
+    public boolean usesCatalystConnection() {
+        return catalystAuth != null;
+    }
+
+    /** Source name of the auth (connection name or "self-client"). */
+    public String authSource() {
+        return catalystAuth != null ? "catalyst:" + catalystAuth.connectionName() : "self-client";
+    }
+
+    /**
+     * Package-private accessor so BugsClient can reuse the cached token
+     * when running in self-client mode. Throws when using Catalyst auth —
+     * BugsClient should use {@link #attachAuth} instead.
+     */
     synchronized String accessToken() throws Exception {
+        if (catalystAuth != null) {
+            throw new IllegalStateException(
+                    "accessToken() not available when using Catalyst Connection — use attachAuth() instead.");
+        }
         return getAccessToken();
     }
 
@@ -108,11 +154,10 @@ public class ProjectsClient {
         String cached = portalIdCache.get(portalOrSlug);
         if (cached != null) return cached;
 
-        String accessToken = getAccessToken();
         URI url = new URIBuilder(apiBase + "/restapi/portals/").build();
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpGet get = new HttpGet(url);
-            get.setHeader("Authorization", "Zoho-oauthtoken " + accessToken);
+            attachAuth(get);
             String resolved = http.execute(get, response -> {
                 String body = EntityUtils.toString(response.getEntity());
                 if (response.getCode() >= 400) {
