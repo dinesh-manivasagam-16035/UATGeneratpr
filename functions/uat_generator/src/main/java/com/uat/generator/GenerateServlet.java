@@ -2,71 +2,118 @@ package com.uat.generator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * POST /generate
+ *
+ * Body: {
+ *   "brd":     "Full BRD text...",
+ *   "modules": ["Leads", "Deals"],   // 1..3 module api_names
+ *   "module":  "Leads",              // legacy single-module form (still accepted)
+ *   "project_key": "ACME-UAT"        // optional, embedded into projects_payload
+ * }
+ *
+ * For each module the LLM is called once and the resulting cases are
+ * concatenated (each case tagged with its source module). The aim is
+ * 30+ cases per module so a 3-module request yields ~90-100 cases total.
+ */
 public class GenerateServlet extends HttpServlet {
 
     private static final Logger LOG = Logger.getLogger(GenerateServlet.class.getName());
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final int MAX_MODULES = 3;
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json");
         CorsSupport.apply(req, resp);
 
-        String module = "";
         String provider = System.getenv().getOrDefault("LLM_PROVIDER", "claude");
         int brdLength = 0;
+        List<String> modules = new ArrayList<>();
 
         try {
             JsonNode body = MAPPER.readTree(req.getInputStream());
             String brd = textOf(body, "brd");
-            module = textOf(body, "module");
             String projectKey = textOf(body, "project_key");
             brdLength = brd.length();
 
-            if (brd.isEmpty() || module.isEmpty()) {
+            // Accept both `modules: [...]` and legacy `module: "Leads"`
+            JsonNode mArr = body.get("modules");
+            if (mArr != null && mArr.isArray()) {
+                for (JsonNode m : mArr) {
+                    String v = m.asText("").trim();
+                    if (!v.isEmpty() && !modules.contains(v)) modules.add(v);
+                    if (modules.size() >= MAX_MODULES) break;
+                }
+            }
+            if (modules.isEmpty()) {
+                String legacy = textOf(body, "module");
+                if (!legacy.isEmpty()) modules.add(legacy);
+            }
+
+            if (brd.isEmpty() || modules.isEmpty()) {
                 writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
-                        "Fields 'brd' and 'module' are required.");
+                        "Fields 'brd' and 'modules' (array of up to 3) are required.");
                 return;
             }
 
-            String moduleSchema = ModuleSchemas.forModule(module);
+            ArrayNode allCases = MAPPER.createArrayNode();
+            ObjectNode perModule = MAPPER.createObjectNode();
 
-            String llmResponse;
-            if ("mock".equalsIgnoreCase(provider)) {
-                llmResponse = MockLlmClient.generate(brd, module, moduleSchema);
-            } else if ("zia".equalsIgnoreCase(provider)) {
-                llmResponse = ZiaClient.generate(brd, module, moduleSchema);
-            } else {
-                llmResponse = ClaudeClient.generate(brd, module, moduleSchema);
+            for (String module : modules) {
+                String moduleSchema = ModuleSchemas.forModule(module);
+                String llmResponse;
+                if ("mock".equalsIgnoreCase(provider)) {
+                    llmResponse = MockLlmClient.generate(brd, module, moduleSchema);
+                } else if ("zia".equalsIgnoreCase(provider)) {
+                    llmResponse = ZiaClient.generate(brd, module, moduleSchema);
+                } else {
+                    llmResponse = ClaudeClient.generate(brd, module, moduleSchema);
+                }
+
+                JsonNode cases = extractCasesArray(llmResponse);
+                int count = 0;
+                if (cases.isArray()) {
+                    for (JsonNode tc : cases) {
+                        if (!tc.isObject()) continue;
+                        ObjectNode copy = ((ObjectNode) tc).deepCopy();
+                        copy.put("module", module);
+                        allCases.add(copy);
+                        count++;
+                    }
+                }
+                perModule.put(module, count);
+                RunLogger.logGenerate(req, module, provider, brdLength, count, "generated", null);
             }
 
-            JsonNode cases = extractCasesArray(llmResponse);
-            int caseCount = cases.isArray() ? cases.size() : 0;
             ObjectNode out = MAPPER.createObjectNode();
-            out.put("module", module);
+            ArrayNode modulesOut = out.putArray("modules");
+            modules.forEach(modulesOut::add);
             out.put("provider", provider);
-            out.set("cases", cases);
-            out.set("projects_payload", ProjectsPayloadBuilder.build(cases, projectKey));
-
-            RunLogger.logGenerate(req, module, provider, brdLength, caseCount, "generated", null);
+            out.set("counts", perModule);
+            out.put("total", allCases.size());
+            out.set("cases", allCases);
+            out.set("projects_payload", ProjectsPayloadBuilder.build(allCases, projectKey));
 
             resp.setStatus(HttpServletResponse.SC_OK);
-            PrintWriter w = resp.getWriter();
-            w.write(MAPPER.writeValueAsString(out));
-            w.flush();
+            resp.getWriter().write(MAPPER.writeValueAsString(out));
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "generate failed", e);
-            RunLogger.logGenerate(req, module, provider, brdLength, 0, "failed", e.getMessage());
+            for (String m : modules) {
+                RunLogger.logGenerate(req, m, provider, brdLength, 0, "failed", e.getMessage());
+            }
             writeError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, e.getMessage());
         }
     }

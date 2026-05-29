@@ -11,12 +11,20 @@
     tabs: document.querySelectorAll(".tab"),
     panels: document.querySelectorAll(".tab-panel"),
 
-    module:    document.getElementById("module"),
     brdFile:   document.getElementById("brd-file"),
     fileDrop:  document.getElementById("file-drop"),
     fileMeta:  document.getElementById("file-meta"),
     generate:  document.getElementById("generate-btn"),
     statusInput: document.getElementById("status-input"),
+
+    moduleChips:        document.getElementById("module-chips"),
+    moduleSelected:     document.getElementById("module-selected"),
+    moduleSelectedList: document.getElementById("module-selected-list"),
+    modulePickerEmpty:  document.getElementById("module-picker-empty"),
+    loadModulesBtn:     document.getElementById("load-modules-btn"),
+    modulesStatus:      document.getElementById("modules-status"),
+    crmAccountsBase:    document.getElementById("crm_accounts_base"),
+    execCredsStatus:    document.getElementById("exec-creds-status"),
 
     casesMeta: document.getElementById("cases-meta"),
     cases:     document.getElementById("cases"),
@@ -55,10 +63,25 @@
     fileName: "",
     cases: [],
     payload: null,
+    modulesAvailable: [],
+    modulesSelected: [],
     executed: false,
     pushed: false,
     stepDone: { input: false, cases: false, execute: false, push: false },
   };
+
+  const MAX_MODULES = 3;
+
+  const DEFAULT_MODULES = [
+    { api_name: "Leads",    plural_label: "Leads" },
+    { api_name: "Contacts", plural_label: "Contacts" },
+    { api_name: "Accounts", plural_label: "Accounts" },
+    { api_name: "Deals",    plural_label: "Deals" },
+    { api_name: "Tasks",    plural_label: "Tasks" },
+    { api_name: "Cases",    plural_label: "Cases" },
+    { api_name: "Products", plural_label: "Products" },
+    { api_name: "Quotes",   plural_label: "Quotes" },
+  ];
 
   if (window.pdfjsLib) {
     window.pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -98,6 +121,9 @@
         p.style.animation = "";
       }
     });
+    if (name === "execute" && typeof updateExecCredsStatus === "function") {
+      updateExecCredsStatus();
+    }
   }
   function markStepDone(name) {
     state.stepDone[name] = true;
@@ -209,14 +235,18 @@
       state.fileName = file.name;
       els.fileMeta.textContent =
         `${file.name} — ${kind.toUpperCase()}, ${text.length.toLocaleString()} chars`;
-      els.generate.disabled = false;
-      markStepDone("input");
-      setStatus("input", "BRD parsed. Click Generate UAT cases.", "ok");
+      refreshGenerateAvailability();
+      if (state.modulesSelected.length) markStepDone("input");
+      setStatus("input",
+        state.modulesSelected.length
+          ? "BRD parsed. Click Generate UAT cases."
+          : "BRD parsed. Now pick up to 3 target modules.",
+        state.modulesSelected.length ? "ok" : "");
     } catch (err) {
       state.brd = "";
       state.fileName = "";
       els.fileMeta.textContent = "";
-      els.generate.disabled = true;
+      refreshGenerateAvailability();
       setStatus("input", "Parse error: " + err.message, "err");
     } finally {
       hideLoader("input");
@@ -345,18 +375,43 @@
       container.innerHTML = '<p class="muted">No cases yet.</p>';
       return;
     }
-    container.innerHTML = list.map((tc, i) => caseCardHtml(tc, i, opts)).join("");
+    // Group by module, preserving original order
+    const groups = new Map();
+    list.forEach((tc, i) => {
+      const key = tc.module || "Other";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ tc, i });
+    });
+    if (groups.size <= 1) {
+      container.innerHTML = list.map((tc, i) => caseCardHtml(tc, i, opts)).join("");
+      return;
+    }
+    const html = [];
+    for (const [moduleName, items] of groups) {
+      html.push(
+        `<div class="module-group-head">${escapeHtml(moduleName)}` +
+        ` <span class="module-group-count">${items.length} case${items.length === 1 ? "" : "s"}</span>` +
+        `</div>`
+      );
+      items.forEach(({ tc, i }) => html.push(caseCardHtml(tc, i, opts)));
+    }
+    container.innerHTML = html.join("");
   }
 
   // ---- Actions ----
 
   async function generate() {
     if (!state.brd) { setStatus("input", "Attach a BRD file first.", "warn"); return; }
-    const module = els.module.value;
+    if (!state.modulesSelected.length) {
+      setStatus("input", "Pick at least one target module.", "warn");
+      return;
+    }
 
     showTab("cases");
     setStatus("cases", "");
-    showLoader("cases", "Generating UAT cases via LLM... (10–30s)");
+    const count = state.modulesSelected.length;
+    showLoader("cases",
+      `Generating UAT cases for ${count} module${count === 1 ? "" : "s"}... (10–30s per module)`);
     els.toExecute.disabled = true;
     els.download.disabled = true;
     els.casesMeta.textContent = "";
@@ -366,7 +421,11 @@
       const res = await fetch(FUNCTION_BASE + "/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brd: state.brd, module, project_key: "" }),
+        body: JSON.stringify({
+          brd: state.brd,
+          modules: state.modulesSelected,
+          project_key: "",
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
@@ -376,7 +435,12 @@
       state.executed = false;
       state.pushed = false;
 
-      els.casesMeta.textContent = `${state.cases.length} case(s) generated via ${data.provider}.`;
+      const breakdown = data.counts
+        ? Object.entries(data.counts).map(([m, n]) => `${m}: ${n}`).join("  •  ")
+        : "";
+      els.casesMeta.textContent =
+        `${state.cases.length} case(s) generated via ${data.provider}` +
+        (breakdown ? `  •  ${breakdown}` : "");
       renderCasesList(els.cases, { showExec: false, showPush: false });
 
       const have = state.cases.length > 0;
@@ -394,12 +458,115 @@
 
   function readCrmCreds() {
     return {
-      org_id:        els.crmOrg.value.trim(),
-      api_base:      els.crmApi.value.trim(),
-      client_id:     els.crmClientId.value.trim(),
-      client_secret: els.crmClientSecret.value.trim(),
-      refresh_token: els.crmRefresh.value.trim(),
+      org_id:        (document.getElementById("crm_org_id")        || {}).value || "",
+      api_base:      (document.getElementById("crm_api_base")      || {}).value || "",
+      accounts_base: (document.getElementById("crm_accounts_base") || {}).value || "",
+      client_id:     (document.getElementById("crm_client_id")     || {}).value || "",
+      client_secret: (document.getElementById("crm_client_secret") || {}).value || "",
+      refresh_token: (document.getElementById("crm_refresh_token") || {}).value || "",
     };
+  }
+
+  function hasCredsForExecution() {
+    const c = readCrmCreds();
+    return !!(c.client_id && c.client_secret && c.refresh_token);
+  }
+
+  function updateExecCredsStatus() {
+    if (!els.execCredsStatus) return;
+    if (hasCredsForExecution()) {
+      els.execCredsStatus.textContent = "CRM credentials provided — execution will hit your live org.";
+      els.execCredsStatus.className = "status ok";
+    } else {
+      els.execCredsStatus.textContent = "No CRM credentials provided — execution will be simulated.";
+      els.execCredsStatus.className = "status muted";
+    }
+  }
+
+  // ---- Module picker ----
+
+  function renderModuleChips() {
+    if (!els.moduleChips) return;
+    els.moduleChips.innerHTML = "";
+    const list = state.modulesAvailable.length ? state.modulesAvailable : DEFAULT_MODULES;
+    const max = MAX_MODULES;
+    list.forEach((m) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "module-chip";
+      const isSelected = state.modulesSelected.includes(m.api_name);
+      if (isSelected) btn.classList.add("selected");
+      if (!isSelected && state.modulesSelected.length >= max) btn.classList.add("disabled");
+      btn.textContent = m.plural_label || m.api_name;
+      btn.dataset.apiName = m.api_name;
+      btn.addEventListener("click", () => toggleModule(m.api_name));
+      els.moduleChips.appendChild(btn);
+    });
+    renderSelectedSummary();
+  }
+
+  function renderSelectedSummary() {
+    if (!els.moduleSelectedList || !els.moduleSelected) return;
+    if (!state.modulesSelected.length) {
+      els.moduleSelected.hidden = true;
+      els.moduleSelectedList.innerHTML = "";
+      return;
+    }
+    els.moduleSelected.hidden = false;
+    els.moduleSelectedList.innerHTML = state.modulesSelected
+      .map((m) => `<span class="pill">${escapeHtml(m)}</span>`)
+      .join("");
+  }
+
+  function toggleModule(apiName) {
+    const idx = state.modulesSelected.indexOf(apiName);
+    if (idx >= 0) state.modulesSelected.splice(idx, 1);
+    else {
+      if (state.modulesSelected.length >= MAX_MODULES) return;
+      state.modulesSelected.push(apiName);
+    }
+    renderModuleChips();
+    refreshGenerateAvailability();
+    if (state.brd && state.modulesSelected.length) markStepDone("input");
+  }
+
+  function refreshGenerateAvailability() {
+    els.generate.disabled = !(state.brd && state.modulesSelected.length);
+  }
+
+  async function loadModules() {
+    if (els.modulesStatus) {
+      els.modulesStatus.textContent = "Loading modules...";
+      els.modulesStatus.className = "status";
+    }
+    els.loadModulesBtn.disabled = true;
+    try {
+      const res = await fetch(FUNCTION_BASE + "/modules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ crm: readCrmCreds() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      state.modulesAvailable = Array.isArray(data.modules) ? data.modules : [];
+      if (els.modulePickerEmpty) {
+        els.modulePickerEmpty.style.display = state.modulesAvailable.length ? "none" : "";
+      }
+      renderModuleChips();
+      if (els.modulesStatus) {
+        const live = data.source === "live";
+        els.modulesStatus.textContent = `${state.modulesAvailable.length} module(s) loaded (${live ? "live from CRM" : "default list"}).`;
+        els.modulesStatus.className = "status " + (live ? "ok" : "muted");
+      }
+    } catch (e) {
+      if (els.modulesStatus) {
+        els.modulesStatus.textContent = "Error: " + e.message;
+        els.modulesStatus.className = "status err";
+      }
+    } finally {
+      els.loadModulesBtn.disabled = false;
+      updateExecCredsStatus();
+    }
   }
 
   async function executeInCrm() {
@@ -581,6 +748,18 @@
   els.push.addEventListener("click", pushToProjects);
   els.backToExecute.addEventListener("click", () => showTab("execute"));
   els.restart.addEventListener("click", restart);
+
+  // Module picker wiring
+  if (els.loadModulesBtn) els.loadModulesBtn.addEventListener("click", loadModules);
+  ["crm_client_id", "crm_client_secret", "crm_refresh_token", "crm_api_base", "crm_accounts_base"]
+    .forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", updateExecCredsStatus);
+    });
+
+  // First-paint
+  renderModuleChips();
+  updateExecCredsStatus();
 
   if (isLocal) {
     console.info("UAT Generator running in local mode. API base: " + FUNCTION_BASE);

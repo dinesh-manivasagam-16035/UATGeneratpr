@@ -45,15 +45,52 @@
         <div class="loader-text">Parsing BRD...</div>
       </div>
       <div class="panel-body">
-        <h2>Provide the BRD</h2>
-        <label for="module">Target module</label>
-        <select id="module">
-          <option value="crm.lead">CRM &mdash; Lead</option>
-          <option value="crm.deal">CRM &mdash; Deal</option>
-          <option value="crm.contact">CRM &mdash; Contact</option>
-          <option value="desk.ticket">Desk &mdash; Ticket</option>
-          <option value="desk.contact">Desk &mdash; Contact</option>
-        </select>
+        <h2>Connect to Zoho CRM &amp; pick modules</h2>
+        <p class="hint">Provide self-client OAuth credentials to load the live module list from your org. Without credentials we use a built-in default list. Leave for later? You can still pick from defaults.</p>
+
+        <details class="creds-panel">
+          <summary>Zoho CRM credentials <span class="muted">(India DC defaults shown)</span></summary>
+          <div class="grid-2">
+            <div>
+              <label for="crm_org_id">Org ID</label>
+              <input id="crm_org_id" type="text" placeholder="e.g. 60012345678" />
+            </div>
+            <div>
+              <label for="crm_api_base">API base</label>
+              <input id="crm_api_base" type="text" placeholder="https://www.zohoapis.in" value="https://www.zohoapis.in" />
+            </div>
+            <div>
+              <label for="crm_accounts_base">Accounts base</label>
+              <input id="crm_accounts_base" type="text" placeholder="https://accounts.zoho.in" value="https://accounts.zoho.in" />
+            </div>
+            <div>
+              <label for="crm_client_id">Client ID</label>
+              <input id="crm_client_id" type="text" placeholder="1000.XXXXXXXXXX" />
+            </div>
+            <div>
+              <label for="crm_client_secret">Client Secret</label>
+              <input id="crm_client_secret" type="password" placeholder="(self-client secret)" />
+            </div>
+            <div>
+              <label for="crm_refresh_token">Refresh Token</label>
+              <input id="crm_refresh_token" type="password" placeholder="1000.xxxx.yyyy" />
+            </div>
+          </div>
+          <div class="actions" style="border:none;padding:0;margin-top:14px;">
+            <button id="load-modules-btn" class="ghost">Load modules from CRM</button>
+            <span id="modules-status" class="status" style="margin:0;"></span>
+          </div>
+        </details>
+
+        <label>Target modules <span class="muted">(pick up to 3)</span></label>
+        <div class="module-picker" id="module-picker">
+          <p class="muted" id="module-picker-empty">Click <strong>Load modules from CRM</strong> above, or use the default list:</p>
+          <div class="module-chips" id="module-chips"></div>
+          <div class="module-selected" id="module-selected" hidden>
+            <span class="muted">Selected:</span>
+            <span id="module-selected-list"></span>
+          </div>
+        </div>
 
         <label for="brd-file">Business Requirements Document</label>
         <div class="file-drop" id="file-drop">
@@ -98,29 +135,8 @@
       </div>
       <div class="panel-body">
         <h2>Execute against Zoho CRM</h2>
-        <p class="hint">Leave credentials blank to simulate execution without hitting a real org.</p>
-        <div class="grid-2">
-          <div>
-            <label for="crm_org_id">Org ID</label>
-            <input id="crm_org_id" type="text" placeholder="e.g. 60012345678" />
-          </div>
-          <div>
-            <label for="crm_api_base">API base</label>
-            <input id="crm_api_base" type="text" placeholder="https://www.zohoapis.com" />
-          </div>
-          <div>
-            <label for="crm_client_id">Client ID</label>
-            <input id="crm_client_id" type="text" placeholder="1000.XXXXXXXXXX" />
-          </div>
-          <div>
-            <label for="crm_client_secret">Client Secret</label>
-            <input id="crm_client_secret" type="password" placeholder="(self-client secret)" />
-          </div>
-          <div class="grid-span-2">
-            <label for="crm_refresh_token">Refresh Token <span class="muted">(scope: ZohoCRM.modules.ALL)</span></label>
-            <input id="crm_refresh_token" type="password" placeholder="1000.xxxx.yyyy" />
-          </div>
-        </div>
+        <p class="hint">Using the credentials you entered on the <strong>Input</strong> tab. Leave them blank there to simulate execution without hitting a real org.</p>
+        <p id="exec-creds-status" class="status"></p>
 
         <div id="exec-summary" class="exec-summary"></div>
         <div id="exec-results"></div>

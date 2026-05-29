@@ -45,6 +45,15 @@
   </servlet-mapping>
 
   <servlet>
+    <servlet-name>modules</servlet-name>
+    <servlet-class>com.uat.generator.ModulesServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>modules</servlet-name>
+    <url-pattern>/modules</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
     <servlet-name>health</servlet-name>
     <servlet-class>com.uat.generator.HealthServlet</servlet-class>
   </servlet>
