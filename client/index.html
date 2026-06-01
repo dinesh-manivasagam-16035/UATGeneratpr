@@ -28,8 +28,8 @@
         </svg>
       </span>
       <div>
-        <h1>TestPilot</h1>
-        <p class="sub">UAT cases from your BRD &rarr; executed in Zoho CRM &rarr; pushed to Projects</p>
+        <h1>Test<span class="brand-accent">Pilot</span></h1>
+        <p class="sub">Your UAT, on autopilot. Drop a BRD &mdash; ship test results.</p>
       </div>
     </div>
     <div class="header-actions">
@@ -48,16 +48,16 @@
 
   <nav class="tabs" role="tablist">
     <button class="tab active" data-tab="input" data-step="1">
-      <span class="tab-num">1</span><span class="tab-label">Input</span><span class="tab-state"></span>
+      <span class="tab-num">1</span><span class="tab-label">Brief</span><span class="tab-state"></span>
     </button>
     <button class="tab locked" data-tab="cases" data-step="2">
       <span class="tab-num">2</span><span class="tab-label">Cases</span><span class="tab-state"></span>
     </button>
     <button class="tab locked" data-tab="execute" data-step="3">
-      <span class="tab-num">3</span><span class="tab-label">Execute</span><span class="tab-state"></span>
+      <span class="tab-num">3</span><span class="tab-label">Fly</span><span class="tab-state"></span>
     </button>
     <button class="tab locked" data-tab="push" data-step="4">
-      <span class="tab-num">4</span><span class="tab-label">Push</span><span class="tab-state"></span>
+      <span class="tab-num">4</span><span class="tab-label">Land</span><span class="tab-state"></span>
     </button>
   </nav>
 
@@ -70,8 +70,8 @@
         <div class="loader-text">Parsing BRD...</div>
       </div>
       <div class="panel-body">
-        <h2>Connect to Zoho CRM &amp; pick modules</h2>
-        <p class="hint">Provide self-client OAuth credentials to load the live module list from your org. Without credentials we use a built-in default list. Leave for later? You can still pick from defaults.</p>
+        <h2>Brief your pilot ✈️</h2>
+        <p class="hint">Connect your CRM, drop the BRD, pick the modules under test. We'll auto-suggest the right ones based on what the BRD actually talks about.</p>
 
         <details class="creds-panel">
           <summary>Zoho CRM credentials <span class="muted">(India DC defaults shown)</span></summary>
@@ -140,7 +140,7 @@
       </div>
       <div class="panel-body">
         <div class="panel-header">
-          <h2>Generated UAT cases</h2>
+          <h2>Your flight plan 🛫</h2>
           <p class="muted" id="cases-meta"></p>
         </div>
         <div id="cases"></div>
@@ -160,8 +160,8 @@
         <div class="loader-text" id="execute-loader-text">Executing test cases in Zoho CRM...</div>
       </div>
       <div class="panel-body">
-        <h2>Execute against Zoho CRM</h2>
-        <p class="hint">Using the credentials you entered on the <strong>Input</strong> tab. Leave them blank there to simulate execution without hitting a real org.</p>
+        <h2>Cleared for takeoff 🚀</h2>
+        <p class="hint">Cases are about to run live against your CRM. We'll reuse the credentials from the Brief tab — leave them blank there for a simulated dry run.</p>
         <p id="exec-creds-status" class="status"></p>
 
         <div id="exec-summary" class="exec-summary"></div>
@@ -183,8 +183,8 @@
         <div class="loader-text" id="push-loader-text">Pushing to Zoho Projects...</div>
       </div>
       <div class="panel-body">
-        <h2>Push results to Zoho Projects</h2>
-        <p class="hint">A task is created for every executed case. Failed cases additionally create a Bug linked to the parent task. Portal and project are configured server-side in <code>project-defaults.properties</code>.</p>
+        <h2>Touchdown 🛬</h2>
+        <p class="hint">Every case becomes a Projects task. Anything that crashed becomes a Bug, linked back to its task. Portal &amp; project are baked into the server config — or grab the CSV and import manually.</p>
         <div class="grid-2" hidden>
           <div>
             <label for="portal_id">Portal ID</label>

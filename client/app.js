@@ -108,6 +108,52 @@
     });
   }
 
+  // ---- Count-up animation on numeric content of an element ----
+  function animateCountUp(el, to, duration = 800) {
+    if (!el) return;
+    const from = parseInt(el.dataset.lastCount || "0", 10) || 0;
+    el.dataset.lastCount = String(to);
+    if (from === to) { el.textContent = String(to); return; }
+    const t0 = performance.now();
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / duration);
+      const ease = 1 - Math.pow(1 - p, 3);
+      const val = Math.round(from + (to - from) * ease);
+      el.textContent = String(val);
+      if (p < 1) requestAnimationFrame(step);
+      else {
+        el.textContent = String(to);
+        el.classList.remove("count-flash");
+        void el.offsetWidth;
+        el.classList.add("count-flash");
+      }
+    };
+    requestAnimationFrame(step);
+  }
+
+  // ---- Confetti burst for all-pass celebration ----
+  function celebrateAllPass() {
+    const colors = ["#2e6ee8", "#6366f1", "#16a34a", "#f59e0b", "#a855f7"];
+    const host = document.createElement("div");
+    host.className = "confetti-host";
+    document.body.appendChild(host);
+    const N = 80;
+    for (let i = 0; i < N; i++) {
+      const p = document.createElement("span");
+      p.className = "confetti-piece";
+      const startX = Math.random() * 100;
+      const driftX = (Math.random() - 0.5) * 200;
+      p.style.left = startX + "vw";
+      p.style.setProperty("--cx", driftX + "px");
+      p.style.background = colors[Math.floor(Math.random() * colors.length)];
+      p.style.transform = `rotate(${Math.random() * 360}deg)`;
+      p.style.animationDelay = Math.random() * 400 + "ms";
+      p.style.animationDuration = 1400 + Math.random() * 800 + "ms";
+      host.appendChild(p);
+    }
+    setTimeout(() => host.remove(), 3000);
+  }
+
   // ---- Tab management ----
 
   function getTabBtn(name) {
@@ -468,9 +514,11 @@
       const breakdown = data.counts
         ? Object.entries(data.counts).map(([m, n]) => `${m}: ${n}`).join("  •  ")
         : "";
-      els.casesMeta.textContent =
-        `${state.cases.length} case(s) generated via ${data.provider}` +
-        (breakdown ? `  •  ${breakdown}` : "");
+      els.casesMeta.innerHTML =
+        `<span class="cases-count" id="cases-count">0</span>` +
+        ` case(s) generated via ${escapeHtml(data.provider)}` +
+        (breakdown ? `  •  ${escapeHtml(breakdown)}` : "");
+      animateCountUp(document.getElementById("cases-count"), state.cases.length);
       renderCasesList(els.cases, { showExec: false, showPush: false });
 
       const have = state.cases.length > 0;
@@ -693,8 +741,11 @@
       els.toPush.disabled = false;
       markStepDone("execute");
       setStatus("execute",
-        data.failed ? "Some failures — review the trace, then move to Push."
-                    : "All cases passed. Move to Push.", kind);
+        data.failed ? "Some cracks — review the trace, then proceed to Land."
+                    : "Flawless flight. Cleared to Land.", kind);
+      if (!data.failed && data.passed > 0) {
+        celebrateAllPass();
+      }
     } catch (e) {
       setStatus("execute", "Error: " + e.message, "err");
     } finally {

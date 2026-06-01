@@ -184,6 +184,20 @@ header h1 {
   letter-spacing: -0.01em;
 }
 
+header h1 .brand-accent {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-size: 200% auto;
+  animation: brandShine 6s linear infinite;
+}
+
+@keyframes brandShine {
+  0%   { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
 header .sub {
   margin: 2px 0 0;
   color: var(--text-muted);
@@ -243,6 +257,23 @@ header .live-pill::before {
   position: relative;
   transition: color var(--t-base) var(--ease), border-color var(--t-base) var(--ease);
   font-family: inherit;
+}
+
+/* Connector line between tabs — light when locked, accent once done. */
+.tab + .tab::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 12px;
+  height: 2px;
+  background: var(--border);
+  transform: translateY(-50%);
+  transition: background var(--t-base) var(--ease);
+}
+.tab.done + .tab::before,
+.tab.done + .tab.active::before {
+  background: var(--ok);
 }
 
 .tab:hover:not(.locked):not(.active) {
@@ -667,21 +698,35 @@ button:disabled {
 }
 
 button.primary {
-  background: var(--accent);
+  background: var(--accent-gradient);
   border-color: var(--accent);
   color: white;
   box-shadow: var(--shadow-accent);
+  position: relative;
+  overflow: hidden;
+}
+
+button.primary::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transition: left 0.55s var(--ease);
+}
+
+button.primary:hover:not(:disabled)::before {
+  left: 100%;
 }
 
 button.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(58, 123, 248, 0.28);
+  box-shadow: 0 6px 16px rgba(46, 110, 232, 0.28);
 }
 
 button.primary:active:not(:disabled) {
-  background: var(--accent-active);
   transform: translateY(0) scale(0.98);
 }
 
@@ -775,8 +820,9 @@ button.ghost:hover:not(:disabled) {
 }
 
 .case:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+  border-color: var(--accent-line);
+  box-shadow: 0 8px 24px -8px rgba(46, 110, 232, 0.18), var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .case:nth-child(1) { animation-delay: 0ms; }
@@ -1159,6 +1205,41 @@ footer code {
 @keyframes dragPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(58, 123, 248, 0.18); }
   50%      { box-shadow: 0 0 0 8px rgba(58, 123, 248, 0); }
+}
+
+/* ---- Confetti (all-pass celebration) ---- */
+.confetti-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -10px;
+  width: 10px;
+  height: 14px;
+  opacity: 0;
+  animation: confettiFall 1600ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  transform-origin: center;
+}
+
+@keyframes confettiFall {
+  0%   { opacity: 0; transform: translate3d(0, -20px, 0) rotate(0deg); }
+  10%  { opacity: 1; }
+  100% { opacity: 0; transform: translate3d(var(--cx, 0), 100vh, 0) rotate(720deg); }
+}
+
+/* ---- Count-up flash on hero numbers ---- */
+.count-flash {
+  animation: countFlash 600ms var(--ease-out);
+}
+
+@keyframes countFlash {
+  0%   { color: var(--accent); transform: scale(1.08); }
+  100% { color: inherit; transform: scale(1); }
 }
 
 /* ---- Reduce motion respect ---- */
