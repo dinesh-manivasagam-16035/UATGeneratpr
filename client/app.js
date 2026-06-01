@@ -92,6 +92,22 @@
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   }
 
+  // ---- Theme toggle ----
+  function getTheme() {
+    try { return localStorage.getItem("testpilot_theme") || "light"; }
+    catch (e) { return "light"; }
+  }
+  function setTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("testpilot_theme", theme); } catch (e) {}
+  }
+  const themeToggleBtn = document.getElementById("theme-toggle");
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+      setTheme(getTheme() === "dark" ? "light" : "dark");
+    });
+  }
+
   // ---- Tab management ----
 
   function getTabBtn(name) {
