@@ -21,6 +21,7 @@
     moduleSelected:     document.getElementById("module-selected"),
     moduleSelectedList: document.getElementById("module-selected-list"),
     modulePickerEmpty:  document.getElementById("module-picker-empty"),
+    analysisSummary:    document.getElementById("analysis-summary"),
     loadModulesBtn:     document.getElementById("load-modules-btn"),
     modulesStatus:      document.getElementById("modules-status"),
     crmAccountsBase:    document.getElementById("crm_accounts_base"),
@@ -66,6 +67,8 @@
     payload: null,
     modulesAvailable: [],
     modulesSelected: [],
+    suggestedModules: [],
+    analysisText: "",
     executed: false,
     pushed: false,
     stepDone: { input: false, cases: false, execute: false, push: false },
@@ -241,8 +244,18 @@
       setStatus("input",
         state.modulesSelected.length
           ? "BRD parsed. Click Generate UAT cases."
-          : "BRD parsed. Now pick up to 3 target modules.",
+          : "BRD parsed. Analyzing for module suggestions...",
         state.modulesSelected.length ? "ok" : "");
+      // Run BRD analysis to auto-suggest modules. Non-blocking.
+      analyzeBrd().then(() => {
+        if (!state.modulesSelected.length) {
+          setStatus("input", "BRD parsed. Now pick up to 3 target modules.", "");
+        } else if (state.suggestedModules.length) {
+          setStatus("input",
+            `BRD parsed. ${state.suggestedModules.length} module(s) suggested — review and click Generate.`,
+            "ok");
+        }
+      });
     } catch (err) {
       state.brd = "";
       state.fileName = "";
@@ -491,15 +504,29 @@
     els.moduleChips.innerHTML = "";
     const list = state.modulesAvailable.length ? state.modulesAvailable : DEFAULT_MODULES;
     const max = MAX_MODULES;
-    list.forEach((m) => {
+    // Sort: suggested first (preserving suggestion order), then alphabetical.
+    const suggestedSet = new Set(state.suggestedModules);
+    const sortedList = list.slice().sort((a, b) => {
+      const aSugg = state.suggestedModules.indexOf(a.api_name);
+      const bSugg = state.suggestedModules.indexOf(b.api_name);
+      const aIn = aSugg >= 0, bIn = bSugg >= 0;
+      if (aIn && bIn) return aSugg - bSugg;
+      if (aIn) return -1;
+      if (bIn) return 1;
+      return (a.plural_label || a.api_name).localeCompare(b.plural_label || b.api_name);
+    });
+    sortedList.forEach((m) => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "module-chip";
       const isSelected = state.modulesSelected.includes(m.api_name);
+      const isSuggested = suggestedSet.has(m.api_name);
       if (isSelected) btn.classList.add("selected");
+      if (isSuggested && !isSelected) btn.classList.add("suggested");
       if (!isSelected && state.modulesSelected.length >= max) btn.classList.add("disabled");
       btn.textContent = m.plural_label || m.api_name;
       btn.dataset.apiName = m.api_name;
+      btn.title = isSuggested ? "Suggested based on BRD content" : "";
       btn.addEventListener("click", () => toggleModule(m.api_name));
       els.moduleChips.appendChild(btn);
     });
@@ -535,6 +562,45 @@
     els.generate.disabled = !(state.brd && state.modulesSelected.length);
   }
 
+  function renderAnalysisSummary() {
+    if (!els.analysisSummary) return;
+    if (!state.analysisText) {
+      els.analysisSummary.hidden = true;
+      els.analysisSummary.textContent = "";
+      return;
+    }
+    els.analysisSummary.hidden = false;
+    els.analysisSummary.textContent = state.analysisText;
+  }
+
+  async function analyzeBrd() {
+    if (!state.brd) return;
+    const list = state.modulesAvailable.length ? state.modulesAvailable : DEFAULT_MODULES;
+    if (!list.length) return;
+    try {
+      const res = await fetch(FUNCTION_BASE + "/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brd: state.brd, modules: list }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Analyze failed");
+      state.suggestedModules = Array.isArray(data.suggested_modules) ? data.suggested_modules : [];
+      state.analysisText = data.analysis || "";
+      // Preselect suggested modules if user hasn't picked anything yet.
+      if (!state.modulesSelected.length && state.suggestedModules.length) {
+        state.modulesSelected = state.suggestedModules.slice(0, MAX_MODULES);
+      }
+      renderAnalysisSummary();
+      renderModuleChips();
+      refreshGenerateAvailability();
+      if (state.brd && state.modulesSelected.length) markStepDone("input");
+    } catch (e) {
+      // Non-fatal: just log and continue. User can still pick manually.
+      console.warn("BRD analyze failed:", e.message);
+    }
+  }
+
   async function loadModules() {
     if (els.modulesStatus) {
       els.modulesStatus.textContent = "Loading modules...";
@@ -559,6 +625,8 @@
         els.modulesStatus.textContent = `${state.modulesAvailable.length} module(s) loaded (${live ? "live from CRM" : "default list"}).`;
         els.modulesStatus.className = "status " + (live ? "ok" : "muted");
       }
+      // Re-analyze with the new (possibly larger / custom-module) list.
+      if (state.brd) analyzeBrd();
     } catch (e) {
       if (els.modulesStatus) {
         els.modulesStatus.textContent = "Error: " + e.message;
@@ -807,9 +875,14 @@
     state.fileName = "";
     state.cases = [];
     state.payload = null;
+    state.modulesSelected = [];
+    state.suggestedModules = [];
+    state.analysisText = "";
     state.executed = false;
     state.pushed = false;
     state.stepDone = { input: false, cases: false, execute: false, push: false };
+    renderAnalysisSummary();
+    renderModuleChips();
 
     els.brdFile.value = "";
     els.fileMeta.textContent = "";

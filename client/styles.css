@@ -352,10 +352,34 @@ textarea {
 
 .module-chip.selected::after { content: "✓"; font-weight: 700; }
 
+.module-chip.suggested {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+  position: relative;
+}
+.module-chip.suggested::before {
+  content: "★";
+  font-size: 12px;
+  margin-right: 2px;
+}
+
 .module-chip.disabled {
   opacity: 0.4;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.analysis-summary {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  animation: slideUp var(--t-base) var(--ease-out);
 }
 
 .module-selected {
