@@ -52,6 +52,7 @@
     pushResults: document.getElementById("push-results"),
     backToExecute: document.getElementById("back-to-execute"),
     push:      document.getElementById("push-btn"),
+    downloadCsv: document.getElementById("download-csv-btn"),
     restart:   document.getElementById("restart-btn"),
     statusPush: document.getElementById("status-push"),
     pushLoaderText: document.getElementById("push-loader-text"),
@@ -672,12 +673,133 @@
   function downloadJson() {
     const blob = new Blob([JSON.stringify({ cases: state.cases, projects_payload: state.payload }, null, 2)],
                          { type: "application/json" });
+    triggerDownload(blob, "uat-cases.json");
+  }
+
+  function triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "uat-cases.json";
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // Escapes one CSV cell per RFC 4180. Always quote so embedded commas /
+  // newlines / quotes round-trip cleanly into Excel and Projects' import UI.
+  function csvCell(v) {
+    if (v == null) return '""';
+    const s = String(v).replace(/"/g, '""');
+    return '"' + s + '"';
+  }
+
+  function priorityForProjects(p) {
+    switch ((p || "P1").toUpperCase()) {
+      case "P0": return "High";
+      case "P2": return "Low";
+      default:   return "Medium";
+    }
+  }
+
+  function statusForProjects(tc) {
+    const s = tc.execution_result && tc.execution_result.status;
+    if (s === "pass") return "Closed";
+    if (s === "fail") return "Open";
+    return "Open";
+  }
+
+  // Builds a Projects-import-friendly CSV. Columns match what Zoho Projects'
+  // "Import → Tasks" UI expects. Failures are listed separately as Bug rows
+  // in a second CSV (since Projects uses different importers for the two).
+  function buildTasksCsv(cases) {
+    const header = [
+      "Task Name", "Description", "Priority", "Status", "Tags",
+      "Module", "Execution Status",
+    ];
+    const rows = [header.map(csvCell).join(",")];
+    cases.forEach((tc) => {
+      const desc = [
+        tc.gherkin ? "Gherkin:\n" + tc.gherkin : "",
+        tc.steps && tc.steps.length
+          ? "Steps:\n" + tc.steps.map((s, i) => (i + 1) + ". " + (s.action || "") +
+              " -> " + (s.expected || "")).join("\n")
+          : "",
+        tc.acceptance ? "Acceptance:\n" + tc.acceptance : "",
+      ].filter(Boolean).join("\n\n");
+      const row = [
+        tc.title || "Untitled case",
+        desc,
+        priorityForProjects(tc.priority),
+        statusForProjects(tc),
+        (tc.tags || []).concat(["uat"]).join(";"),
+        tc.module || "",
+        (tc.execution_result && tc.execution_result.status) || "",
+      ];
+      rows.push(row.map(csvCell).join(","));
+    });
+    return rows.join("\r\n");
+  }
+
+  function buildBugsCsv(cases) {
+    const failed = cases.filter((tc) =>
+      tc.execution_result && tc.execution_result.status === "fail");
+    if (!failed.length) return null;
+    const header = [
+      "Bug Title", "Description", "Severity", "Classification",
+      "Steps to Reproduce", "Module",
+    ];
+    const rows = [header.map(csvCell).join(",")];
+    failed.forEach((tc) => {
+      const sev = priorityForProjects(tc.priority) === "High" ? "Show Stopper"
+                : priorityForProjects(tc.priority) === "Low"  ? "Minor"
+                : "Major";
+      const repro = (tc.steps || [])
+        .map((s, i) => (i + 1) + ". " + (s.action || "") + " -> " + (s.expected || ""))
+        .join("\n");
+      const firstFail = tc.execution_result && tc.execution_result.first_failure;
+      const desc = [
+        firstFail ? "First failure: " + firstFail : "",
+        tc.gherkin ? "Scenario:\n" + tc.gherkin : "",
+        tc.acceptance ? "Acceptance:\n" + tc.acceptance : "",
+      ].filter(Boolean).join("\n\n");
+      const row = [
+        "[UAT FAIL] " + (tc.title || "Untitled case"),
+        desc,
+        sev,
+        "Bug",
+        repro,
+        tc.module || "",
+      ];
+      rows.push(row.map(csvCell).join(","));
+    });
+    return rows.join("\r\n");
+  }
+
+  function downloadCsv() {
+    if (!state.cases.length) {
+      setStatus("push", "Generate cases first.", "warn");
+      return;
+    }
+    const tasksCsv = buildTasksCsv(state.cases);
+    triggerDownload(
+      new Blob(["﻿" + tasksCsv], { type: "text/csv;charset=utf-8" }),
+      "uat-tasks-projects-import.csv"
+    );
+    const bugsCsv = buildBugsCsv(state.cases);
+    if (bugsCsv) {
+      // Small delay so both downloads register in browser
+      setTimeout(() => {
+        triggerDownload(
+          new Blob(["﻿" + bugsCsv], { type: "text/csv;charset=utf-8" }),
+          "uat-bugs-projects-import.csv"
+        );
+      }, 250);
+    }
+    const failedCount = state.cases.filter((tc) =>
+      tc.execution_result && tc.execution_result.status === "fail").length;
+    setStatus("push",
+      `Downloaded ${state.cases.length} task(s)${failedCount ? ` and ${failedCount} bug(s)` : ""}.`,
+      "ok");
   }
 
   function restart() {
@@ -747,6 +869,7 @@
 
   els.push.addEventListener("click", pushToProjects);
   els.backToExecute.addEventListener("click", () => showTab("execute"));
+  if (els.downloadCsv) els.downloadCsv.addEventListener("click", downloadCsv);
   els.restart.addEventListener("click", restart);
 
   // Module picker wiring
