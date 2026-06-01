@@ -47,6 +47,7 @@
     statusExecute: document.getElementById("status-execute"),
     execLoaderText: document.getElementById("execute-loader-text"),
 
+    projectName: document.getElementById("project_name"),
     pushSummary: document.getElementById("push-summary"),
     pushResults: document.getElementById("push-results"),
     backToExecute: document.getElementById("back-to-execute"),
@@ -299,6 +300,13 @@
       state.fileName = file.name;
       els.fileMeta.textContent =
         `${file.name} — ${kind.toUpperCase()}, ${text.length.toLocaleString()} chars`;
+      // Suggest a Projects project name from the filename so the user
+      // doesn't have to type it. They can still override on the Land tab.
+      if (els.projectName && !els.projectName.value.trim()) {
+        const base = file.name.replace(/\.[^.]+$/, "").replace(/[_\-]+/g, " ").trim();
+        const today = new Date().toISOString().slice(0, 10);
+        els.projectName.value = `UAT — ${base} — ${today}`;
+      }
       refreshGenerateAvailability();
       if (state.modulesSelected.length) markStepDone("input");
       setStatus("input",
@@ -764,11 +772,15 @@
     els.pushResults.innerHTML = "";
 
     try {
-      // Portal and project always come from project-defaults.properties on the server.
+      // The server creates (or reuses) a Projects project of this name and
+      // lands the tasks inside it. Portal stays from project-defaults.properties.
+      const payload = { cases: state.cases };
+      const projectName = els.projectName && els.projectName.value.trim();
+      if (projectName) payload.project_name = projectName;
       const res = await fetch(FUNCTION_BASE + "/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cases: state.cases }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Push failed");
@@ -783,8 +795,11 @@
 
       const mock = data.mock ? " (mock — set ZOHO_REFRESH_TOKEN for live push)" : "";
       const kind = data.tasks_failed || data.bugs_failed ? "warn" : "ok";
+      const inProject = data.project_name
+        ? ` into project "${data.project_name}"`
+        : "";
       els.pushSummary.textContent =
-        `Push complete: ${data.tasks_created} task(s), ${data.bugs_created} bug(s) created${mock}.`;
+        `Push complete: ${data.tasks_created} task(s), ${data.bugs_created} bug(s) created${inProject}${mock}.`;
       els.pushSummary.className = "exec-summary " + kind;
 
       markStepDone("push");

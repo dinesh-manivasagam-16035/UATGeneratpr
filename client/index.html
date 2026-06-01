@@ -184,7 +184,11 @@
       </div>
       <div class="panel-body">
         <h2>Touchdown 🛬</h2>
-        <p class="hint">Every case becomes a Projects task. Anything that crashed becomes a Bug, linked back to its task. Portal &amp; project are baked into the server config — or grab the CSV and import manually.</p>
+        <p class="hint">A fresh Projects project is created (or reused) for this BRD; tasks land inside it, failures become linked Bugs. Or grab the CSV and import manually.</p>
+
+        <label for="project_name">Projects project name</label>
+        <input id="project_name" type="text" placeholder="UAT — your-brd-name" />
+        <p class="hint" style="margin-top:4px;">If a project with this name already exists in your portal, we'll reuse it — otherwise we'll create it.</p>
 
         <div id="push-summary" class="exec-summary"></div>
         <div id="push-results"></div>

@@ -77,6 +77,26 @@ public class PushServlet extends HttpServlet {
                 }
             }
 
+            // If the request supplies a project_name, find-or-create a
+            // dedicated project under the portal and land tasks there
+            // instead of the static configured project_id.
+            String projectName = body.path("project_name").asText("").trim();
+            String createdProjectId = null;
+            String createdProjectName = null;
+            if (!projectName.isEmpty() && projects != null) {
+                try {
+                    createdProjectId = projects.findOrCreateProject(portalId, projectName);
+                    createdProjectName = projectName;
+                    projectId = createdProjectId;
+                } catch (Exception ex) {
+                    LOG.log(Level.WARNING, "find/create project failed", ex);
+                    writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
+                            "Could not create or find project '" + projectName
+                                    + "': " + ex.getMessage());
+                    return;
+                }
+            }
+
             ArrayNode results = MAPPER.createArrayNode();
             int tasksCreated = 0, tasksFailed = 0, bugsCreated = 0, bugsFailed = 0;
 
@@ -137,6 +157,10 @@ public class PushServlet extends HttpServlet {
             out.put("created", tasksCreated);
             out.put("failed", tasksFailed);
             out.put("mock", projects == null);
+            if (createdProjectId != null) {
+                out.put("project_id", createdProjectId);
+                out.put("project_name", createdProjectName);
+            }
             out.set("results", results);
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.getWriter().write(MAPPER.writeValueAsString(out));

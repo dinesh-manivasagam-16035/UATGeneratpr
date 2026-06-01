@@ -143,6 +143,85 @@ public class ProjectsClient {
     }
 
     /**
+     * Looks up a project by name within a portal; creates one if missing.
+     * Used when the caller wants tasks isolated under a per-BRD project
+     * instead of dumping everything into a single static project.
+     *
+     * Match is case-insensitive on the project's {@code name} field. If the
+     * portal has many projects this paginates through them in pages of 200.
+     */
+    public synchronized String findOrCreateProject(String portalId, String projectName) throws Exception {
+        if (projectName == null || projectName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Project name is required.");
+        }
+        final String wanted = projectName.trim();
+        final String wantedLower = wanted.toLowerCase();
+
+        int index = 1;
+        final int range = 200;
+        while (true) {
+            URI listUrl = new URIBuilder(apiBase + "/restapi/portal/" + portalId + "/projects/")
+                    .addParameter("index", String.valueOf(index))
+                    .addParameter("range", String.valueOf(range))
+                    .build();
+            try (CloseableHttpClient http = HttpClients.createDefault()) {
+                HttpGet get = new HttpGet(listUrl);
+                attachAuth(get);
+                MatchResult mr = http.execute(get, response -> {
+                    String body = EntityUtils.toString(response.getEntity());
+                    if (response.getCode() >= 400) {
+                        throw new RuntimeException("Projects list failed "
+                                + response.getCode() + ": " + body);
+                    }
+                    JsonNode root = MAPPER.readTree(body);
+                    JsonNode projects = root.path("projects");
+                    if (!projects.isArray()) return new MatchResult(null, 0);
+                    for (JsonNode p : projects) {
+                        if (wantedLower.equals(p.path("name").asText("").toLowerCase())) {
+                            String id = p.path("id_string").asText(p.path("id").asText(""));
+                            if (!id.isEmpty()) return new MatchResult(id, projects.size());
+                        }
+                    }
+                    return new MatchResult(null, projects.size());
+                });
+                if (mr.id != null) return mr.id;
+                if (mr.count < range) break;       // last page, no match
+                index += range;
+            }
+        }
+
+        // Not found — create
+        URI createUrl = new URIBuilder(apiBase + "/restapi/portal/" + portalId + "/projects/").build();
+        try (CloseableHttpClient http = HttpClients.createDefault()) {
+            HttpPost post = new HttpPost(createUrl);
+            attachAuth(post);
+            List<NameValuePair> form = new ArrayList<>();
+            form.add(new BasicNameValuePair("name", wanted));
+            post.setEntity(new UrlEncodedFormEntity(form, StandardCharsets.UTF_8));
+            return http.execute(post, response -> {
+                String body = EntityUtils.toString(response.getEntity());
+                if (response.getCode() >= 400) {
+                    throw new RuntimeException("Projects create failed "
+                            + response.getCode() + ": " + body);
+                }
+                JsonNode root = MAPPER.readTree(body);
+                JsonNode projects = root.path("projects");
+                if (projects.isArray() && projects.size() > 0) {
+                    return projects.get(0).path("id_string")
+                            .asText(projects.get(0).path("id").asText());
+                }
+                throw new RuntimeException("Projects create returned no project id: " + body);
+            });
+        }
+    }
+
+    private static final class MatchResult {
+        final String id;
+        final int count;
+        MatchResult(String id, int count) { this.id = id; this.count = count; }
+    }
+
+    /**
      * Returns a numeric portal id_string. If {@code portalOrSlug} is already
      * all-digits, it's returned as-is. Otherwise we hit /restapi/portals/ and
      * match the value against id_string / name / url. Results are cached for
