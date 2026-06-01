@@ -47,8 +47,6 @@
     statusExecute: document.getElementById("status-execute"),
     execLoaderText: document.getElementById("execute-loader-text"),
 
-    portal:    document.getElementById("portal_id"),
-    project:   document.getElementById("project_id"),
     pushSummary: document.getElementById("push-summary"),
     pushResults: document.getElementById("push-results"),
     backToExecute: document.getElementById("back-to-execute"),
@@ -766,17 +764,11 @@
     els.pushResults.innerHTML = "";
 
     try {
-      // Portal and project come from project-defaults.properties on the server.
-      // We can optionally override them from the UI fields (hidden by default).
-      const portal_id = els.portal && els.portal.value.trim();
-      const project_id = els.project && els.project.value.trim();
-      const payload = { cases: state.cases };
-      if (portal_id) payload.portal_id = portal_id;
-      if (project_id) payload.project_id = project_id;
+      // Portal and project always come from project-defaults.properties on the server.
       const res = await fetch(FUNCTION_BASE + "/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ cases: state.cases }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Push failed");
