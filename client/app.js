@@ -738,6 +738,7 @@
 
   function functionRowHtml(fn, idx) {
     const r = inspectState.results[fn.name];
+    const executable = fn.executable !== false;     // default true if missing
     const statusPill = !r
       ? `<span class="fn-pill idle">Not run</span>`
       : r.status === "ok"
@@ -748,10 +749,14 @@
       ? `<p class="fn-desc">${escapeHtml(fn.description)}</p>`
       : "";
     const meta = [
+      fn.type ? `<span class="fn-type-tag">${escapeHtml(fn.type)}</span>` : "",
       fn.language ? `<code>${escapeHtml(fn.language)}</code>` : "",
       fn.category ? escapeHtml(fn.category) : "",
       fn.modified_time ? `modified ${escapeHtml(fn.modified_time)}` : "",
     ].filter(Boolean).join(" · ");
+    const runButton = executable
+      ? `<button class="primary fn-run" data-idx="${idx}">Run</button>`
+      : `<button class="primary" disabled title="Only standalone (org-type) functions can be executed via API">Run</button>`;
     return `
       <div class="fn-row" data-idx="${idx}">
         <div class="fn-head">
@@ -761,7 +766,7 @@
           </div>
           <div class="fn-controls">
             ${statusPill}
-            <button class="primary fn-run" data-idx="${idx}">Run</button>
+            ${runButton}
           </div>
         </div>
         ${meta ? `<div class="fn-meta">${meta}</div>` : ""}
@@ -834,12 +839,16 @@
   async function runAllFunctions() {
     if (!inspectState.functions.length) return;
     els.runAllFunctionsBtn.disabled = true;
-    setFnStatus(`Running ${inspectState.functions.length} function(s) sequentially...`);
-    for (let i = 0; i < inspectState.functions.length; i++) {
+    // Only execute org-type (standalone) functions; others can't be invoked via API.
+    const runnable = inspectState.functions
+      .map((f, i) => ({ f, i }))
+      .filter(({ f }) => f.executable !== false);
+    setFnStatus(`Running ${runnable.length} executable function(s) sequentially...`);
+    for (const { i } of runnable) {
       await runOneFunction(i);
     }
-    const passed = Object.values(inspectState.results).filter((r) => r.status === "ok").length;
-    const failed = inspectState.functions.length - passed;
+    const passed = runnable.filter(({ f }) => (inspectState.results[f.name] || {}).status === "ok").length;
+    const failed = runnable.length - passed;
     setFnStatus(`Done. ${passed} passed, ${failed} failed.`, failed ? "warn" : "ok");
     els.runAllFunctionsBtn.disabled = false;
   }

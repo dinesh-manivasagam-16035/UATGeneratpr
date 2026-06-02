@@ -51,23 +51,35 @@ public class FunctionsListServlet extends HttpServlet {
                 return;
             }
 
-            CrmClient.Response r = client.call("GET", "/crm/v3/settings/functions", null);
-            if (r.statusCode >= 400 || r.json == null) {
-                writeError(resp,
-                        r.statusCode == 0 ? HttpServletResponse.SC_BAD_GATEWAY : r.statusCode,
-                        "CRM functions fetch failed: "
-                                + (r.rawBody == null ? "(no body)" : r.rawBody));
-                return;
-            }
-
+            // /crm/v3/settings/functions requires a `type` query param.
+            // We pull standalone functions (org) which are the only ones the
+            // /actions/execute endpoint can invoke, and also button + workflow
+            // for visibility (those are shown but marked non-executable).
+            String[] types = { "org", "button", "workflow" };
             ArrayNode out = MAPPER.createArrayNode();
-            JsonNode functions = r.json.path("functions");
-            if (functions.isArray()) {
+            String firstError = null;
+            int firstErrorStatus = 0;
+
+            for (String t : types) {
+                CrmClient.Response r = client.call("GET",
+                        "/crm/v3/settings/functions?type=" + t, null);
+                if (r.statusCode >= 400 || r.json == null) {
+                    // Skip 4xx/5xx for non-essential types; record the first.
+                    if (firstError == null && r.statusCode != 0) {
+                        firstErrorStatus = r.statusCode;
+                        firstError = r.rawBody == null ? "(no body)" : r.rawBody;
+                    }
+                    continue;
+                }
+                JsonNode functions = r.json.path("functions");
+                if (!functions.isArray()) continue;
                 for (JsonNode f : functions) {
                     ObjectNode o = MAPPER.createObjectNode();
                     o.put("name", f.path("function_name").asText(f.path("name").asText("")));
                     o.put("display_name", f.path("display_name").asText(""));
                     o.put("language", f.path("language").asText("deluge"));
+                    o.put("type", t);
+                    o.put("executable", "org".equals(t));
                     o.put("category", f.path("category").asText(""));
                     o.put("description", f.path("description").asText(""));
                     o.put("modified_time", f.path("modified_time").asText(""));
@@ -83,6 +95,14 @@ public class FunctionsListServlet extends HttpServlet {
                     }
                     out.add(o);
                 }
+            }
+
+            // If no functions came back AT ALL and we recorded an error,
+            // surface it so the caller knows what went wrong (e.g. scope).
+            if (out.size() == 0 && firstError != null) {
+                writeError(resp, firstErrorStatus,
+                        "CRM functions fetch failed: " + firstError);
+                return;
             }
 
             ObjectNode body2 = MAPPER.createObjectNode();

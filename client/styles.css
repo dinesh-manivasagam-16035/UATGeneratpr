@@ -1293,6 +1293,17 @@ footer code {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
 }
+.fn-type-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
 .fn-desc {
   margin: 8px 0 0;
