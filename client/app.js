@@ -300,27 +300,27 @@
       state.fileName = file.name;
       els.fileMeta.textContent =
         `${file.name} — ${kind.toUpperCase()}, ${text.length.toLocaleString()} chars`;
-      // Suggest a Projects project name from the filename so the user
+      // Suggest a Projects project name from the spec filename so the user
       // doesn't have to type it. They can still override on the Land tab.
       if (els.projectName && !els.projectName.value.trim()) {
         const base = file.name.replace(/\.[^.]+$/, "").replace(/[_\-]+/g, " ").trim();
         const today = new Date().toISOString().slice(0, 10);
-        els.projectName.value = `UAT — ${base} — ${today}`;
+        els.projectName.value = `Test Plan — ${base} — ${today}`;
       }
       refreshGenerateAvailability();
       if (state.modulesSelected.length) markStepDone("input");
       setStatus("input",
         state.modulesSelected.length
-          ? "BRD parsed. Click Generate UAT cases."
-          : "BRD parsed. Analyzing for module suggestions...",
+          ? "Spec parsed. Click Generate UAT cases."
+          : "Spec parsed. Analyzing for module suggestions...",
         state.modulesSelected.length ? "ok" : "");
-      // Run BRD analysis to auto-suggest modules. Non-blocking.
+      // Run spec analysis to auto-suggest modules. Non-blocking.
       analyzeBrd().then(() => {
         if (!state.modulesSelected.length) {
-          setStatus("input", "BRD parsed. Now pick up to 3 target modules.", "");
+          setStatus("input", "Spec parsed. Now pick up to 3 target modules.", "");
         } else if (state.suggestedModules.length) {
           setStatus("input",
-            `BRD parsed. ${state.suggestedModules.length} module(s) suggested — review and click Generate.`,
+            `Spec parsed. ${state.suggestedModules.length} module(s) suggested — review and click Generate.`,
             "ok");
         }
       });
@@ -483,7 +483,7 @@
   // ---- Actions ----
 
   async function generate() {
-    if (!state.brd) { setStatus("input", "Attach a BRD file first.", "warn"); return; }
+    if (!state.brd) { setStatus("input", "Attach a UAT spec file first.", "warn"); return; }
     if (!state.modulesSelected.length) {
       setStatus("input", "Pick at least one target module.", "warn");
       return;
@@ -596,7 +596,7 @@
       if (!isSelected && state.modulesSelected.length >= max) btn.classList.add("disabled");
       btn.textContent = m.plural_label || m.api_name;
       btn.dataset.apiName = m.api_name;
-      btn.title = isSuggested ? "Suggested based on BRD content" : "";
+      btn.title = isSuggested ? "Suggested based on the spec content" : "";
       btn.addEventListener("click", () => toggleModule(m.api_name));
       els.moduleChips.appendChild(btn);
     });
@@ -667,7 +667,7 @@
       if (state.brd && state.modulesSelected.length) markStepDone("input");
     } catch (e) {
       // Non-fatal: just log and continue. User can still pick manually.
-      console.warn("BRD analyze failed:", e.message);
+      console.warn("Spec analyze failed:", e.message);
     }
   }
 

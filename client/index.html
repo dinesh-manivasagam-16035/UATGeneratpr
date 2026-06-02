@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TestPilot — UAT cases from BRD</title>
+  <title>TestPilot — UAT cases from your UAT spec document</title>
   <link rel="preconnect" href="https://rsms.me/" />
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
@@ -29,7 +29,7 @@
       </span>
       <div>
         <h1>Test<span class="brand-accent">Pilot</span></h1>
-        <p class="sub">Your UAT, on autopilot. Drop a BRD &mdash; ship test results.</p>
+        <p class="sub">Your UAT, on autopilot. Drop the dev's UAT spec &mdash; ship test results.</p>
       </div>
     </div>
     <div class="header-actions">
@@ -71,7 +71,7 @@
       </div>
       <div class="panel-body">
         <h2>Brief your pilot ✈️</h2>
-        <p class="hint">Connect your CRM, drop the BRD, pick the modules under test. We'll auto-suggest the right ones based on what the BRD actually talks about.</p>
+        <p class="hint">Connect your CRM, drop the developer's UAT spec document (fields, validation rules, use cases), pick the modules under test. We'll auto-suggest the right ones from what the spec actually covers.</p>
 
         <details class="creds-panel">
           <summary>Zoho CRM credentials <span class="muted">(India DC defaults shown)</span></summary>
@@ -107,7 +107,7 @@
           </div>
         </details>
 
-        <label>Target modules <span class="muted">(pick up to 3 — we auto-suggest based on the BRD)</span></label>
+        <label>Target modules <span class="muted">(pick up to 3 — we auto-suggest from the spec)</span></label>
         <div class="module-picker" id="module-picker">
           <p class="muted" id="module-picker-empty">Click <strong>Load modules from CRM</strong> above, or use the default list:</p>
           <div id="analysis-summary" class="analysis-summary" hidden></div>
@@ -118,7 +118,7 @@
           </div>
         </div>
 
-        <label for="brd-file">Business Requirements Document</label>
+        <label for="brd-file">UAT Specification Document <span class="muted">(from the developer)</span></label>
         <div class="file-drop" id="file-drop">
           <input id="brd-file" type="file" accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
           <p class="file-drop-hint">Drop a <strong>.txt</strong>, <strong>.md</strong>, <strong>.pdf</strong>, or <strong>.docx</strong> here, or click to browse.</p>
@@ -187,7 +187,7 @@
         <p class="hint">A fresh Projects project is created (or reused) for this BRD; tasks land inside it, failures become linked Bugs. Or grab the CSV and import manually.</p>
 
         <label for="project_name">Projects project name</label>
-        <input id="project_name" type="text" placeholder="UAT — your-brd-name" />
+        <input id="project_name" type="text" placeholder="Test Plan — your-feature-name" />
         <p class="hint" style="margin-top:4px;">If a project with this name already exists in your portal, we'll reuse it — otherwise we'll create it.</p>
 
         <div id="push-summary" class="exec-summary"></div>
