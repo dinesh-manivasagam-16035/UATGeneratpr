@@ -59,6 +59,9 @@
     <button class="tab locked" data-tab="push" data-step="4">
       <span class="tab-num">4</span><span class="tab-label">Land</span><span class="tab-state"></span>
     </button>
+    <button class="tab tab-utility" data-tab="inspect" data-step="5" title="Health-check CRM functions">
+      <span class="tab-num">🔧</span><span class="tab-label">Inspect</span><span class="tab-state"></span>
+    </button>
   </nav>
 
   <main>
@@ -200,6 +203,26 @@
           <button id="restart-btn" class="ghost">Start over</button>
         </div>
         <p id="status-push" class="status"></p>
+      </div>
+    </section>
+
+    <!-- Tab 5: Inspect (utility) -->
+    <section class="tab-panel" data-panel="inspect" hidden>
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text" id="inspect-loader-text">Loading CRM functions...</div>
+      </div>
+      <div class="panel-body">
+        <h2>Inspect CRM functions 🔧</h2>
+        <p class="hint">Health-check the standalone functions in your Zoho CRM org. Click <strong>Load functions</strong>, then <strong>Run</strong> on any function to invoke it via the v3 API and see the result or error inline. Uses the CRM credentials from the <strong>Brief</strong> tab.</p>
+
+        <div class="actions" style="border:none;padding:0;margin:8px 0 16px;">
+          <button id="load-functions-btn" class="primary">Load functions from CRM</button>
+          <button id="run-all-functions-btn" class="ghost" disabled>Run all</button>
+          <span id="functions-status" class="status" style="margin:0;"></span>
+        </div>
+
+        <div id="functions-list" class="functions-list"></div>
       </div>
     </section>
 

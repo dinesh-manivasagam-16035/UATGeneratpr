@@ -5,7 +5,7 @@
     ? "http://localhost:9000/uat_generator"
     : APPSAIL_BASE + "/uat_generator";
 
-  const TABS = ["input", "cases", "execute", "push"];
+  const TABS = ["input", "cases", "execute", "push", "inspect"];
 
   const els = {
     tabs: document.querySelectorAll(".tab"),
@@ -49,6 +49,11 @@
 
     projectName: document.getElementById("project_name"),
     pushSummary: document.getElementById("push-summary"),
+
+    loadFunctionsBtn: document.getElementById("load-functions-btn"),
+    runAllFunctionsBtn: document.getElementById("run-all-functions-btn"),
+    functionsStatus: document.getElementById("functions-status"),
+    functionsList:   document.getElementById("functions-list"),
     pushResults: document.getElementById("push-results"),
     backToExecute: document.getElementById("back-to-execute"),
     push:      document.getElementById("push-btn"),
@@ -193,8 +198,11 @@
   function markStepDone(name) {
     state.stepDone[name] = true;
     setTabState(name, { done: true, running: false });
+    // Only auto-unlock the next tab within the main pilot flow (steps 1-4).
+    // The Inspect tab is utility and stays unlocked at boot.
+    if (name === "push") return;
     const next = TABS[TABS.indexOf(name) + 1];
-    if (next) setTabState(next, { locked: false });
+    if (next && next !== "inspect") setTabState(next, { locked: false });
   }
   function showLoader(panelName, text) {
     const panel = getPanel(panelName);
@@ -671,6 +679,171 @@
     }
   }
 
+  // ---- Inspect tab: CRM functions ----
+
+  const inspectState = { functions: [], results: {} };
+
+  async function loadCrmFunctions() {
+    const creds = readCrmCreds();
+    if (!creds.client_id || !creds.client_secret || !creds.refresh_token) {
+      setFnStatus("CRM credentials needed — fill the connection panel on the Brief tab first.", "err");
+      return;
+    }
+    setFnStatus("Loading functions from CRM...");
+    showLoader("inspect", "Loading CRM functions...");
+    els.loadFunctionsBtn.disabled = true;
+    try {
+      const res = await fetch(FUNCTION_BASE + "/functions/list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ crm: creds }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load functions");
+      inspectState.functions = Array.isArray(data.functions) ? data.functions : [];
+      inspectState.results = {};
+      renderFunctionsList();
+      els.runAllFunctionsBtn.disabled = inspectState.functions.length === 0;
+      setFnStatus(
+        inspectState.functions.length
+          ? `${inspectState.functions.length} function(s) loaded.`
+          : "No standalone functions found on this CRM org.",
+        inspectState.functions.length ? "ok" : "warn"
+      );
+    } catch (e) {
+      setFnStatus("Error: " + e.message, "err");
+    } finally {
+      hideLoader("inspect");
+      els.loadFunctionsBtn.disabled = false;
+    }
+  }
+
+  function setFnStatus(msg, kind) {
+    if (!els.functionsStatus) return;
+    els.functionsStatus.textContent = msg || "";
+    els.functionsStatus.className = "status " + (kind || "");
+  }
+
+  function renderFunctionsList() {
+    if (!els.functionsList) return;
+    if (!inspectState.functions.length) {
+      els.functionsList.innerHTML = '<p class="muted">No functions loaded yet.</p>';
+      return;
+    }
+    els.functionsList.innerHTML = inspectState.functions.map((f, i) => functionRowHtml(f, i)).join("");
+    els.functionsList.querySelectorAll(".fn-run").forEach((b) =>
+      b.addEventListener("click", () => runOneFunction(parseInt(b.dataset.idx, 10)))
+    );
+  }
+
+  function functionRowHtml(fn, idx) {
+    const r = inspectState.results[fn.name];
+    const statusPill = !r
+      ? `<span class="fn-pill idle">Not run</span>`
+      : r.status === "ok"
+        ? `<span class="fn-pill pass">PASS ${r.status_code} · ${r.duration_ms}ms</span>`
+        : `<span class="fn-pill fail">FAIL ${r.status_code} · ${r.duration_ms}ms</span>`;
+    const logs = r ? renderFunctionLogs(r) : "";
+    const desc = fn.description
+      ? `<p class="fn-desc">${escapeHtml(fn.description)}</p>`
+      : "";
+    const meta = [
+      fn.language ? `<code>${escapeHtml(fn.language)}</code>` : "",
+      fn.category ? escapeHtml(fn.category) : "",
+      fn.modified_time ? `modified ${escapeHtml(fn.modified_time)}` : "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <div class="fn-row" data-idx="${idx}">
+        <div class="fn-head">
+          <div class="fn-id">
+            <h3>${escapeHtml(fn.display_name || fn.name)}</h3>
+            <code class="fn-name">${escapeHtml(fn.name)}</code>
+          </div>
+          <div class="fn-controls">
+            ${statusPill}
+            <button class="primary fn-run" data-idx="${idx}">Run</button>
+          </div>
+        </div>
+        ${meta ? `<div class="fn-meta">${meta}</div>` : ""}
+        ${desc}
+        ${logs}
+      </div>
+    `;
+  }
+
+  function renderFunctionLogs(r) {
+    const sections = [];
+    if (r.error) {
+      sections.push(`<div class="fn-log-err"><strong>Error:</strong> ${escapeHtml(r.error)}</div>`);
+    }
+    const responseJson = r.response
+      ? JSON.stringify(r.response, null, 2)
+      : (r.raw_response || "");
+    if (responseJson) {
+      sections.push(
+        `<details class="fn-log-section" ${r.status === "error" ? "open" : ""}>` +
+        `<summary>Response body</summary>` +
+        `<pre>${escapeHtml(responseJson)}</pre>` +
+        `</details>`
+      );
+    }
+    if (r.output && Object.keys(r.output).length) {
+      sections.push(
+        `<details class="fn-log-section">` +
+        `<summary>Function output</summary>` +
+        `<pre>${escapeHtml(JSON.stringify(r.output, null, 2))}</pre>` +
+        `</details>`
+      );
+    }
+    return sections.length ? `<div class="fn-logs">${sections.join("")}</div>` : "";
+  }
+
+  async function runOneFunction(idx) {
+    const fn = inspectState.functions[idx];
+    if (!fn) return;
+    const creds = readCrmCreds();
+    if (!creds.client_id || !creds.client_secret || !creds.refresh_token) {
+      setFnStatus("CRM credentials needed.", "err");
+      return;
+    }
+    // Show "running" state inline
+    inspectState.results[fn.name] = { status: "running", status_code: 0, duration_ms: 0 };
+    const row = els.functionsList.querySelector(`.fn-row[data-idx="${idx}"]`);
+    if (row) {
+      const pill = row.querySelector(".fn-pill");
+      if (pill) { pill.className = "fn-pill running"; pill.textContent = "Running..."; }
+    }
+    try {
+      const res = await fetch(FUNCTION_BASE + "/functions/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: fn.name, crm: creds, arguments: {} }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Run failed");
+      inspectState.results[fn.name] = data;
+    } catch (e) {
+      inspectState.results[fn.name] = {
+        status: "error", status_code: 0, duration_ms: 0,
+        error: e.message,
+      };
+    }
+    renderFunctionsList();
+  }
+
+  async function runAllFunctions() {
+    if (!inspectState.functions.length) return;
+    els.runAllFunctionsBtn.disabled = true;
+    setFnStatus(`Running ${inspectState.functions.length} function(s) sequentially...`);
+    for (let i = 0; i < inspectState.functions.length; i++) {
+      await runOneFunction(i);
+    }
+    const passed = Object.values(inspectState.results).filter((r) => r.status === "ok").length;
+    const failed = inspectState.functions.length - passed;
+    setFnStatus(`Done. ${passed} passed, ${failed} failed.`, failed ? "warn" : "ok");
+    els.runAllFunctionsBtn.disabled = false;
+  }
+
   async function loadModules() {
     if (els.modulesStatus) {
       els.modulesStatus.textContent = "Loading modules...";
@@ -1018,6 +1191,10 @@
   els.backToExecute.addEventListener("click", () => showTab("execute"));
   if (els.downloadCsv) els.downloadCsv.addEventListener("click", downloadCsv);
   els.restart.addEventListener("click", restart);
+
+  // Inspect tab wiring
+  if (els.loadFunctionsBtn) els.loadFunctionsBtn.addEventListener("click", loadCrmFunctions);
+  if (els.runAllFunctionsBtn) els.runAllFunctionsBtn.addEventListener("click", runAllFunctions);
 
   // Module picker wiring
   if (els.loadModulesBtn) els.loadModulesBtn.addEventListener("click", loadModules);

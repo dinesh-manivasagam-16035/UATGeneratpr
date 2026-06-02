@@ -63,6 +63,24 @@
   </servlet-mapping>
 
   <servlet>
+    <servlet-name>functions-list</servlet-name>
+    <servlet-class>com.uat.generator.FunctionsListServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>functions-list</servlet-name>
+    <url-pattern>/functions/list</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>function-run</servlet-name>
+    <servlet-class>com.uat.generator.FunctionRunServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>function-run</servlet-name>
+    <url-pattern>/functions/run</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
     <servlet-name>health</servlet-name>
     <servlet-class>com.uat.generator.HealthServlet</servlet-class>
   </servlet>
