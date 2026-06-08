@@ -88,4 +88,40 @@
     <servlet-name>health</servlet-name>
     <url-pattern>/health</url-pattern>
   </servlet-mapping>
+
+  <servlet>
+    <servlet-name>auth-login</servlet-name>
+    <servlet-class>com.uat.generator.AuthLoginServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>auth-login</servlet-name>
+    <url-pattern>/auth/login</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>auth-callback</servlet-name>
+    <servlet-class>com.uat.generator.AuthCallbackServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>auth-callback</servlet-name>
+    <url-pattern>/auth/callback</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>auth-status</servlet-name>
+    <servlet-class>com.uat.generator.AuthStatusServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>auth-status</servlet-name>
+    <url-pattern>/auth/status</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>auth-logout</servlet-name>
+    <servlet-class>com.uat.generator.AuthLogoutServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>auth-logout</servlet-name>
+    <url-pattern>/auth/logout</url-pattern>
+  </servlet-mapping>
 </web-app>
