@@ -24,8 +24,13 @@
     analysisSummary:    document.getElementById("analysis-summary"),
     loadModulesBtn:     document.getElementById("load-modules-btn"),
     modulesStatus:      document.getElementById("modules-status"),
-    crmAccountsBase:    document.getElementById("crm_accounts_base"),
-    execCredsStatus:    document.getElementById("exec-creds-status"),
+    authLoginBtn:  document.getElementById("auth-login-btn"),
+    authLoginArea: document.getElementById("auth-login-area"),
+    authUserInfo:  document.getElementById("auth-user-info"),
+    authEmail:     document.getElementById("auth-email"),
+    authLogoutBtn: document.getElementById("auth-logout-btn"),
+    authStatusText:document.getElementById("auth-status-text"),
+    ssoFrame:      document.getElementById("sso-frame"),
 
     casesMeta: document.getElementById("cases-meta"),
     cases:     document.getElementById("cases"),
@@ -34,11 +39,6 @@
     download:  document.getElementById("download-btn"),
     statusCases: document.getElementById("status-cases"),
 
-    crmOrg:    document.getElementById("crm_org_id"),
-    crmApi:    document.getElementById("crm_api_base"),
-    crmClientId: document.getElementById("crm_client_id"),
-    crmClientSecret: document.getElementById("crm_client_secret"),
-    crmRefresh: document.getElementById("crm_refresh_token"),
     execSummary: document.getElementById("exec-summary"),
     execResults: document.getElementById("exec-results"),
     execute:   document.getElementById("execute-btn"),
@@ -75,6 +75,7 @@
     analysisText: "",
     executed: false,
     pushed: false,
+    authUser: null,
     stepDone: { input: false, cases: false, execute: false, push: false },
   };
 
@@ -158,6 +159,21 @@
     setTimeout(() => host.remove(), 3000);
   }
 
+  // ---- Toast notifications ----
+  function showToast(msg, kind, timeout) {
+    const host = document.getElementById("toast-host");
+    if (!host) return;
+    const t = document.createElement("div");
+    t.className = "toast " + (kind || "info");
+    t.textContent = msg;
+    host.appendChild(t);
+    const ms = typeof timeout === "number" ? timeout : 3500;
+    setTimeout(() => {
+      t.classList.add("fade-out");
+      setTimeout(() => t.remove(), 400);
+    }, ms);
+  }
+
   // ---- Tab management ----
 
   function getTabBtn(name) {
@@ -178,7 +194,11 @@
     const btn = getTabBtn(name);
     if (btn && btn.classList.contains("locked")) return;
     state.activeTab = name;
-    els.tabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+    els.tabs.forEach((b) => {
+      const isActive = b.dataset.tab === name;
+      b.classList.toggle("active", isActive);
+      b.setAttribute("aria-selected", String(isActive));
+    });
     els.panels.forEach((p) => {
       const active = p.dataset.panel === name;
       p.classList.toggle("active", active);
@@ -191,9 +211,6 @@
         p.style.animation = "";
       }
     });
-    if (name === "execute" && typeof updateExecCredsStatus === "function") {
-      updateExecCredsStatus();
-    }
   }
   function markStepDone(name) {
     state.stepDone[name] = true;
@@ -462,7 +479,7 @@
   function renderCasesList(container, opts) {
     const list = state.cases;
     if (!list.length) {
-      container.innerHTML = '<p class="muted">No cases yet.</p>';
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">\uD83D\uDCCB</div><div class="empty-title">No test cases yet</div><div class="empty-hint">Upload a BRD and click Generate to create cases.</div></div>';
       return;
     }
     // Group by module, preserving original order
@@ -548,31 +565,35 @@
     }
   }
 
-  function readCrmCreds() {
-    return {
-      org_id:        (document.getElementById("crm_org_id")        || {}).value || "",
-      api_base:      (document.getElementById("crm_api_base")      || {}).value || "",
-      accounts_base: (document.getElementById("crm_accounts_base") || {}).value || "",
-      client_id:     (document.getElementById("crm_client_id")     || {}).value || "",
-      client_secret: (document.getElementById("crm_client_secret") || {}).value || "",
-      refresh_token: (document.getElementById("crm_refresh_token") || {}).value || "",
-    };
+  async function checkAuthStatus() {
+    try {
+      const r = await fetch(FUNCTION_BASE + "/auth/status", { credentials: "include" });
+      const d = await r.json();
+      state.authUser = d.user || null;
+    } catch { state.authUser = null; }
+    updateAuthUI();
   }
 
-  function hasCredsForExecution() {
-    const c = readCrmCreds();
-    return !!(c.client_id && c.client_secret && c.refresh_token);
-  }
-
-  function updateExecCredsStatus() {
-    if (!els.execCredsStatus) return;
-    if (hasCredsForExecution()) {
-      els.execCredsStatus.textContent = "CRM credentials provided — execution will hit your live org.";
-      els.execCredsStatus.className = "status ok";
-    } else {
-      els.execCredsStatus.textContent = "No CRM credentials provided — execution will be simulated.";
-      els.execCredsStatus.className = "status muted";
+  function updateAuthUI() {
+    const loggedIn = !!state.authUser;
+    if (els.authStatusText) {
+      els.authStatusText.textContent = loggedIn
+        ? "Signed in as " + state.authUser
+        : "Not signed in to Zoho CRM.";
+      els.authStatusText.className = "status " + (loggedIn ? "ok" : "muted");
     }
+    if (els.authLoginBtn)  els.authLoginBtn.style.display  = loggedIn ? "none" : "";
+    if (els.authLogoutBtn) els.authLogoutBtn.style.display = loggedIn ? "" : "none";
+  }
+
+  function initAuth() {
+    checkAuthStatus();
+    if (els.authLoginBtn)  els.authLoginBtn.addEventListener("click",  () => { window.location.href = FUNCTION_BASE + "/auth/login"; });
+    if (els.authLogoutBtn) els.authLogoutBtn.addEventListener("click", async () => {
+      await fetch(FUNCTION_BASE + "/auth/logout", { method: "POST", credentials: "include" });
+      state.authUser = null;
+      updateAuthUI();
+    });
   }
 
   // ---- Module picker ----
@@ -593,6 +614,33 @@
       if (bIn) return 1;
       return (a.plural_label || a.api_name).localeCompare(b.plural_label || b.api_name);
     });
+    // Toolbar: search + counter
+    const toolbar = document.createElement("div");
+    toolbar.className = "module-toolbar";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "module-search";
+    search.placeholder = "Search modules\u2026";
+    search.setAttribute("aria-label", "Search modules");
+    const counter = document.createElement("span");
+    counter.className = "module-counter";
+    counter.textContent = sortedList.length + " of " + sortedList.length;
+    toolbar.appendChild(search);
+    toolbar.appendChild(counter);
+    els.moduleChips.appendChild(toolbar);
+    const chipWrap = document.createElement("div");
+    chipWrap.className = "module-chip-wrap";
+    els.moduleChips.appendChild(chipWrap);
+    search.addEventListener("input", () => {
+      const q = search.value.trim().toLowerCase();
+      let visible = 0;
+      chipWrap.querySelectorAll(".module-chip").forEach((c) => {
+        const match = !q || c.textContent.toLowerCase().includes(q);
+        c.style.display = match ? "" : "none";
+        if (match) visible++;
+      });
+      counter.textContent = visible + " of " + sortedList.length;
+    });
     sortedList.forEach((m) => {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -606,7 +654,7 @@
       btn.dataset.apiName = m.api_name;
       btn.title = isSuggested ? "Suggested based on the spec content" : "";
       btn.addEventListener("click", () => toggleModule(m.api_name));
-      els.moduleChips.appendChild(btn);
+      chipWrap.appendChild(btn);
     });
     renderSelectedSummary();
   }
@@ -684,9 +732,8 @@
   const inspectState = { functions: [], results: {} };
 
   async function loadCrmFunctions() {
-    const creds = readCrmCreds();
-    if (!creds.client_id || !creds.client_secret || !creds.refresh_token) {
-      setFnStatus("CRM credentials needed — fill the connection panel on the Brief tab first.", "err");
+    if (!state.authUser) {
+      setFnStatus("Sign in to Zoho CRM first (Brief tab).", "err");
       return;
     }
     setFnStatus("Loading functions from CRM...");
@@ -696,7 +743,8 @@
       const res = await fetch(FUNCTION_BASE + "/functions/list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ crm: creds }),
+        credentials: "include",
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load functions");
@@ -712,6 +760,7 @@
       );
     } catch (e) {
       setFnStatus("Error: " + e.message, "err");
+      showToast("Failed to load CRM functions: " + e.message, "err");
     } finally {
       hideLoader("inspect");
       els.loadFunctionsBtn.disabled = false;
@@ -727,7 +776,7 @@
   function renderFunctionsList() {
     if (!els.functionsList) return;
     if (!inspectState.functions.length) {
-      els.functionsList.innerHTML = '<p class="muted">No functions loaded yet.</p>';
+      els.functionsList.innerHTML = '<div class="empty-state"><div class="empty-icon">\u2699\uFE0F</div><div class="empty-title">No CRM functions loaded</div><div class="empty-hint">Click "Load CRM Functions" to fetch the list.</div></div>';
       return;
     }
     els.functionsList.innerHTML = inspectState.functions.map((f, i) => functionRowHtml(f, i)).join("");
@@ -806,11 +855,6 @@
   async function runOneFunction(idx) {
     const fn = inspectState.functions[idx];
     if (!fn) return;
-    const creds = readCrmCreds();
-    if (!creds.client_id || !creds.client_secret || !creds.refresh_token) {
-      setFnStatus("CRM credentials needed.", "err");
-      return;
-    }
     // Show "running" state inline
     inspectState.results[fn.name] = { status: "running", status_code: 0, duration_ms: 0 };
     const row = els.functionsList.querySelector(`.fn-row[data-idx="${idx}"]`);
@@ -822,7 +866,8 @@
       const res = await fetch(FUNCTION_BASE + "/functions/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: fn.name, crm: creds, arguments: {} }),
+        credentials: "include",
+        body: JSON.stringify({ name: fn.name, arguments: {} }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Run failed");
@@ -863,7 +908,8 @@
       const res = await fetch(FUNCTION_BASE + "/modules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ crm: readCrmCreds() }),
+        credentials: "include",
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
@@ -884,9 +930,9 @@
         els.modulesStatus.textContent = "Error: " + e.message;
         els.modulesStatus.className = "status err";
       }
+      showToast("Failed to load modules: " + e.message, "err");
     } finally {
       els.loadModulesBtn.disabled = false;
-      updateExecCredsStatus();
     }
   }
 
@@ -895,12 +941,7 @@
       setStatus("execute", "Generate cases first.", "warn");
       return;
     }
-    const crm = readCrmCreds();
-    const live = crm.client_id && crm.client_secret && crm.refresh_token;
-
-    showLoader("execute", live
-      ? "Executing test cases against Zoho CRM..."
-      : "Simulating execution (no CRM credentials provided)...");
+    showLoader("execute", "Executing test cases against Zoho CRM...");
     els.execute.disabled = true;
     els.toPush.disabled = true;
     els.execSummary.textContent = "";
@@ -911,7 +952,8 @@
       const res = await fetch(FUNCTION_BASE + "/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cases: state.cases, crm }),
+        credentials: "include",
+        body: JSON.stringify({ cases: state.cases }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Execute failed");
@@ -1207,15 +1249,12 @@
 
   // Module picker wiring
   if (els.loadModulesBtn) els.loadModulesBtn.addEventListener("click", loadModules);
-  ["crm_client_id", "crm_client_secret", "crm_refresh_token", "crm_api_base", "crm_accounts_base"]
-    .forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener("input", updateExecCredsStatus);
-    });
+
+  // Auth
+  initAuth();
 
   // First-paint
   renderModuleChips();
-  updateExecCredsStatus();
 
   if (isLocal) {
     console.info("UAT Generator running in local mode. API base: " + FUNCTION_BASE);

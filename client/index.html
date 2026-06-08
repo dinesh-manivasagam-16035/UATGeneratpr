@@ -46,20 +46,20 @@
     </div>
   </header>
 
-  <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="input" data-step="1">
+  <nav class="tabs" role="tablist" aria-label="TestPilot workflow">
+    <button class="tab active" data-tab="input" data-step="1" id="tab-input" role="tab" aria-selected="true" aria-controls="panel-input">
       <span class="tab-num">1</span><span class="tab-label">Brief</span><span class="tab-state"></span>
     </button>
-    <button class="tab locked" data-tab="cases" data-step="2">
+    <button class="tab locked" data-tab="cases" data-step="2" id="tab-cases" role="tab" aria-selected="false" aria-controls="panel-cases">
       <span class="tab-num">2</span><span class="tab-label">Cases</span><span class="tab-state"></span>
     </button>
-    <button class="tab locked" data-tab="execute" data-step="3">
+    <button class="tab locked" data-tab="execute" data-step="3" id="tab-execute" role="tab" aria-selected="false" aria-controls="panel-execute">
       <span class="tab-num">3</span><span class="tab-label">Fly</span><span class="tab-state"></span>
     </button>
-    <button class="tab locked" data-tab="push" data-step="4">
+    <button class="tab locked" data-tab="push" data-step="4" id="tab-push" role="tab" aria-selected="false" aria-controls="panel-push">
       <span class="tab-num">4</span><span class="tab-label">Land</span><span class="tab-state"></span>
     </button>
-    <button class="tab tab-utility" data-tab="inspect" data-step="5" title="Health-check CRM functions">
+    <button class="tab tab-utility" data-tab="inspect" data-step="5" id="tab-inspect" role="tab" aria-selected="false" aria-controls="panel-inspect" title="Health-check CRM functions">
       <span class="tab-num">🔧</span><span class="tab-label">Inspect</span><span class="tab-state"></span>
     </button>
   </nav>
@@ -67,7 +67,7 @@
   <main>
 
     <!-- Tab 1: Input -->
-    <section class="tab-panel active" data-panel="input">
+    <section class="tab-panel active" data-panel="input" id="panel-input" role="tabpanel" aria-labelledby="tab-input">
       <div class="loader" hidden>
         <div class="spinner"></div>
         <div class="loader-text">Parsing BRD...</div>
@@ -76,39 +76,21 @@
         <h2>Brief your pilot ✈️</h2>
         <p class="hint">Connect your CRM, drop the developer's UAT spec document (fields, validation rules, use cases), pick the modules under test. We'll auto-suggest the right ones from what the spec actually covers.</p>
 
-        <details class="creds-panel">
-          <summary>Zoho CRM credentials <span class="muted">(India DC defaults shown)</span></summary>
-          <div class="grid-2">
-            <div>
-              <label for="crm_org_id">Org ID</label>
-              <input id="crm_org_id" type="text" placeholder="e.g. 60012345678" />
-            </div>
-            <div>
-              <label for="crm_api_base">API base</label>
-              <input id="crm_api_base" type="text" placeholder="https://www.zohoapis.in" value="https://www.zohoapis.in" />
-            </div>
-            <div>
-              <label for="crm_accounts_base">Accounts base</label>
-              <input id="crm_accounts_base" type="text" placeholder="https://accounts.zoho.in" value="https://accounts.zoho.in" />
-            </div>
-            <div>
-              <label for="crm_client_id">Client ID</label>
-              <input id="crm_client_id" type="text" placeholder="1000.XXXXXXXXXX" />
-            </div>
-            <div>
-              <label for="crm_client_secret">Client Secret</label>
-              <input id="crm_client_secret" type="password" placeholder="(self-client secret)" />
-            </div>
-            <div>
-              <label for="crm_refresh_token">Refresh Token</label>
-              <input id="crm_refresh_token" type="password" placeholder="1000.xxxx.yyyy" />
-            </div>
+        <div class="auth-panel" id="auth-panel">
+          <div id="auth-login-area">
+            <button id="auth-login-btn" class="primary">Connect Zoho CRM</button>
+            <span id="auth-status-text" class="status muted"></span>
           </div>
-          <div class="actions" style="border:none;padding:0;margin-top:14px;">
+          <div id="auth-user-info" hidden>
+            <span class="muted">Signed in as </span><strong id="auth-email"></strong>
+            <button id="auth-logout-btn" class="ghost small">Sign out</button>
+          </div>
+          <div class="actions inline spaced">
             <button id="load-modules-btn" class="ghost">Load modules from CRM</button>
-            <span id="modules-status" class="status" style="margin:0;"></span>
+            <span id="modules-status" class="status" aria-live="polite"></span>
           </div>
-        </details>
+        </div>
+        <iframe id="sso-frame" src="" hidden style="display:none"></iframe>
 
         <label>Target modules <span class="muted">(pick up to 3 — we auto-suggest from the spec)</span></label>
         <div class="module-picker" id="module-picker">
@@ -131,12 +113,12 @@
         <div class="actions">
           <button id="generate-btn" class="primary" disabled>Generate UAT cases &rarr;</button>
         </div>
-        <p id="status-input" class="status"></p>
+        <p id="status-input" class="status" aria-live="polite"></p>
       </div>
     </section>
 
     <!-- Tab 2: Cases -->
-    <section class="tab-panel" data-panel="cases" hidden>
+    <section class="tab-panel" data-panel="cases" id="panel-cases" role="tabpanel" aria-labelledby="tab-cases" hidden>
       <div class="loader" hidden>
         <div class="spinner"></div>
         <div class="loader-text">Generating UAT cases via LLM... (10–30s)</div>
@@ -152,20 +134,19 @@
           <button id="to-execute-btn" class="primary" disabled>Execute in Zoho CRM &rarr;</button>
           <button id="download-btn" class="ghost" disabled>Download JSON</button>
         </div>
-        <p id="status-cases" class="status"></p>
+        <p id="status-cases" class="status" aria-live="polite"></p>
       </div>
     </section>
 
     <!-- Tab 3: Execute -->
-    <section class="tab-panel" data-panel="execute" hidden>
+    <section class="tab-panel" data-panel="execute" id="panel-execute" role="tabpanel" aria-labelledby="tab-execute" hidden>
       <div class="loader" hidden>
         <div class="spinner"></div>
         <div class="loader-text" id="execute-loader-text">Executing test cases in Zoho CRM...</div>
       </div>
       <div class="panel-body">
         <h2>Cleared for takeoff 🚀</h2>
-        <p class="hint">Cases are about to run live against your CRM. We'll reuse the credentials from the Brief tab — leave them blank there for a simulated dry run.</p>
-        <p id="exec-creds-status" class="status"></p>
+        <p class="hint">Cases are about to run live against your CRM. Connect Zoho CRM on the Brief tab first — leave disconnected for a simulated dry run.</p>
 
         <div id="exec-summary" class="exec-summary"></div>
         <div id="exec-results"></div>
@@ -175,12 +156,12 @@
           <button id="execute-btn" class="primary">Run execution</button>
           <button id="to-push-btn" class="primary" disabled>Push to Projects &rarr;</button>
         </div>
-        <p id="status-execute" class="status"></p>
+        <p id="status-execute" class="status" aria-live="polite"></p>
       </div>
     </section>
 
     <!-- Tab 4: Push -->
-    <section class="tab-panel" data-panel="push" hidden>
+    <section class="tab-panel" data-panel="push" id="panel-push" role="tabpanel" aria-labelledby="tab-push" hidden>
       <div class="loader" hidden>
         <div class="spinner"></div>
         <div class="loader-text" id="push-loader-text">Pushing to Zoho Projects...</div>
@@ -191,7 +172,7 @@
 
         <label for="project_name">Projects project name</label>
         <input id="project_name" type="text" placeholder="Test Plan — your-feature-name" />
-        <p class="hint" style="margin-top:4px;">If a project with this name already exists in your portal, we'll reuse it — otherwise we'll create it.</p>
+        <p class="hint">If a project with this name already exists in your portal, we'll reuse it — otherwise we'll create it.</p>
 
         <div id="push-summary" class="exec-summary"></div>
         <div id="push-results"></div>
@@ -202,12 +183,12 @@
           <button id="download-csv-btn" class="ghost">Download CSV for Projects import</button>
           <button id="restart-btn" class="ghost">Start over</button>
         </div>
-        <p id="status-push" class="status"></p>
+        <p id="status-push" class="status" aria-live="polite"></p>
       </div>
     </section>
 
     <!-- Tab 5: Inspect (utility) -->
-    <section class="tab-panel" data-panel="inspect" hidden>
+    <section class="tab-panel" data-panel="inspect" id="panel-inspect" role="tabpanel" aria-labelledby="tab-inspect" hidden>
       <div class="loader" hidden>
         <div class="spinner"></div>
         <div class="loader-text" id="inspect-loader-text">Loading CRM functions...</div>
@@ -216,10 +197,10 @@
         <h2>Inspect CRM functions 🔧</h2>
         <p class="hint">Health-check the standalone functions in your Zoho CRM org. Click <strong>Load functions</strong>, then <strong>Run</strong> on any function to invoke it via the v3 API and see the result or error inline. Uses the CRM credentials from the <strong>Brief</strong> tab.</p>
 
-        <div class="actions" style="border:none;padding:0;margin:8px 0 16px;">
+        <div class="actions inline spaced">
           <button id="load-functions-btn" class="primary">Load functions from CRM</button>
           <button id="run-all-functions-btn" class="ghost" disabled>Run all</button>
-          <span id="functions-status" class="status" style="margin:0;"></span>
+          <span id="functions-status" class="status" aria-live="polite"></span>
         </div>
 
         <div id="functions-list" class="functions-list"></div>
@@ -230,7 +211,10 @@
 
   <footer>
     <small>Catalyst Java function <code>/server/uat_generator/</code></small>
+    <span class="footer-badge" id="footer-badge" aria-label="Data center and version">IN&nbsp;DC · v1</span>
   </footer>
+
+  <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
