@@ -1,5 +1,5 @@
 /* ================================================================
-   TestPilot — Zoho brand palette with light/dark themes
+   LiftOff — Zoho brand palette with light/dark themes
    Zoho icon colours: blue #0052CC · orange #F26C01
                       green #00875A · amber #FF8B00
    ================================================================ */
@@ -2132,5 +2132,227 @@ footer code {
   .login-card, .consent-card { padding: 2rem 1.25rem 1.75rem; border-radius: 16px; }
   .login-title { font-size: 1.65rem; }
   .consent-title { font-size: 1.35rem; }
+}
+
+/* =====================================================
+   SCENE BANNERS — per-tab animated illustrations
+   ===================================================== */
+
+.scene {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  border-radius: 10px;
+  padding: 0.9rem 1.25rem;
+  margin: 0.5rem 0 1.75rem;
+  overflow: hidden;
+}
+
+.scene-art {
+  flex-shrink: 0;
+  width: 110px;
+  height: 56px;
+}
+
+.scene-svg {
+  width: 110px;
+  height: 60px;
+  overflow: visible;
+}
+
+.scene-copy strong {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.2rem;
+}
+
+.scene-copy span {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  display: block;
+}
+
+/* — Brief: Zoho blue — */
+.scene-brief {
+  background: linear-gradient(135deg, rgba(0,82,204,.10) 0%, rgba(76,154,255,.04) 100%);
+  border: 1px solid rgba(0,82,204,.15);
+  color: var(--accent);
+}
+.scene-brief .scene-copy strong { color: var(--accent); }
+
+/* — Cases: indigo — */
+.scene-cases {
+  background: linear-gradient(135deg, rgba(99,102,241,.10) 0%, rgba(139,92,246,.04) 100%);
+  border: 1px solid rgba(99,102,241,.18);
+  color: #6366f1;
+}
+.scene-cases .scene-copy strong { color: #6366f1; }
+
+/* — Fly: orange — */
+.scene-fly {
+  background: linear-gradient(135deg, rgba(234,88,12,.10) 0%, rgba(251,146,60,.04) 100%);
+  border: 1px solid rgba(234,88,12,.16);
+  color: #ea580c;
+}
+.scene-fly .scene-copy strong { color: #ea580c; }
+
+/* — Land: green — */
+.scene-land {
+  background: linear-gradient(135deg, rgba(5,150,105,.10) 0%, rgba(16,185,129,.04) 100%);
+  border: 1px solid rgba(5,150,105,.16);
+  color: #059669;
+}
+.scene-land .scene-copy strong { color: #059669; }
+
+:root[data-theme="dark"] .scene-cases                    { color: #818cf8; }
+:root[data-theme="dark"] .scene-cases .scene-copy strong { color: #818cf8; }
+:root[data-theme="dark"] .scene-fly                      { color: #fb923c; }
+:root[data-theme="dark"] .scene-fly   .scene-copy strong { color: #fb923c; }
+:root[data-theme="dark"] .scene-land                     { color: #34d399; }
+:root[data-theme="dark"] .scene-land  .scene-copy strong { color: #34d399; }
+
+/* ——— BRIEF: radar sweep + paper plane ——— */
+.scene-brief .radar-r1 {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: radar-ring-pulse 3s ease-out infinite;
+}
+.scene-brief .radar-r2 {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: radar-ring-pulse 3s ease-out 0.9s infinite;
+}
+.scene-brief .radar-sweep {
+  transform-box: view-box;
+  transform-origin: 28px 28px;
+  animation: rotate-cw 4s linear infinite;
+}
+.scene-brief .radar-blip {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: blip-pop 4s ease-in-out 0.8s infinite;
+}
+.scene-brief .plane-float {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: drift-float 2.8s ease-in-out infinite;
+}
+.scene-brief .trail-1 { animation: trail-dim 2.8s ease-in-out infinite; }
+.scene-brief .trail-2 { animation: trail-dim 2.8s ease-in-out .22s infinite; }
+
+/* ——— CASES: checklist slide-in ——— */
+.scene-cases .check-row-1 {
+  animation: slide-in-left 0.45s cubic-bezier(.25,.46,.45,.94) both;
+}
+.scene-cases .check-row-2 {
+  animation: slide-in-left 0.45s cubic-bezier(.25,.46,.45,.94) .13s both;
+}
+.scene-cases .check-row-3 {
+  animation: slide-in-left 0.45s cubic-bezier(.25,.46,.45,.94) .26s both;
+}
+.scene-cases .check-mark-1 {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: draw-stroke 0.38s ease-out 0.55s both;
+}
+.scene-cases .check-mark-2 {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: draw-stroke 0.38s ease-out 0.70s both;
+}
+
+/* ——— FLY: expanding rings + rocket hover ——— */
+.scene-fly .ring-1 {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ring-burst 2s ease-out infinite;
+}
+.scene-fly .ring-2 {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ring-burst 2s ease-out .72s infinite;
+}
+.scene-fly .rocket-hover {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rocket-lift 2s ease-in-out infinite;
+}
+.scene-fly .flame-1 {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: flame-lick .38s ease-in-out infinite;
+}
+.scene-fly .flame-2 {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: flame-lick .38s ease-in-out .1s infinite;
+}
+
+/* ——— LAND: runway lights + approach plane ——— */
+.scene-land .rwy-1 { animation: rwy-seq .6s ease-in-out infinite; }
+.scene-land .rwy-2 { animation: rwy-seq .6s ease-in-out .12s infinite; }
+.scene-land .rwy-3 { animation: rwy-seq .6s ease-in-out .24s infinite; }
+.scene-land .rwy-4 { animation: rwy-seq .6s ease-in-out .36s infinite; }
+.scene-land .rwy-5 { animation: rwy-seq .6s ease-in-out .48s infinite; }
+.scene-land .approach-plane {
+  animation: approach-descend 3.6s cubic-bezier(.4,0,.6,1) infinite;
+}
+
+/* ——— Shared keyframes ——— */
+@keyframes radar-ring-pulse {
+  0%   { opacity: .6; transform: scale(.55); }
+  100% { opacity: 0;  transform: scale(1.65); }
+}
+@keyframes rotate-cw {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes blip-pop {
+  0%, 65%, 100% { opacity: 0; transform: scale(.4); }
+  35%           { opacity: 1; transform: scale(1); }
+}
+@keyframes drift-float {
+  0%, 100% { transform: translateY(0)    rotate(-4deg); }
+  50%      { transform: translateY(-5px) rotate(-2deg); }
+}
+@keyframes trail-dim {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: .15; }
+}
+@keyframes slide-in-left {
+  from { transform: translateX(-18px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+@keyframes draw-stroke {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes ring-burst {
+  0%   { transform: scale(.3);  opacity: .85; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+@keyframes rocket-lift {
+  0%, 100% { transform: translateY(0);    }
+  50%      { transform: translateY(-5px); }
+}
+@keyframes flame-lick {
+  0%, 100% { transform: scaleY(.72); opacity: .65; }
+  50%      { transform: scaleY(1.4); opacity: 1; }
+}
+@keyframes rwy-seq {
+  0%, 100% { opacity: .18; }
+  40%      { opacity: 1; }
+}
+@keyframes approach-descend {
+  0%   { transform: translate(0, 0);         opacity: 1; }
+  70%  { transform: translate(-60px, 32px);  opacity: 1; }
+  82%  { transform: translate(-68px, 38px);  opacity: 0; }
+  100% { transform: translate(0, 0);         opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-anim { animation: none !important; }
 }
 

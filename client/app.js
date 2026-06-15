@@ -210,9 +210,14 @@
       if (active) {
         // Restart the panel-enter animation so each tab switch animates in.
         p.style.animation = "none";
-        // Force reflow so the animation restarts when re-applied.
         void p.offsetWidth;
         p.style.animation = "";
+        // Restart all scene-banner child animations (tab-anim elements).
+        p.querySelectorAll(".tab-anim").forEach((el) => {
+          el.style.animation = "none";
+          void el.offsetWidth;
+          el.style.animation = "";
+        });
       }
     });
   }

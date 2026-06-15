@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -51,6 +52,15 @@ public class ModulesServlet extends HttpServlet {
                     crm.path("client_secret").asText(""),
                     crm.path("refresh_token").asText("")
             );
+
+            // Fall back to session-stored credentials if body has none.
+            if (!client.hasCredentials()) {
+                String sid = cookieValue(req, "tp_crm_sid");
+                CrmTokenStore.TokenBundle bundle = CrmTokenStore.get(sid);
+                if (bundle != null && !bundle.isExpired() && bundle.hasOAuthCredentials()) {
+                    client = bundle.toCrmClient();
+                }
+            }
 
             ObjectNode out = MAPPER.createObjectNode();
 
@@ -140,5 +150,14 @@ public class ModulesServlet extends HttpServlet {
         ObjectNode err = MAPPER.createObjectNode();
         err.put("error", message == null ? "unknown" : message);
         resp.getWriter().write(MAPPER.writeValueAsString(err));
+    }
+
+    private static String cookieValue(HttpServletRequest req, String name) {
+        Cookie[] cookies = req.getCookies();
+        if (cookies == null) return null;
+        for (Cookie c : cookies) {
+            if (name.equals(c.getName())) return c.getValue();
+        }
+        return null;
     }
 }
