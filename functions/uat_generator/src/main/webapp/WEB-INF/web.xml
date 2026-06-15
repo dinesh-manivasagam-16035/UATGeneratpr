@@ -90,6 +90,15 @@
   </servlet-mapping>
 
   <servlet>
+    <servlet-name>crm-connect</servlet-name>
+    <servlet-class>com.uat.generator.CrmConnectServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>crm-connect</servlet-name>
+    <url-pattern>/crm/connect</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
     <servlet-name>crm-status</servlet-name>
     <servlet-class>com.uat.generator.CrmConsentServlet</servlet-class>
   </servlet>

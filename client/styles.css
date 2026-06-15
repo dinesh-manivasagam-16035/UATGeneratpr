@@ -1602,6 +1602,99 @@ footer code {
   to { transform: translateX(120%); opacity: 0; }
 }
 
+/* ---- Modal overlay ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 30, 66, 0.54);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.modal-card {
+  background: var(--bg-elevated);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 28px 28px 24px;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.modal-header h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+.modal-icon .bm-grid-sm {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.modal-hint {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+.modal-hint code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.78em;
+  background: var(--bg-subtle);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.modal-fields label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: -4px;
+}
+.modal-fields input,
+.modal-fields select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-family: "JetBrains Mono", monospace;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.modal-fields input:focus,
+.modal-fields select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 /* ---- Empty state placeholder ---- */
 .empty-state {
   display: flex;

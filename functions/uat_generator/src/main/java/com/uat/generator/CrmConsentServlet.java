@@ -24,6 +24,8 @@ public class CrmConsentServlet extends HttpServlet {
         resp.setContentType("application/json");
 
         ObjectNode out = MAPPER.createObjectNode();
+        boolean oauthAvailable = notEmpty(System.getenv("ZOHO_CLIENT_ID"));
+        out.put("oauth_available", oauthAvailable);
 
         // Check server-side credentials first.
         String envRefresh = System.getenv("ZOHO_REFRESH_TOKEN");
@@ -41,7 +43,7 @@ public class CrmConsentServlet extends HttpServlet {
         CrmTokenStore.TokenBundle bundle = CrmTokenStore.get(sid);
         if (bundle != null && !bundle.isExpired()) {
             out.put("authorized", true);
-            out.put("source", "user");
+            out.put("source", bundle.hasOAuthCredentials() ? "user_credentials" : "user");
             out.put("email", bundle.email != null ? bundle.email : "");
             resp.getWriter().write(MAPPER.writeValueAsString(out));
             return;

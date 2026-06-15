@@ -78,6 +78,7 @@
     pushed: false,
     authUser: null,
     crmAuthorized: false,
+    oauthAvailable: false,
     crmEmail: null,
     stepDone: { input: false, cases: false, execute: false, push: false },
   };
@@ -606,10 +607,12 @@
     try {
       const res  = await fetch(FUNCTION_BASE + "/crm/status", { credentials: "include" });
       const data = await res.json();
-      state.crmAuthorized = data.authorized === true;
+      state.crmAuthorized  = data.authorized === true;
+      state.oauthAvailable = data.oauth_available === true;
       if (data.email && !state.crmEmail) state.crmEmail = data.email;
     } catch {
-      state.crmAuthorized = false;
+      state.crmAuthorized  = false;
+      state.oauthAvailable = false;
     }
   }
 
@@ -641,13 +644,106 @@
     if (els.authUserInfo)  els.authUserInfo.hidden  = !state.crmAuthorized;
   }
 
+  // ---- CRM credential modal ----
+
+  function openCrmModal() {
+    const overlay = document.getElementById("crm-modal-overlay");
+    if (overlay) {
+      overlay.hidden = false;
+      const inp = document.getElementById("crm-refresh-token");
+      if (inp) inp.focus();
+    }
+  }
+
+  function closeCrmModal() {
+    const overlay = document.getElementById("crm-modal-overlay");
+    if (overlay) overlay.hidden = true;
+    const errEl = document.getElementById("crm-modal-error");
+    if (errEl) errEl.textContent = "";
+  }
+
+  async function submitCrmCredentials() {
+    const clientId     = (document.getElementById("crm-client-id")?.value || "").trim();
+    const clientSecret = (document.getElementById("crm-client-secret")?.value || "").trim();
+    const refreshToken = (document.getElementById("crm-refresh-token")?.value || "").trim();
+    const dc           = document.getElementById("crm-dc")?.value || "com";
+    const errEl        = document.getElementById("crm-modal-error");
+    const submitBtn    = document.getElementById("crm-modal-submit");
+
+    if (!clientId || !clientSecret || !refreshToken) {
+      if (errEl) errEl.textContent = "All three fields are required.";
+      return;
+    }
+
+    const accountsBase = dc === "in"  ? "https://accounts.zoho.in"
+                       : dc === "eu"  ? "https://accounts.zoho.eu"
+                       : dc === "au"  ? "https://accounts.zoho.com.au"
+                       : dc === "jp"  ? "https://accounts.zoho.jp"
+                       : "https://accounts.zoho.com";
+    const apiBase      = dc === "in"  ? "https://www.zohoapis.in"
+                       : dc === "eu"  ? "https://www.zohoapis.eu"
+                       : dc === "au"  ? "https://www.zohoapis.com.au"
+                       : dc === "jp"  ? "https://www.zohoapis.jp"
+                       : "https://www.zohoapis.com";
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (errEl) errEl.textContent = "";
+
+    try {
+      const res  = await fetch(FUNCTION_BASE + "/crm/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret,
+                               refresh_token: refreshToken, accounts_base: accountsBase,
+                               api_base: apiBase }),
+      });
+      const data = await res.json();
+      if (data.authorized) {
+        state.crmAuthorized = true;
+        state.crmEmail = data.email || "";
+        closeCrmModal();
+        updateAuthUI();
+        showToast("Zoho CRM connected successfully!", "ok");
+      } else {
+        if (errEl) errEl.textContent = data.error || "Connection failed. Check your credentials.";
+      }
+    } catch (e) {
+      if (errEl) errEl.textContent = "Network error: " + e.message;
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  function initCrmModal() {
+    const cancelBtn = document.getElementById("crm-modal-cancel");
+    const submitBtn = document.getElementById("crm-modal-submit");
+    const overlay   = document.getElementById("crm-modal-overlay");
+    if (cancelBtn) cancelBtn.addEventListener("click", closeCrmModal);
+    if (submitBtn) submitBtn.addEventListener("click", submitCrmCredentials);
+    if (overlay)   overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeCrmModal();
+    });
+    // Enter key in fields triggers submit.
+    ["crm-client-id", "crm-client-secret", "crm-refresh-token"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("keydown", (e) => { if (e.key === "Enter") submitCrmCredentials(); });
+    });
+  }
+
   function initAuth() {
     checkAuthStatus();
 
-    // Brief tab "Connect Zoho CRM" — start CRM OAuth when server creds aren't configured.
+    // Brief tab "Connect Zoho CRM"
     if (els.authLoginBtn) {
       els.authLoginBtn.addEventListener("click", () => {
-        window.location.href = FUNCTION_BASE + "/crm/auth";
+        if (state.oauthAvailable) {
+          // Server has ZOHO_CLIENT_ID configured — use OAuth redirect.
+          window.location.href = FUNCTION_BASE + "/crm/auth";
+        } else {
+          // No server OAuth — open credential entry modal.
+          openCrmModal();
+        }
       });
     }
 
@@ -658,6 +754,8 @@
         window.catalyst.auth.signOut("/app/index.html");
       });
     }
+
+    initCrmModal();
   }
 
   // ---- Module picker ----

@@ -61,7 +61,7 @@ public class CrmCallbackServlet extends HttpServlet {
 
         JsonNode tokenResponse;
         try (CloseableHttpClient http = HttpClients.createDefault()) {
-            HttpPost post = new HttpPost("https://accounts.zoho.com/oauth/v2/token");
+            HttpPost post = new HttpPost(CrmAuthServlet.accountsBase() + "/oauth/v2/token");
             post.setEntity(new UrlEncodedFormEntity(params));
             tokenResponse = http.execute(post, response -> {
                 String body = EntityUtils.toString(response.getEntity());

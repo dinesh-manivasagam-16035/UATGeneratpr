@@ -32,25 +32,38 @@ public class CrmAuthServlet extends HttpServlet {
             return;
         }
 
-        String redirectUri = buildRedirectUri(req);
-        String state = UUID.randomUUID().toString();
+        String redirectUri  = buildRedirectUri(req);
+        String oauthState   = UUID.randomUUID().toString();
+        String accountsBase = accountsBase();
 
         // Store state in cookie for CSRF validation in callback.
-        Cookie stateCookie = new Cookie("tp_oauth_state", state);
+        Cookie stateCookie = new Cookie("tp_oauth_state", oauthState);
         stateCookie.setPath("/");
         stateCookie.setHttpOnly(true);
         stateCookie.setMaxAge(300); // 5 minutes
         resp.addCookie(stateCookie);
 
-        String url = "https://accounts.zoho.com/oauth/v2/auth"
+        String url = accountsBase + "/oauth/v2/auth"
                 + "?response_type=code"
                 + "&client_id=" + encode(clientId)
                 + "&scope=" + encode(SCOPES)
                 + "&redirect_uri=" + encode(redirectUri)
-                + "&state=" + encode(state)
+                + "&state=" + encode(oauthState)
                 + "&access_type=offline";
 
         resp.sendRedirect(url);
+    }
+
+    /** Returns the Zoho accounts base URL — configurable via ZOHO_ACCOUNTS_BASE env var. */
+    static String accountsBase() {
+        String env = System.getenv("ZOHO_ACCOUNTS_BASE");
+        if (env != null && !env.trim().isEmpty()) return env.trim();
+        // Auto-detect from ZOHO_DC env var (com / in / eu / au / jp).
+        String dc = System.getenv("ZOHO_DC");
+        if (dc == null || dc.trim().isEmpty() || dc.trim().equalsIgnoreCase("com")) {
+            return "https://accounts.zoho.com";
+        }
+        return "https://accounts.zoho." + dc.trim().toLowerCase();
     }
 
     static String buildRedirectUri(HttpServletRequest req) {

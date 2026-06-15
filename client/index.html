@@ -242,6 +242,51 @@
 
   <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
 
+  <!-- CRM credential entry modal -->
+  <div id="crm-modal-overlay" class="modal-overlay" hidden>
+    <div id="crm-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="crm-modal-title">
+      <div class="modal-header">
+        <span class="modal-icon">
+          <span class="bm-grid bm-grid-sm">
+            <span class="bm-q" style="background:#0052CC"></span>
+            <span class="bm-q" style="background:#F26C01"></span>
+            <span class="bm-q" style="background:#00875A"></span>
+            <span class="bm-q" style="background:#FF8B00"></span>
+          </span>
+        </span>
+        <h3 id="crm-modal-title">Connect Zoho CRM</h3>
+      </div>
+      <p class="modal-hint">Enter your Zoho CRM OAuth credentials. Get them from <strong>api-console.zoho.com</strong> → Self Client → Generate Token with scope <code>ZohoCRM.modules.ALL</code>.</p>
+
+      <div class="modal-fields">
+        <label for="crm-client-id">Client ID</label>
+        <input id="crm-client-id" type="text" placeholder="1000.XXXXX" autocomplete="off" spellcheck="false" />
+
+        <label for="crm-client-secret">Client Secret</label>
+        <input id="crm-client-secret" type="password" placeholder="Your client secret" autocomplete="off" />
+
+        <label for="crm-refresh-token">Refresh Token</label>
+        <input id="crm-refresh-token" type="password" placeholder="1000.XXXXX.XXXXX" autocomplete="off" />
+
+        <label for="crm-dc">Data Centre</label>
+        <select id="crm-dc">
+          <option value="com">Global (zoho.com)</option>
+          <option value="in" selected>India (zoho.in)</option>
+          <option value="eu">Europe (zoho.eu)</option>
+          <option value="au">Australia (zoho.com.au)</option>
+          <option value="jp">Japan (zoho.jp)</option>
+        </select>
+      </div>
+
+      <p id="crm-modal-error" class="status err" style="min-height:1.2em"></p>
+
+      <div class="modal-actions">
+        <button id="crm-modal-cancel" class="ghost">Cancel</button>
+        <button id="crm-modal-submit" class="primary">Connect</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="app.js"></script>
