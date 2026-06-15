@@ -101,6 +101,11 @@
   --t-slow: 320ms;
 }
 
+/* Ensure the HTML `hidden` attribute always wins over any CSS display rule.
+   Without this, elements with display:flex/grid stay visible even when
+   hidden is set, because author CSS has higher specificity than the UA sheet. */
+[hidden] { display: none !important; }
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -1819,12 +1824,22 @@ footer code {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 2.75rem 2.5rem 2.25rem;
-  max-width: 420px;
+  padding: 2.5rem 2.5rem 2rem;
+  max-width: 480px;
   width: 100%;
   text-align: center;
   box-shadow: var(--shadow-lg);
   animation: panelEnter 0.25s ease;
+}
+
+/* Catalyst SDK renders the Zoho sign-in form in this div */
+#loginDivElementId {
+  margin-top: 0.5rem;
+  text-align: left;
+}
+#loginDivElementId iframe {
+  width: 100% !important;
+  border: none;
 }
 
 /* Zoho 4-colour icon grid used in login + consent */
