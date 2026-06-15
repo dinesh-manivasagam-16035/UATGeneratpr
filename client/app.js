@@ -78,7 +78,9 @@
     pushed: false,
     authUser: null,
     crmAuthorized: false,
+    crmSource: null,   // "server" | "user" | null
     crmEmail: null,
+    crmConsentGiven: false,
     stepDone: { input: false, cases: false, execute: false, push: false },
   };
 
@@ -569,17 +571,32 @@
   }
 
   // ---- Catalyst hosted auth + CRM consent ----
-  // Auth flow:
-  //   1. isUserAuthenticated() — if fails, redirect to /__catalyst/auth/login
-  //   2. On success, call checkCrmConsent() → GET /crm/status
-  //   3. If CRM not authorized → show consent screen
-  //   4. Consent "Authorize" button → GET /crm/auth → Zoho OAuth → /crm/callback → back here
+  // Flow:
+  //   1. Page loads → login card shows with a spinner (loader visible, sign-in btn hidden)
+  //   2. isUserAuthenticated() runs:
+  //      - Fails → hide spinner, reveal "Sign in with Zoho" button
+  //      - Succeeds → check CRM consent
+  //   3. CRM consent check (GET /crm/status):
+  //      - First visit per session → always show consent screen, even when env vars are set
+  //      - Consent button: if already authorized → "Continue" (no OAuth); else → OAuth flow
+  //   4. After consent accepted → main app
   // Local dev bypasses everything.
+
+  function revealLoginButton() {
+    const loader = document.getElementById("login-auth-loader");
+    const btn    = document.getElementById("login-signin-btn");
+    const note   = document.getElementById("login-note");
+    if (loader) loader.hidden = true;
+    if (btn)    btn.hidden   = false;
+    if (note)   note.hidden  = false;
+  }
 
   async function checkAuthStatus() {
     if (isLocal) {
-      state.authUser  = "dev@localhost (local)";
-      state.crmAuthorized = true;
+      state.authUser       = "dev@localhost (local)";
+      state.crmAuthorized  = true;
+      state.crmSource      = "server";
+      state.crmConsentGiven = true; // skip consent in local dev
       updateAuthUI();
       return;
     }
@@ -591,9 +608,11 @@
         || "Zoho User";
       await checkCrmConsent();
     } catch {
-      // Not authenticated — redirect to the Catalyst hosted login page.
-      state.authUser = null;
-      state.crmAuthorized = false;
+      // Not authenticated — reveal the "Sign in with Zoho" button.
+      state.authUser        = null;
+      state.crmAuthorized   = false;
+      state.crmConsentGiven = false;
+      revealLoginButton();
     }
     updateAuthUI();
   }
@@ -603,16 +622,45 @@
       const res  = await fetch(FUNCTION_BASE + "/crm/status", { credentials: "include" });
       const data = await res.json();
       state.crmAuthorized = data.authorized === true;
-      // If the server returned a CRM email, show it in the auth panel.
+      state.crmSource     = data.source || null;
       if (data.email && !state.crmEmail) state.crmEmail = data.email;
+      // Auto-accept consent if the user just completed OAuth (source: "user")
+      // — they already clicked Authorize in Zoho's own dialog.
+      if (state.crmAuthorized && state.crmSource === "user") {
+        sessionStorage.setItem("tp_crm_consent", "1");
+      }
     } catch {
       state.crmAuthorized = false;
+      state.crmSource     = null;
+    }
+    state.crmConsentGiven = sessionStorage.getItem("tp_crm_consent") === "1";
+  }
+
+  function updateConsentUI() {
+    const title    = document.getElementById("consent-title");
+    const subtitle = document.getElementById("consent-subtitle");
+    const btn      = document.getElementById("consent-btn");
+    if (!btn) return;
+
+    if (state.crmAuthorized) {
+      // Credentials exist (env vars or user OAuth) — consent is a one-time "Continue" click.
+      if (title)    title.textContent = "Your workspace is connected";
+      if (subtitle) subtitle.textContent =
+        "Zoho CRM and Projects are configured for TestPilot. " +
+        "Click Continue to start running UAT cases.";
+      btn.textContent = "Continue to TestPilot →";
+    } else {
+      // No credentials — user must go through OAuth.
+      if (title)    title.textContent = "Connect your workspace";
+      if (subtitle) subtitle.textContent =
+        "TestPilot needs access to your Zoho CRM and Projects to run test cases and log results.";
+      btn.textContent = "Authorize CRM & Projects";
     }
   }
 
   function updateAuthUI() {
-    const loggedIn      = !!state.authUser;
-    const crmOk         = state.crmAuthorized;
+    const loggedIn    = !!state.authUser;
+    const appReady    = loggedIn && state.crmConsentGiven;
 
     const loginScreen   = document.getElementById("login-screen");
     const consentScreen = document.getElementById("consent-screen");
@@ -629,10 +677,12 @@
       return;
     }
 
+    // Logged in
     if (loginScreen) loginScreen.hidden = true;
 
-    if (!crmOk) {
-      // Show consent screen while main app stays hidden.
+    if (!appReady) {
+      // Show consent screen (always, at least once per session).
+      updateConsentUI();
       if (consentScreen) consentScreen.hidden = false;
       if (tabsNav)       tabsNav.hidden       = true;
       if (mainEl)        mainEl.hidden        = true;
@@ -640,7 +690,7 @@
       return;
     }
 
-    // Fully authorized — show main app.
+    // Fully ready — show main app.
     if (consentScreen) consentScreen.hidden = true;
     if (tabsNav)       tabsNav.hidden       = false;
     if (mainEl)        mainEl.hidden        = false;
@@ -655,23 +705,33 @@
   function initAuth() {
     checkAuthStatus();
 
-    // Consent screen "Authorize" button → start CRM OAuth.
+    // Consent "Continue / Authorize" button.
     const consentBtn = document.getElementById("consent-btn");
     if (consentBtn) {
       consentBtn.addEventListener("click", () => {
-        window.location.href = FUNCTION_BASE + "/crm/auth";
+        if (state.crmAuthorized) {
+          // Credentials already configured (server env vars or user OAuth).
+          // Just record that the user accepted and show the app.
+          sessionStorage.setItem("tp_crm_consent", "1");
+          state.crmConsentGiven = true;
+          updateAuthUI();
+        } else {
+          // Need to do OAuth — redirect to /crm/auth.
+          window.location.href = FUNCTION_BASE + "/crm/auth";
+        }
       });
     }
 
-    // Sign-out: revoke Catalyst session and reload.
+    // Sign-out: revoke Catalyst session and clear consent flag.
     if (els.authLogoutBtn) {
       els.authLogoutBtn.addEventListener("click", () => {
-        if (isLocal) { state.authUser = null; state.crmAuthorized = false; updateAuthUI(); return; }
+        sessionStorage.removeItem("tp_crm_consent");
+        if (isLocal) { state.authUser = null; state.crmConsentGiven = false; updateAuthUI(); return; }
         window.catalyst.auth.signOut("/app/index.html");
       });
     }
 
-    // "Connect Zoho CRM" button in Brief tab — re-trigger consent if CRM disconnected.
+    // "Connect Zoho CRM" button inside Brief tab — re-trigger OAuth if CRM disconnected.
     if (els.authLoginBtn) {
       els.authLoginBtn.addEventListener("click", () => {
         window.location.href = FUNCTION_BASE + "/crm/auth";
