@@ -1,85 +1,87 @@
 /* ================================================================
-   TestPilot — Zoho-blue palette with light/dark themes
+   TestPilot — Zoho brand palette with light/dark themes
+   Zoho icon colours: blue #0052CC · orange #F26C01
+                      green #00875A · amber #FF8B00
    ================================================================ */
 
 :root,
 :root[data-theme="light"] {
-  --bg: #f5f7fb;
-  --bg-elevated: #ffffff;
-  --bg-subtle: #f8fafc;
-  --bg-hover: #eef2f7;
+  --bg: #F4F5F7;
+  --bg-elevated: #FFFFFF;
+  --bg-subtle: #FAFBFC;
+  --bg-hover: #EBECF0;
 
-  --text: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text: #172B4D;
+  --text-secondary: #5E6C84;
+  --text-muted: #8993A4;
 
-  --accent: #2e6ee8;
-  --accent-hover: #1e57c5;
-  --accent-active: #1849a8;
-  --accent-soft: #eaf1ff;
-  --accent-line: #c2d6fb;
-  --accent-gradient: linear-gradient(135deg, #2e6ee8 0%, #6366f1 100%);
+  --accent: #0052CC;
+  --accent-hover: #0041A8;
+  --accent-active: #003380;
+  --accent-soft: #DEEBFF;
+  --accent-line: #B3D4FF;
+  --accent-gradient: linear-gradient(135deg, #0052CC 0%, #0066FF 55%, #4C9AFF 100%);
 
-  --border: #d6dce6;
-  --border-strong: #b6c0d0;
-  --divider: #e9edf4;
+  --border: #DFE1E6;
+  --border-strong: #B3BAC5;
+  --divider: #EBECF0;
 
-  --ok: #16a34a;
-  --ok-bg: #d1fadf;
-  --ok-border: #a7f0bf;
+  --ok: #00875A;
+  --ok-bg: #E3FCEF;
+  --ok-border: #ABF5D1;
 
-  --warn: #ea580c;
-  --warn-bg: #fff0e0;
-  --warn-border: #fdba74;
+  --warn: #FF8B00;
+  --warn-bg: #FFFAE6;
+  --warn-border: #FFE380;
 
-  --err: #dc2626;
-  --err-bg: #fee2e2;
-  --err-border: #fca5a5;
+  --err: #DE350B;
+  --err-bg: #FFEBE6;
+  --err-border: #FFBDAD;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.05);
-  --shadow-accent: 0 4px 12px rgba(46, 110, 232, 0.22);
+  --shadow-sm: 0 1px 1px rgba(9, 30, 66, 0.08), 0 0 0 1px rgba(9, 30, 66, 0.08);
+  --shadow-md: 0 4px 8px -2px rgba(9, 30, 66, 0.10), 0 0 0 1px rgba(9, 30, 66, 0.06);
+  --shadow-lg: 0 8px 16px -4px rgba(9, 30, 66, 0.12), 0 0 0 1px rgba(9, 30, 66, 0.06);
+  --shadow-accent: 0 4px 14px rgba(0, 82, 204, 0.30);
 }
 
 /* ---- Dark theme ---- */
 :root[data-theme="dark"] {
-  --bg: #0d1117;
-  --bg-elevated: #161b22;
-  --bg-subtle: #1c232c;
-  --bg-hover: #1f2730;
+  --bg: #0D1117;
+  --bg-elevated: #161B27;
+  --bg-subtle: #1C2535;
+  --bg-hover: #1F2C42;
 
-  --text: #e6e9ef;
-  --text-secondary: #b3becc;
-  --text-muted: #7b8794;
+  --text: #E6EDF4;
+  --text-secondary: #9BB5CF;
+  --text-muted: #6B849A;
 
-  --accent: #58a6ff;
-  --accent-hover: #79b8ff;
-  --accent-active: #4090ff;
-  --accent-soft: #15233b;
-  --accent-line: #284268;
-  --accent-gradient: linear-gradient(135deg, #58a6ff 0%, #818cf8 100%);
+  --accent: #4C9AFF;
+  --accent-hover: #79B8FF;
+  --accent-active: #4090FF;
+  --accent-soft: #102D5E;
+  --accent-line: #1C4B8A;
+  --accent-gradient: linear-gradient(135deg, #0066FF 0%, #4C9AFF 55%, #82C5FF 100%);
 
-  --border: #2d3540;
-  --border-strong: #3d4753;
-  --divider: #232a34;
+  --border: #2D3850;
+  --border-strong: #3D506A;
+  --divider: #1F2C42;
 
-  --ok: #3fb950;
-  --ok-bg: #0f2916;
-  --ok-border: #1f5c2e;
+  --ok: #2DB87D;
+  --ok-bg: #0B2E1F;
+  --ok-border: #1A5E3F;
 
-  --warn: #d97706;
-  --warn-bg: #2a1a08;
-  --warn-border: #6b3d0f;
+  --warn: #D97706;
+  --warn-bg: #2A1E08;
+  --warn-border: #6B3E0F;
 
-  --err: #f85149;
-  --err-bg: #2d1418;
-  --err-border: #6e2326;
+  --err: #F85149;
+  --err-bg: #2D1418;
+  --err-border: #6E2326;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 20px -5px rgba(0, 0, 0, 0.6);
-  --shadow-accent: 0 4px 14px rgba(88, 166, 255, 0.28);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 10px 20px -5px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(76, 154, 255, 0.10);
+  --shadow-accent: 0 4px 14px rgba(76, 154, 255, 0.30);
 }
 
 /* ---- Shared design tokens (theme-independent) ---- */
@@ -144,9 +146,30 @@ header .brand-mark {
   color: white;
   box-shadow: var(--shadow-accent);
   transition: transform var(--t-base) var(--ease-spring);
+  overflow: hidden;
 }
 header .brand-mark:hover { transform: rotate(-12deg) scale(1.05); }
 header .brand-mark svg { color: white; }
+
+/* Zoho 4-colour brand mark (2×2 grid) */
+header .brand-mark-zoho {
+  background: transparent;
+  padding: 4px;
+  gap: 0;
+}
+.bm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+  gap: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bm-q {
+  border-radius: 2px;
+}
 
 .header-actions {
   display: flex;
@@ -726,7 +749,7 @@ button.primary:hover:not(:disabled)::before {
 
 button.primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(46, 110, 232, 0.28);
+  box-shadow: 0 6px 16px rgba(0, 82, 204, 0.32);
 }
 
 button.primary:active:not(:disabled) {
@@ -1757,5 +1780,229 @@ footer code {
   .toast { transform: translateY(120%); }
   @keyframes toastIn  { to { transform: translateY(0); opacity: 1; } }
   @keyframes toastOut { to { transform: translateY(120%); opacity: 0; } }
+}
+
+/* ================================================================
+   Login screen
+   ================================================================ */
+
+/* ---- Login screen ---- */
+#login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 68px);
+  padding: 2rem 1rem;
+}
+
+.login-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2.75rem 2.5rem 2.25rem;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  animation: panelEnter 0.25s ease;
+}
+
+/* Zoho 4-colour icon grid used in login + consent */
+.zoho-icon-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  overflow: hidden;
+  gap: 3px;
+  background: var(--border);
+  margin: 0 auto 1.5rem;
+}
+.zi           { border-radius: 2px; }
+.zi-blue      { background: #0052CC; }
+.zi-orange    { background: #F26C01; }
+.zi-green     { background: #00875A; }
+.zi-amber     { background: #FF8B00; }
+
+.login-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+  letter-spacing: -0.025em;
+}
+
+.login-tagline {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.75rem;
+}
+
+.login-features {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  margin-bottom: 1.75rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.login-feature {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.login-feature-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.login-signin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  padding: 12px 20px;
+  background: var(--accent-gradient);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-accent);
+  transition: transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.login-signin-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 82, 204, 0.38);
+}
+
+.login-signin-btn svg {
+  flex-shrink: 0;
+}
+
+.login-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 0.85rem 0 0;
+  line-height: 1.5;
+}
+
+/* ---- Consent screen ---- */
+#consent-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 68px);
+  padding: 2rem 1rem;
+}
+
+.consent-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2.75rem 2.5rem 2.25rem;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  animation: panelEnter 0.25s ease;
+}
+
+.consent-title {
+  font-size: 1.55rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+  letter-spacing: -0.02em;
+}
+
+.consent-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.5rem;
+  line-height: 1.55;
+}
+
+.consent-scopes {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 1.5rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.consent-scope-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scope-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.scope-icon.crm      { background: linear-gradient(135deg, #0052CC, #0066FF); }
+.scope-icon.projects { background: linear-gradient(135deg, #00875A, #2DB87D); }
+
+.consent-scope-item > div strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+}
+
+.consent-scope-item > div p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 0;
+  line-height: 1.4;
+}
+
+.consent-connect-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+  margin-bottom: 0.75rem;
+}
+
+.consent-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .login-card, .consent-card { padding: 2rem 1.25rem 1.75rem; border-radius: 16px; }
+  .login-title { font-size: 1.65rem; }
+  .consent-title { font-size: 1.35rem; }
 }
 

@@ -8,6 +8,9 @@
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
   <link rel="stylesheet" href="styles.css" />
+  <!-- Catalyst Web SDK — must load before app.js uses catalyst.auth -->
+  <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0/catalystWebSDK.js"></script>
+  <script src="/__catalyst/sdk/init.js"></script>
   <script>
     // Set theme before stylesheet paints to avoid flash.
     (function () {
@@ -21,11 +24,13 @@
 <body>
   <header>
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 2 11 13" />
-          <path d="M22 2 15 22l-4-9-9-4 20-7z" />
-        </svg>
+      <span class="brand-mark brand-mark-zoho" aria-hidden="true">
+        <span class="bm-grid">
+          <span class="bm-q" style="background:#0052CC"></span>
+          <span class="bm-q" style="background:#F26C01"></span>
+          <span class="bm-q" style="background:#00875A"></span>
+          <span class="bm-q" style="background:#FF8B00"></span>
+        </span>
       </span>
       <div>
         <h1>Test<span class="brand-accent">Pilot</span></h1>
@@ -46,7 +51,76 @@
     </div>
   </header>
 
-  <nav class="tabs" role="tablist" aria-label="TestPilot workflow">
+  <!-- Login screen — shown while auth is being checked or when unauthenticated -->
+  <section id="login-screen" aria-label="Sign in to TestPilot">
+    <div class="login-card">
+      <div class="zoho-icon-grid" aria-hidden="true">
+        <div class="zi zi-blue"></div>
+        <div class="zi zi-orange"></div>
+        <div class="zi zi-green"></div>
+        <div class="zi zi-amber"></div>
+      </div>
+      <h2 class="login-title">Test<span class="brand-accent">Pilot</span></h2>
+      <p class="login-tagline">Your UAT, on autopilot.</p>
+      <div class="login-features">
+        <div class="login-feature">
+          <span class="login-feature-dot" style="background:#0052CC"></span>
+          Generate UAT cases from your spec document
+        </div>
+        <div class="login-feature">
+          <span class="login-feature-dot" style="background:#F26C01"></span>
+          Execute tests live against Zoho CRM
+        </div>
+        <div class="login-feature">
+          <span class="login-feature-dot" style="background:#00875A"></span>
+          Push results to Zoho Projects as tasks &amp; bugs
+        </div>
+      </div>
+      <a href="/__catalyst/auth/login" class="login-signin-btn" id="login-signin-btn">
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="currentColor">
+          <path d="M10 0C4.477 0 0 4.477 0 10s4.477 10 10 10 10-4.477 10-10S15.523 0 10 0zm0 18a8 8 0 110-16 8 8 0 010 16zm-1-5h2v2H9v-2zm0-8h2v6H9V5z"/>
+        </svg>
+        Sign in with Zoho
+      </a>
+      <p class="login-note">Sign in using your Zoho account. No password stored here.</p>
+    </div>
+  </section>
+
+  <!-- Consent screen — shown after Catalyst login if CRM/Projects not yet authorized -->
+  <section id="consent-screen" hidden aria-label="Authorize TestPilot">
+    <div class="consent-card">
+      <div class="zoho-icon-grid" aria-hidden="true">
+        <div class="zi zi-blue"></div>
+        <div class="zi zi-orange"></div>
+        <div class="zi zi-green"></div>
+        <div class="zi zi-amber"></div>
+      </div>
+      <h2 class="consent-title">Connect your workspace</h2>
+      <p class="consent-subtitle">TestPilot needs access to your Zoho CRM and Projects to run test cases and log results.</p>
+      <div class="consent-scopes">
+        <div class="consent-scope-item">
+          <span class="scope-icon crm">CRM</span>
+          <div>
+            <strong>Zoho CRM</strong>
+            <p>Read modules, create and validate records during test execution</p>
+          </div>
+        </div>
+        <div class="consent-scope-item">
+          <span class="scope-icon projects">PRJ</span>
+          <div>
+            <strong>Zoho Projects</strong>
+            <p>Create tasks and bug reports for test case results</p>
+          </div>
+        </div>
+      </div>
+      <button id="consent-btn" class="primary consent-connect-btn">
+        Authorize CRM &amp; Projects
+      </button>
+      <p class="consent-note">You can revoke access anytime from Zoho Connected Apps.</p>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="TestPilot workflow" hidden>
     <button class="tab active" data-tab="input" data-step="1" id="tab-input" role="tab" aria-selected="true" aria-controls="panel-input">
       <span class="tab-num">1</span><span class="tab-label">Brief</span><span class="tab-state"></span>
     </button>
@@ -64,7 +138,7 @@
     </button>
   </nav>
 
-  <main>
+  <main hidden>
 
     <!-- Tab 1: Input -->
     <section class="tab-panel active" data-panel="input" id="panel-input" role="tabpanel" aria-labelledby="tab-input">
@@ -209,7 +283,7 @@
 
   </main>
 
-  <footer>
+  <footer hidden>
     <small>Catalyst Java function <code>/server/uat_generator/</code></small>
     <span class="footer-badge" id="footer-badge" aria-label="Data center and version">IN&nbsp;DC · v1</span>
   </footer>

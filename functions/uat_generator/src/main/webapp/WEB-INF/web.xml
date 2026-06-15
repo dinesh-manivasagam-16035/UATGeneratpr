@@ -90,38 +90,30 @@
   </servlet-mapping>
 
   <servlet>
-    <servlet-name>auth-login</servlet-name>
-    <servlet-class>com.uat.generator.AuthLoginServlet</servlet-class>
+    <servlet-name>crm-status</servlet-name>
+    <servlet-class>com.uat.generator.CrmConsentServlet</servlet-class>
   </servlet>
   <servlet-mapping>
-    <servlet-name>auth-login</servlet-name>
-    <url-pattern>/auth/login</url-pattern>
+    <servlet-name>crm-status</servlet-name>
+    <url-pattern>/crm/status</url-pattern>
   </servlet-mapping>
 
   <servlet>
-    <servlet-name>auth-callback</servlet-name>
-    <servlet-class>com.uat.generator.AuthCallbackServlet</servlet-class>
+    <servlet-name>crm-auth</servlet-name>
+    <servlet-class>com.uat.generator.CrmAuthServlet</servlet-class>
   </servlet>
   <servlet-mapping>
-    <servlet-name>auth-callback</servlet-name>
-    <url-pattern>/auth/callback</url-pattern>
+    <servlet-name>crm-auth</servlet-name>
+    <url-pattern>/crm/auth</url-pattern>
   </servlet-mapping>
 
   <servlet>
-    <servlet-name>auth-status</servlet-name>
-    <servlet-class>com.uat.generator.AuthStatusServlet</servlet-class>
+    <servlet-name>crm-callback</servlet-name>
+    <servlet-class>com.uat.generator.CrmCallbackServlet</servlet-class>
   </servlet>
   <servlet-mapping>
-    <servlet-name>auth-status</servlet-name>
-    <url-pattern>/auth/status</url-pattern>
+    <servlet-name>crm-callback</servlet-name>
+    <url-pattern>/crm/callback</url-pattern>
   </servlet-mapping>
 
-  <servlet>
-    <servlet-name>auth-logout</servlet-name>
-    <servlet-class>com.uat.generator.AuthLogoutServlet</servlet-class>
-  </servlet>
-  <servlet-mapping>
-    <servlet-name>auth-logout</servlet-name>
-    <url-pattern>/auth/logout</url-pattern>
-  </servlet-mapping>
 </web-app>
