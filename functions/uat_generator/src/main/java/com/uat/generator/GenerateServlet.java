@@ -39,7 +39,12 @@ public class GenerateServlet extends HttpServlet {
         resp.setContentType("application/json");
         CorsSupport.apply(req, resp);
 
-        String provider = System.getenv().getOrDefault("LLM_PROVIDER", "claude");
+        String llmProvider = System.getenv().getOrDefault("LLM_PROVIDER", "claude");
+        String model = System.getenv().getOrDefault("COPILOT_MODEL", "Claude-3.7-Sonnet");
+        // Display label shown in the UI — reflects actual model when using GitHub Models
+        String provider = "mock".equalsIgnoreCase(llmProvider) ? "mock"
+                        : "zia".equalsIgnoreCase(llmProvider)  ? "zia"
+                        : "GitHub Models (" + model + ")";
         int brdLength = 0;
         List<String> modules = new ArrayList<>();
 
@@ -75,9 +80,9 @@ public class GenerateServlet extends HttpServlet {
             for (String module : modules) {
                 String moduleSchema = ModuleSchemas.forModule(module);
                 String llmResponse;
-                if ("mock".equalsIgnoreCase(provider)) {
+                if ("mock".equalsIgnoreCase(llmProvider)) {
                     llmResponse = MockLlmClient.generate(brd, module, moduleSchema);
-                } else if ("zia".equalsIgnoreCase(provider)) {
+                } else if ("zia".equalsIgnoreCase(llmProvider)) {
                     llmResponse = ZiaClient.generate(brd, module, moduleSchema);
                 } else {
                     llmResponse = ClaudeClient.generate(brd, module, moduleSchema);

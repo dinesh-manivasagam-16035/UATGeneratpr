@@ -136,6 +136,65 @@ public final class ClaudeClient {
             + " - No prose, no markdown fencing — JSON array only.";
     }
 
+    /**
+     * Analyze a UAT spec document and suggest up to 3 CRM modules using the
+     * GitHub Models API. Returns a raw JSON string:
+     * { "suggested_modules": ["Leads",...], "analysis": "..." }
+     */
+    public static String analyze(String brd, String moduleNames) throws Exception {
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token == null || token.isEmpty()) {
+            throw new IllegalStateException("GITHUB_TOKEN not set");
+        }
+
+        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
+        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
+
+        String sysPrompt =
+            "You are a Zoho CRM expert. You will receive a UAT specification document and a "
+            + "JSON array of CRM module api_names available in the org. "
+            + "Your job: identify which modules (up to 3) the spec is primarily testing, "
+            + "and write a concise 1–2 sentence analysis of what the document covers. "
+            + "Output ONLY a JSON object with exactly two keys: "
+            + "\"suggested_modules\" (array of api_name strings, up to 3, from the provided list) "
+            + "and \"analysis\" (string). No markdown, no prose outside the JSON.";
+
+        String userPrompt =
+            "Available modules: " + moduleNames + "\n\n"
+            + "UAT spec document:\n" + brd + "\n\n"
+            + "Return JSON only: {\"suggested_modules\":[...],\"analysis\":\"...\"}";
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("model", model);
+        payload.put("max_tokens", 512);
+
+        ArrayNode messages = payload.putArray("messages");
+        ObjectNode sys = messages.addObject();
+        sys.put("role", "system");
+        sys.put("content", sysPrompt);
+        ObjectNode user = messages.addObject();
+        user.put("role", "user");
+        user.put("content", userPrompt);
+
+        try (CloseableHttpClient http = HttpClients.createDefault()) {
+            HttpPost post = new HttpPost(endpoint);
+            post.setHeader("Authorization", "Bearer " + token);
+            post.setHeader("Content-Type", "application/json");
+            post.setEntity(new StringEntity(MAPPER.writeValueAsString(payload), ContentType.APPLICATION_JSON));
+
+            return http.execute(post, response -> {
+                String body2 = EntityUtils.toString(response.getEntity());
+                int code = response.getCode();
+                if (code >= 400) {
+                    throw new RuntimeException("GitHub Models API error " + code + ": " + body2);
+                }
+                JsonNode root = MAPPER.readTree(body2);
+                JsonNode content = root.path("choices").path(0).path("message").path("content");
+                return content.isMissingNode() ? body2 : content.asText();
+            });
+        }
+    }
+
     private static String buildUserPrompt(String brd, String module, String moduleSchema) {
         return "Module: " + module + "\n\n"
             + "Module schema (CRM defaults — supplement, but DO NOT override the spec):\n"

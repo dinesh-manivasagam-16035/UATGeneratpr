@@ -87,57 +87,98 @@ public class AnalyzeServlet extends HttpServlet {
                 return;
             }
 
-            String lowerBrd = brd.toLowerCase(Locale.ROOT);
-            List<ScoredModule> scored = new ArrayList<>();
-
+            // Build module name list for LLM prompt
+            List<String> moduleApiNames = new ArrayList<>();
             for (JsonNode m : modules) {
                 String apiName = m.path("api_name").asText("");
-                if (apiName.isEmpty()) continue;
-                String plural = m.path("plural_label").asText("").toLowerCase(Locale.ROOT);
-                String singular = m.path("singular_label").asText("").toLowerCase(Locale.ROOT);
-
-                Set<String> tokens = new HashSet<>();
-                addTokens(tokens, apiName);
-                addTokens(tokens, plural);
-                addTokens(tokens, singular);
-                // Add curated synonyms for known module types
-                String[] syn = SYNONYMS.get(apiName);
-                if (syn != null) tokens.addAll(Arrays.asList(syn));
-
-                ScoredModule sm = new ScoredModule(apiName,
-                        m.path("plural_label").asText(apiName));
-                for (String t : tokens) {
-                    if (t.length() < 3) continue;
-                    int n = countOccurrences(lowerBrd, t);
-                    if (n > 0) {
-                        sm.score += n * Math.max(1, t.length() / 4);
-                        sm.matches.add(t);
-                    }
-                }
-                if (sm.score > 0) scored.add(sm);
+                if (!apiName.isEmpty()) moduleApiNames.add(apiName);
             }
-
-            scored.sort(Comparator.<ScoredModule>comparingInt(x -> -x.score)
-                    .thenComparing(x -> x.apiName));
+            String moduleNameList = String.join(", ", moduleApiNames);
 
             ObjectNode out = MAPPER.createObjectNode();
-            out.put("analysis", buildAnalysis(brd, scored));
-            ArrayNode suggested = out.putArray("suggested_modules");
-            ArrayNode ranking = out.putArray("ranking");
-            int taken = 0;
-            for (ScoredModule sm : scored) {
-                if (taken < TOP_N) {
-                    suggested.add(sm.apiName);
-                    taken++;
+            String method = "heuristic";
+
+            // Try LLM-powered analysis first (requires GITHUB_TOKEN)
+            boolean llmSucceeded = false;
+            if (System.getenv("GITHUB_TOKEN") != null && !System.getenv("GITHUB_TOKEN").isEmpty()) {
+                try {
+                    String llmRaw = ClaudeClient.analyze(brd, moduleNameList);
+                    // Strip markdown fencing if model wrapped it
+                    String trimmed = llmRaw.trim();
+                    if (trimmed.startsWith("```")) {
+                        trimmed = trimmed.replaceAll("(?s)^```[a-z]*\\n?", "").replaceAll("```$", "").trim();
+                    }
+                    int start = trimmed.indexOf('{');
+                    int end   = trimmed.lastIndexOf('}');
+                    if (start >= 0 && end > start) trimmed = trimmed.substring(start, end + 1);
+
+                    JsonNode llmOut = MAPPER.readTree(trimmed);
+                    ArrayNode suggested = out.putArray("suggested_modules");
+                    JsonNode llmSuggested = llmOut.path("suggested_modules");
+                    if (llmSuggested.isArray()) {
+                        for (JsonNode s : llmSuggested) {
+                            String v = s.asText("").trim();
+                            if (!v.isEmpty() && moduleApiNames.contains(v)) suggested.add(v);
+                        }
+                    }
+                    out.put("analysis", llmOut.path("analysis").asText("Document analyzed by LLM."));
+                    out.putArray("ranking"); // empty — LLM doesn't score
+                    method = "llm";
+                    llmSucceeded = true;
+                } catch (Exception llmEx) {
+                    LOG.warning("LLM analyze failed, falling back to heuristic: " + llmEx.getMessage());
                 }
-                ObjectNode r = ranking.addObject();
-                r.put("api_name", sm.apiName);
-                r.put("label", sm.label);
-                r.put("score", sm.score);
-                ArrayNode mArr = r.putArray("matches");
-                sm.matches.forEach(mArr::add);
             }
-            out.put("method", "heuristic");
+
+            if (!llmSucceeded) {
+                // Keyword heuristic fallback
+                String lowerBrd = brd.toLowerCase(Locale.ROOT);
+                List<ScoredModule> scored = new ArrayList<>();
+
+                for (JsonNode m : modules) {
+                    String apiName = m.path("api_name").asText("");
+                    if (apiName.isEmpty()) continue;
+                    String plural   = m.path("plural_label").asText("").toLowerCase(Locale.ROOT);
+                    String singular = m.path("singular_label").asText("").toLowerCase(Locale.ROOT);
+
+                    Set<String> tokens = new HashSet<>();
+                    addTokens(tokens, apiName);
+                    addTokens(tokens, plural);
+                    addTokens(tokens, singular);
+                    String[] syn = SYNONYMS.get(apiName);
+                    if (syn != null) tokens.addAll(Arrays.asList(syn));
+
+                    ScoredModule sm = new ScoredModule(apiName, m.path("plural_label").asText(apiName));
+                    for (String t : tokens) {
+                        if (t.length() < 3) continue;
+                        int n = countOccurrences(lowerBrd, t);
+                        if (n > 0) {
+                            sm.score += n * Math.max(1, t.length() / 4);
+                            sm.matches.add(t);
+                        }
+                    }
+                    if (sm.score > 0) scored.add(sm);
+                }
+
+                scored.sort(Comparator.<ScoredModule>comparingInt(x -> -x.score)
+                        .thenComparing(x -> x.apiName));
+
+                out.put("analysis", buildAnalysis(brd, scored));
+                ArrayNode suggested = out.putArray("suggested_modules");
+                ArrayNode ranking   = out.putArray("ranking");
+                int taken = 0;
+                for (ScoredModule sm : scored) {
+                    if (taken < TOP_N) { suggested.add(sm.apiName); taken++; }
+                    ObjectNode r = ranking.addObject();
+                    r.put("api_name", sm.apiName);
+                    r.put("label",    sm.label);
+                    r.put("score",    sm.score);
+                    ArrayNode mArr = r.putArray("matches");
+                    sm.matches.forEach(mArr::add);
+                }
+            }
+
+            out.put("method", method);
             out.put("brd_length", brd.length());
 
             resp.setStatus(HttpServletResponse.SC_OK);
