@@ -16,6 +16,7 @@
     fileDrop:  document.getElementById("file-drop"),
     fileMeta:  document.getElementById("file-meta"),
     generate:  document.getElementById("generate-btn"),
+    downloadSampleBtn: document.getElementById("download-sample-btn"),
     statusInput: document.getElementById("status-input"),
 
     moduleChips:        document.getElementById("module-chips"),
@@ -514,6 +515,197 @@
     container.innerHTML = html.join("");
   }
 
+  // ---- Sample template download ----
+
+  function downloadSampleTemplate() {
+    const content = `# UAT Test Cases Document — [Feature Name]
+
+## Overview
+**Module:** [e.g., Leads / Contacts / Deals]
+**Developer:** [Your Name]
+**Date:** [YYYY-MM-DD]
+**Version:** 1.0
+
+---
+
+## Feature Description
+[Describe the feature being tested. What does it do? What business problem does it solve?]
+
+---
+
+## Fields
+
+| Field API Name | Label           | Type     | Required | Constraints                           | Default |
+|----------------|-----------------|----------|----------|---------------------------------------|---------|
+| Last_Name      | Last Name       | Text     | Yes      | Max 80 chars                          | —       |
+| Email          | Email           | Email    | No       | Valid email format                    | —       |
+| Phone          | Phone           | Phone    | No       | Max 30 chars                          | —       |
+| Lead_Status    | Status          | Picklist | No       | New, Contacted, Qualified, Unqualified| New     |
+
+---
+
+## Use Cases
+
+### UC-1: Create a new record
+**Description:** A user creates a new record with all required fields filled.
+
+**Preconditions:** User is logged in with Create permission.
+
+**Required fields:** Last_Name
+**Optional fields:** Email, Phone, Lead_Status
+
+**Expected result:** Record is created and appears in the list view.
+
+---
+
+### UC-2: Edit an existing record
+**Description:** A user edits an existing record's details.
+
+**Preconditions:** A record exists. User has Edit permission.
+
+**Fields to edit:** Email, Phone
+
+**Expected result:** Changes are saved and reflected on the detail page.
+
+---
+
+### UC-3: Delete a record
+**Description:** A user deletes a record.
+
+**Preconditions:** A record exists. User has Delete permission.
+
+**Expected result:** Record moves to Recycle Bin. No longer visible in list view.
+
+---
+
+### UC-4: Validation — missing required field
+**Description:** Submitting a form without the required Last_Name field.
+
+**Input:** Leave Last_Name blank, fill all other optional fields.
+
+**Expected result:** Validation error is shown. Record is NOT created.
+
+---
+
+### UC-5: Validation — invalid email format
+**Description:** Entering an invalid value in the Email field.
+
+**Input:** Email = "not-an-email"
+
+**Expected result:** Field-level validation error shown. Record is NOT created.
+
+---
+
+### UC-6: Picklist — invalid value
+**Description:** Sending an unlisted picklist value via API.
+
+**Input:** Lead_Status = "Unknown_Value"
+
+**Expected result:** API returns INVALID_DATA error.
+
+---
+
+### UC-7: Duplicate detection
+**Description:** Creating a record with the same Email as an existing one.
+
+**Input:** Email = already existing record's email
+
+**Expected result:** Duplicate alert shown (or API returns DUPLICATE_DATA).
+
+---
+
+## Notes
+- Prefix all test record names with **UAT-Smoke-** (e.g. "UAT-Smoke-Lead-001").
+- Delete test records after each run to keep the org clean.
+- Use zohoapis.in for India DC, zohoapis.com for Global DC.
+`;
+    triggerDownload(
+      new Blob([content], { type: "text/markdown;charset=utf-8" }),
+      "test-cases-template.md"
+    );
+  }
+
+  // ---- Default API smoke tests injected alongside generated cases ----
+
+  const MODULE_REQUIRED_FIELDS = {
+    Leads:    { Last_Name: "UAT-Smoke-Lead" },
+    Contacts: { Last_Name: "UAT-Smoke-Contact" },
+    Accounts: { Account_Name: "UAT-Smoke-Account" },
+    Deals:    { Deal_Name: "UAT-Smoke-Deal", Stage: "Qualification", Closing_Date: "2026-12-31" },
+    Tasks:    { Subject: "UAT-Smoke-Task", Due_Date: "2026-12-31", Status: "Not Started" },
+    Cases:    { Subject: "UAT-Smoke-Case" },
+    Products: { Product_Name: "UAT-Smoke-Product", Unit_Price: 100 },
+    Quotes:   { Subject: "UAT-Smoke-Quote" },
+  };
+
+  function buildDefaultApiTests(modulesSelected) {
+    const tests = [];
+    for (const moduleName of modulesSelected) {
+      const body = MODULE_REQUIRED_FIELDS[moduleName] || { Last_Name: "UAT-Smoke-Record" };
+
+      tests.push({
+        title: `[API Smoke] GET ${moduleName} — list records`,
+        priority: "P0",
+        category: "api",
+        module: moduleName,
+        tags: ["api", "smoke", "default"],
+        gherkin: `Given the CRM API is reachable\nWhen I GET /crm/v3/${moduleName}\nThen HTTP 200 is returned with a data array`,
+        steps: [{ action: `GET /crm/v3/${moduleName}`, expected: "HTTP 200, code=SUCCESS" }],
+        acceptance: "List API returns 200 OK",
+        spec_ref: "Default API smoke test",
+        execution_plan: [
+          { description: `List ${moduleName} records`, method: "GET",
+            path: `/crm/v3/${moduleName}`,
+            assertions: [{ path: "code", equals: "SUCCESS" }] },
+        ],
+      });
+
+      tests.push({
+        title: `[API Smoke] POST ${moduleName} — create & delete`,
+        priority: "P0",
+        category: "api",
+        module: moduleName,
+        tags: ["api", "smoke", "default", "crud"],
+        gherkin: `Given the CRM API is reachable\nWhen I POST to /crm/v3/${moduleName} with required fields\nThen the record is created (code=SUCCESS) and can be deleted`,
+        steps: [
+          { action: `POST /crm/v3/${moduleName}`, expected: "code=SUCCESS, ID returned" },
+          { action: `DELETE /crm/v3/${moduleName}/{{record_id}}`, expected: "code=SUCCESS" },
+        ],
+        acceptance: "Create + delete API works end-to-end",
+        spec_ref: "Default API smoke test",
+        execution_plan: [
+          { description: `Create ${moduleName} record`, method: "POST",
+            path: `/crm/v3/${moduleName}`,
+            body: { data: [body] },
+            capture: { record_id: "data[0].details.id" },
+            assertions: [{ path: "data[0].code", equals: "SUCCESS" }] },
+          { description: `Delete ${moduleName} record`, method: "DELETE",
+            path: `/crm/v3/${moduleName}/{{record_id}}`,
+            assertions: [{ path: "data[0].code", equals: "SUCCESS" }] },
+        ],
+      });
+
+      tests.push({
+        title: `[API Smoke] Invalid auth — expect 401`,
+        priority: "P1",
+        category: "security",
+        module: moduleName,
+        tags: ["api", "smoke", "default", "security"],
+        gherkin: `Given I use an invalid Authorization token\nWhen I GET /crm/v3/${moduleName}\nThen HTTP 401 is returned`,
+        steps: [{ action: `GET /crm/v3/${moduleName} with bad token`, expected: "HTTP 401 Unauthorized" }],
+        acceptance: "API rejects invalid credentials",
+        spec_ref: "Default API smoke test",
+        execution_plan: [
+          { description: `Bad-auth request to ${moduleName}`, method: "GET",
+            path: `/crm/v3/${moduleName}`,
+            override_auth: "INVALID_TOKEN",
+            assertions: [{ path: "httpStatus", equals: 401 }] },
+        ],
+      });
+    }
+    return tests;
+  }
+
   // ---- Actions ----
 
   async function generate() {
@@ -546,7 +738,9 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
 
-      state.cases = Array.isArray(data.cases) ? data.cases : [];
+      const aiCases = Array.isArray(data.cases) ? data.cases : [];
+      const defaultTests = buildDefaultApiTests(state.modulesSelected);
+      state.cases = [...defaultTests, ...aiCases];
       state.payload = data.projects_payload || null;
       state.executed = false;
       state.pushed = false;
@@ -556,7 +750,7 @@
         : "";
       els.casesMeta.innerHTML =
         `<span class="cases-count" id="cases-count">0</span>` +
-        ` case(s) generated via ${escapeHtml(data.provider)}` +
+        ` case(s) — ${defaultTests.length} API smoke + ${aiCases.length} via ${escapeHtml(data.provider)}` +
         (breakdown ? `  •  ${escapeHtml(breakdown)}` : "");
       animateCountUp(document.getElementById("cases-count"), state.cases.length);
       renderCasesList(els.cases, { showExec: false, showPush: false });
@@ -1397,6 +1591,7 @@
   });
 
   els.generate.addEventListener("click", generate);
+  if (els.downloadSampleBtn) els.downloadSampleBtn.addEventListener("click", downloadSampleTemplate);
   els.backToInput.addEventListener("click", () => showTab("input"));
   els.toExecute.addEventListener("click", () => showTab("execute"));
   els.download.addEventListener("click", downloadJson);

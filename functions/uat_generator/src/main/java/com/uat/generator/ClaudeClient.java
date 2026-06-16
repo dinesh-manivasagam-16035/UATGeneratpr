@@ -14,61 +14,53 @@ import org.apache.hc.core5.http.io.entity.StringEntity;
 public final class ClaudeClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String DEFAULT_MODEL = "claude-opus-4-7";
-    private static final String DEFAULT_ENDPOINT = "https://api.anthropic.com/v1/messages";
-    private static final String API_VERSION = "2023-06-01";
+    // GitHub Models hosts Claude models via OpenAI-compatible API
+    private static final String DEFAULT_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions";
+    private static final String DEFAULT_MODEL = "Claude-3.7-Sonnet";
 
     private ClaudeClient() {}
 
     public static String generate(String brd, String module, String moduleSchema) throws Exception {
-        String apiKey = System.getenv("ANTHROPIC_API_KEY");
-        if (apiKey == null || apiKey.isEmpty()) {
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token == null || token.isEmpty()) {
             throw new IllegalStateException(
-                "ANTHROPIC_API_KEY env var is not set. Configure it in Catalyst function env.");
+                "GITHUB_TOKEN env var is not set. Add your GitHub Personal Access Token in Catalyst function env.");
         }
 
-        String model = System.getenv().getOrDefault("CLAUDE_MODEL", DEFAULT_MODEL);
-        String endpoint = System.getenv().getOrDefault("ANTHROPIC_ENDPOINT", DEFAULT_ENDPOINT);
+        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
+        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
 
-        String userPrompt = buildUserPrompt(brd, module, moduleSchema);
-
+        // OpenAI chat-completions format
         ObjectNode payload = MAPPER.createObjectNode();
         payload.put("model", model);
-        // Each case is ~400-600 tokens incl. execution_plan; need plenty for 30+ cases.
         payload.put("max_tokens", 16000);
-        payload.put("system", systemPrompt());
+
         ArrayNode messages = payload.putArray("messages");
-        ObjectNode msg = messages.addObject();
-        msg.put("role", "user");
-        ArrayNode content = msg.putArray("content");
-        ObjectNode block = content.addObject();
-        block.put("type", "text");
-        block.put("text", userPrompt);
+
+        ObjectNode sys = messages.addObject();
+        sys.put("role", "system");
+        sys.put("content", systemPrompt());
+
+        ObjectNode user = messages.addObject();
+        user.put("role", "user");
+        user.put("content", buildUserPrompt(brd, module, moduleSchema));
 
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(endpoint);
-            post.setHeader("x-api-key", apiKey);
-            post.setHeader("anthropic-version", API_VERSION);
+            post.setHeader("Authorization", "Bearer " + token);
+            post.setHeader("Content-Type", "application/json");
             post.setEntity(new StringEntity(MAPPER.writeValueAsString(payload), ContentType.APPLICATION_JSON));
 
             return http.execute(post, response -> {
                 String body = EntityUtils.toString(response.getEntity());
                 int code = response.getCode();
                 if (code >= 400) {
-                    throw new RuntimeException("Anthropic API error " + code + ": " + body);
+                    throw new RuntimeException("GitHub Models API error " + code + ": " + body);
                 }
+                // OpenAI response: choices[0].message.content
                 JsonNode root = MAPPER.readTree(body);
-                JsonNode contentArr = root.path("content");
-                if (contentArr.isArray()) {
-                    StringBuilder sb = new StringBuilder();
-                    for (JsonNode c : contentArr) {
-                        if ("text".equals(c.path("type").asText())) {
-                            sb.append(c.path("text").asText());
-                        }
-                    }
-                    return sb.toString();
-                }
-                return body;
+                JsonNode content = root.path("choices").path(0).path("message").path("content");
+                return content.isMissingNode() ? body : content.asText();
             });
         }
     }

@@ -420,6 +420,16 @@ label {
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
+.label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 16px 0 6px;
+}
+.label-row label {
+  margin: 0;
+  flex: 1;
+}
 
 textarea, input[type="text"], input[type="password"], select {
   width: 100%;
