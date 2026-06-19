@@ -86,24 +86,22 @@ public class CrmAuthServlet extends HttpServlet {
     }
 
     static String buildRedirectUri(HttpServletRequest req) {
-        // Explicit env-var override is the most reliable in proxied environments.
+        // Explicit env-var override — most reliable when auto-detection isn't enough.
         String envUri = System.getenv("ZOHO_REDIRECT_URI");
         if (envUri != null && !envUri.trim().isEmpty()) return envUri.trim();
 
-        // Catalyst runs behind a reverse proxy; Jetty may not populate scheme/host
-        // from the original request — read forwarded headers first.
+        // Catalyst runs behind a reverse proxy; Jetty may not populate scheme/host.
         String scheme = req.getHeader("X-Forwarded-Proto");
         if (scheme == null || scheme.isEmpty()) scheme = req.getScheme();
         if (scheme == null || scheme.isEmpty()) scheme = "https";
 
-        // Host header (or X-Forwarded-Host) may include a port number.
+        // Host header may include a port number.
         String rawHost = req.getHeader("X-Forwarded-Host");
         if (rawHost == null || rawHost.isEmpty()) rawHost = req.getHeader("Host");
         if (rawHost == null || rawHost.isEmpty()) rawHost = req.getServerName();
 
         String host = rawHost;
         int port = -1;
-        // Split embedded port, guarding against IPv6 addresses.
         int colon = rawHost == null ? -1 : rawHost.lastIndexOf(':');
         if (colon > rawHost.lastIndexOf(']')) {
             try {
@@ -120,9 +118,21 @@ public class CrmAuthServlet extends HttpServlet {
         if (!defaultPort) {
             sb.append(':').append(port);
         }
-        String ctx = req.getContextPath();
-        if (ctx == null || "null".equals(ctx)) ctx = "";
-        sb.append(ctx).append("/crm/callback");
+
+        // Derive the function path prefix from requestURI minus servletPath.
+        // On Catalyst: requestURI = "/server/uat_generator/crm/auth"
+        //              servletPath = "/crm/auth"  →  prefix = "/server/uat_generator"
+        // This ensures the redirect URI routes back through Catalyst to our function.
+        String pathPrefix = "";
+        String requestUri  = req.getRequestURI();
+        String servletPath = req.getServletPath();
+        if (requestUri != null && servletPath != null
+                && !servletPath.isEmpty()
+                && requestUri.endsWith(servletPath)) {
+            pathPrefix = requestUri.substring(0, requestUri.length() - servletPath.length());
+        }
+
+        sb.append(pathPrefix).append("/crm/callback");
         return sb.toString();
     }
 
