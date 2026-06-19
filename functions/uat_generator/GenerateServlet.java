@@ -38,6 +38,7 @@ public class GenerateServlet implements CatalystAdvancedIOHandler {
         if (path.startsWith("/crm/connect"))   return new com.uat.generator.CrmConnectServlet();
         if (path.startsWith("/crm/auth"))      return new com.uat.generator.CrmAuthServlet();
         if (path.startsWith("/crm/callback"))  return new com.uat.generator.CrmCallbackServlet();
+        if (path.startsWith("/crm/orgs"))      return new com.uat.generator.OrgListServlet();
         if (path.startsWith("/generate"))      return new com.uat.generator.GenerateServlet();
         if (path.startsWith("/push"))          return new com.uat.generator.PushServlet();
         if (path.startsWith("/report-bug"))    return new com.uat.generator.ReportBugServlet();
