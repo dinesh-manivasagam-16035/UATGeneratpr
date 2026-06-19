@@ -86,17 +86,43 @@ public class CrmAuthServlet extends HttpServlet {
     }
 
     static String buildRedirectUri(HttpServletRequest req) {
-        String scheme = req.getScheme();
-        String host   = req.getServerName();
-        int    port   = req.getServerPort();
+        // Explicit env-var override is the most reliable in proxied environments.
+        String envUri = System.getenv("ZOHO_REDIRECT_URI");
+        if (envUri != null && !envUri.trim().isEmpty()) return envUri.trim();
+
+        // Catalyst runs behind a reverse proxy; Jetty may not populate scheme/host
+        // from the original request — read forwarded headers first.
+        String scheme = req.getHeader("X-Forwarded-Proto");
+        if (scheme == null || scheme.isEmpty()) scheme = req.getScheme();
+        if (scheme == null || scheme.isEmpty()) scheme = "https";
+
+        // Host header (or X-Forwarded-Host) may include a port number.
+        String rawHost = req.getHeader("X-Forwarded-Host");
+        if (rawHost == null || rawHost.isEmpty()) rawHost = req.getHeader("Host");
+        if (rawHost == null || rawHost.isEmpty()) rawHost = req.getServerName();
+
+        String host = rawHost;
+        int port = -1;
+        // Split embedded port, guarding against IPv6 addresses.
+        int colon = rawHost == null ? -1 : rawHost.lastIndexOf(':');
+        if (colon > rawHost.lastIndexOf(']')) {
+            try {
+                port = Integer.parseInt(rawHost.substring(colon + 1));
+                host = rawHost.substring(0, colon);
+            } catch (NumberFormatException ignored) {}
+        }
+        if (port < 0) port = req.getServerPort();
 
         StringBuilder sb = new StringBuilder(scheme).append("://").append(host);
         boolean defaultPort = ("https".equals(scheme) && port == 443)
-                           || ("http".equals(scheme)  && port == 80);
+                           || ("http".equals(scheme)  && port == 80)
+                           || port <= 0;
         if (!defaultPort) {
             sb.append(':').append(port);
         }
-        sb.append(req.getContextPath()).append("/crm/callback");
+        String ctx = req.getContextPath();
+        if (ctx == null || "null".equals(ctx)) ctx = "";
+        sb.append(ctx).append("/crm/callback");
         return sb.toString();
     }
 

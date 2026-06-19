@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -65,9 +66,18 @@ public class FunctionRunServlet extends HttpServlet {
                     crm.path("refresh_token").asText("")
             );
 
+            // Fall back to session-stored credentials if body has none.
             if (!client.hasCredentials()) {
-                writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
-                        "CRM credentials required. Fill the connection panel on the Brief tab.");
+                String sid = cookieValue(req, "tp_crm_sid");
+                CrmTokenStore.TokenBundle bundle = CrmTokenStore.get(sid);
+                if (bundle != null && !bundle.isExpired() && bundle.hasOAuthCredentials()) {
+                    client = bundle.toCrmClient();
+                }
+            }
+
+            if (!client.hasCredentials()) {
+                writeError(resp, HttpServletResponse.SC_UNAUTHORIZED,
+                        "CRM not connected. Connect via the auth panel first.");
                 return;
             }
 
@@ -165,5 +175,14 @@ public class FunctionRunServlet extends HttpServlet {
         ObjectNode err = MAPPER.createObjectNode();
         err.put("error", message == null ? "unknown" : message);
         resp.getWriter().write(MAPPER.writeValueAsString(err));
+    }
+
+    private static String cookieValue(HttpServletRequest req, String name) {
+        Cookie[] cookies = req.getCookies();
+        if (cookies == null) return null;
+        for (Cookie c : cookies) {
+            if (name.equals(c.getName())) return c.getValue();
+        }
+        return null;
     }
 }
