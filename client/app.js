@@ -26,13 +26,15 @@
     analysisSummary:    document.getElementById("analysis-summary"),
     loadModulesBtn:     document.getElementById("load-modules-btn"),
     modulesStatus:      document.getElementById("modules-status"),
-    authLoginBtn:  document.getElementById("auth-login-btn"),
-    authLoginArea: document.getElementById("auth-login-area"),
-    authUserInfo:  document.getElementById("auth-user-info"),
-    authEmail:     document.getElementById("auth-email"),
-    authLogoutBtn: document.getElementById("auth-logout-btn"),
-    authStatusText:document.getElementById("auth-status-text"),
-    ssoFrame:      document.getElementById("sso-frame"),
+    authLoginBtn:    document.getElementById("auth-login-btn"),
+    authLoginArea:   document.getElementById("auth-login-area"),
+    authUserInfo:    document.getElementById("auth-user-info"),
+    authEmail:       document.getElementById("auth-email"),
+    authOrgName:     document.getElementById("auth-org-name"),
+    authSwitchOrgBtn:document.getElementById("auth-switch-org-btn"),
+    authLogoutBtn:   document.getElementById("auth-logout-btn"),
+    authStatusText:  document.getElementById("auth-status-text"),
+    ssoFrame:        document.getElementById("sso-frame"),
 
     casesMeta: document.getElementById("cases-meta"),
     cases:     document.getElementById("cases"),
@@ -81,6 +83,8 @@
     crmAuthorized: false,
     oauthAvailable: false,
     crmEmail: null,
+    crmOrgName: null,
+    crmOrgList: [],
     stepDone: { input: false, cases: false, execute: false, push: false },
   };
 
@@ -781,6 +785,7 @@
     if (isLocal) {
       state.authUser      = "dev@localhost (local)";
       state.crmAuthorized = true;
+      state.crmOrgName    = "Local Dev Org";
       updateAuthUI();
       return;
     }
@@ -791,6 +796,8 @@
         || ((u.first_name || "") + " " + (u.last_name || "")).trim()
         || "Zoho User";
       await checkCrmStatus();
+      // Also pull the org list so the picker is ready without an extra round-trip.
+      await fetchOrgList();
     } catch {
       // Not authenticated — hide the spinner and render the Zoho sign-in form.
       state.authUser      = null;
@@ -812,6 +819,27 @@
     } catch {
       state.crmAuthorized  = false;
       state.oauthAvailable = false;
+    }
+  }
+
+  // Fetch org list from backend and update state.  Called after SSO + after OAuth callback.
+  async function fetchOrgList() {
+    try {
+      const res  = await fetch(FUNCTION_BASE + "/crm/orgs", { credentials: "include" });
+      const data = await res.json();
+      if (data.needs_auth) {
+        state.oauthAvailable = data.oauth_available !== false;
+        return;
+      }
+      state.crmAuthorized = true;
+      state.oauthAvailable = true;
+      state.crmOrgList = Array.isArray(data.orgs) ? data.orgs : [];
+      if (data.current) {
+        state.crmOrgName = data.current.org_name || "";
+        if (!state.crmEmail && data.current.email) state.crmEmail = data.current.email;
+      }
+    } catch {
+      // Non-fatal — leave existing state.
     }
   }
 
@@ -837,112 +865,93 @@
     if (footerEl)    footerEl.hidden    = false;
 
     // Brief tab: show CRM connection state
-    const displayName = state.crmEmail || state.authUser;
-    if (els.authEmail && displayName) els.authEmail.textContent = displayName;
+    if (els.authOrgName) els.authOrgName.textContent = state.crmOrgName || "Zoho CRM";
+    if (els.authEmail)   els.authEmail.textContent   = state.crmEmail   || state.authUser || "";
     if (els.authLoginArea) els.authLoginArea.hidden = state.crmAuthorized;
     if (els.authUserInfo)  els.authUserInfo.hidden  = !state.crmAuthorized;
   }
 
-  // ---- CRM credential modal ----
+  // ---- Org picker modal ----
 
-  function openCrmModal() {
-    const overlay = document.getElementById("crm-modal-overlay");
-    if (overlay) {
-      overlay.hidden = false;
-      const inp = document.getElementById("crm-refresh-token");
-      if (inp) inp.focus();
-    }
+  function openOrgPicker() {
+    const overlay = document.getElementById("org-modal-overlay");
+    if (!overlay) return;
+    overlay.hidden = false;
+    renderOrgList();
   }
 
-  function closeCrmModal() {
-    const overlay = document.getElementById("crm-modal-overlay");
+  function closeOrgPicker() {
+    const overlay = document.getElementById("org-modal-overlay");
     if (overlay) overlay.hidden = true;
-    const errEl = document.getElementById("crm-modal-error");
+    const errEl = document.getElementById("org-modal-error");
     if (errEl) errEl.textContent = "";
   }
 
-  async function submitCrmCredentials() {
-    const clientId     = (document.getElementById("crm-client-id")?.value || "").trim();
-    const clientSecret = (document.getElementById("crm-client-secret")?.value || "").trim();
-    const refreshToken = (document.getElementById("crm-refresh-token")?.value || "").trim();
-    const dc           = document.getElementById("crm-dc")?.value || "com";
-    const errEl        = document.getElementById("crm-modal-error");
-    const submitBtn    = document.getElementById("crm-modal-submit");
+  function renderOrgList() {
+    const listEl = document.getElementById("org-modal-list");
+    if (!listEl) return;
 
-    if (!clientId || !clientSecret || !refreshToken) {
-      if (errEl) errEl.textContent = "All three fields are required.";
+    if (!state.crmOrgList.length) {
+      listEl.innerHTML = '<p class="muted" style="padding:1rem 0">No organisations found. Try connecting first.</p>';
       return;
     }
 
-    const accountsBase = dc === "in"  ? "https://accounts.zoho.in"
-                       : dc === "eu"  ? "https://accounts.zoho.eu"
-                       : dc === "au"  ? "https://accounts.zoho.com.au"
-                       : dc === "jp"  ? "https://accounts.zoho.jp"
-                       : "https://accounts.zoho.com";
-    const apiBase      = dc === "in"  ? "https://www.zohoapis.in"
-                       : dc === "eu"  ? "https://www.zohoapis.eu"
-                       : dc === "au"  ? "https://www.zohoapis.com.au"
-                       : dc === "jp"  ? "https://www.zohoapis.jp"
-                       : "https://www.zohoapis.com";
+    listEl.innerHTML = state.crmOrgList.map((org) => {
+      const isCurrent = state.crmOrgName && org.org_name === state.crmOrgName;
+      return `
+        <button class="org-item${isCurrent ? " org-item--current" : ""}"
+                data-org-name="${escapeHtml(org.org_name)}"
+                data-org-id="${escapeHtml(org.org_id)}">
+          <span class="org-item-icon" aria-hidden="true">
+            <span class="bm-grid bm-grid-xs">
+              <span class="bm-q" style="background:#0052CC"></span>
+              <span class="bm-q" style="background:#F26C01"></span>
+              <span class="bm-q" style="background:#00875A"></span>
+              <span class="bm-q" style="background:#FF8B00"></span>
+            </span>
+          </span>
+          <span class="org-item-body">
+            <strong class="org-item-name">${escapeHtml(org.org_name || "Unnamed org")}</strong>
+            ${org.org_domain ? `<span class="org-item-domain muted">${escapeHtml(org.org_domain)}</span>` : ""}
+          </span>
+          ${isCurrent ? '<span class="org-item-badge">Connected</span>' : '<span class="org-item-arrow">→</span>'}
+        </button>`;
+    }).join("");
 
-    if (submitBtn) submitBtn.disabled = true;
-    if (errEl) errEl.textContent = "";
-
-    try {
-      const res  = await fetch(FUNCTION_BASE + "/crm/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret,
-                               refresh_token: refreshToken, accounts_base: accountsBase,
-                               api_base: apiBase }),
+    listEl.querySelectorAll(".org-item:not(.org-item--current)").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        closeOrgPicker();
+        // Re-trigger OAuth with prompt=select_account so the user can switch org.
+        window.location.href = FUNCTION_BASE + "/crm/auth?switch=true";
       });
-      const data = await res.json();
-      if (data.authorized) {
-        state.crmAuthorized = true;
-        state.crmEmail = data.email || "";
-        closeCrmModal();
-        updateAuthUI();
-        showToast("Zoho CRM connected successfully!", "ok");
-      } else {
-        if (errEl) errEl.textContent = data.error || "Connection failed. Check your credentials.";
-      }
-    } catch (e) {
-      if (errEl) errEl.textContent = "Network error: " + e.message;
-    } finally {
-      if (submitBtn) submitBtn.disabled = false;
-    }
+    });
   }
 
-  function initCrmModal() {
-    const cancelBtn = document.getElementById("crm-modal-cancel");
-    const submitBtn = document.getElementById("crm-modal-submit");
-    const overlay   = document.getElementById("crm-modal-overlay");
-    if (cancelBtn) cancelBtn.addEventListener("click", closeCrmModal);
-    if (submitBtn) submitBtn.addEventListener("click", submitCrmCredentials);
+  function initOrgPicker() {
+    const cancelBtn = document.getElementById("org-modal-cancel");
+    const overlay   = document.getElementById("org-modal-overlay");
+    if (cancelBtn) cancelBtn.addEventListener("click", closeOrgPicker);
     if (overlay)   overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) closeCrmModal();
-    });
-    // Enter key in fields triggers submit.
-    ["crm-client-id", "crm-client-secret", "crm-refresh-token"].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener("keydown", (e) => { if (e.key === "Enter") submitCrmCredentials(); });
+      if (e.target === overlay) closeOrgPicker();
     });
   }
 
   function initAuth() {
     checkAuthStatus();
 
-    // Brief tab "Connect Zoho CRM"
+    // Brief tab "Connect Zoho CRM" — OAuth redirect (no credential entry needed).
     if (els.authLoginBtn) {
       els.authLoginBtn.addEventListener("click", () => {
-        if (state.oauthAvailable) {
-          // Server has ZOHO_CLIENT_ID configured — use OAuth redirect.
-          window.location.href = FUNCTION_BASE + "/crm/auth";
-        } else {
-          // No server OAuth — open credential entry modal.
-          openCrmModal();
-        }
+        window.location.href = FUNCTION_BASE + "/crm/auth";
+      });
+    }
+
+    // "Switch org" — open org picker (orgs were loaded in checkAuthStatus).
+    if (els.authSwitchOrgBtn) {
+      els.authSwitchOrgBtn.addEventListener("click", async () => {
+        // Refresh org list in case it's stale.
+        if (!state.crmOrgList.length) await fetchOrgList();
+        openOrgPicker();
       });
     }
 
@@ -954,7 +963,7 @@
       });
     }
 
-    initCrmModal();
+    initOrgPicker();
   }
 
   // ---- Module picker ----

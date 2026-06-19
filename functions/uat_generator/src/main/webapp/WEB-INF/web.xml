@@ -117,6 +117,15 @@
   </servlet-mapping>
 
   <servlet>
+    <servlet-name>crm-orgs</servlet-name>
+    <servlet-class>com.uat.generator.OrgListServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>crm-orgs</servlet-name>
+    <url-pattern>/crm/orgs</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
     <servlet-name>crm-callback</servlet-name>
     <servlet-class>com.uat.generator.CrmCallbackServlet</servlet-class>
   </servlet>

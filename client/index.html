@@ -128,7 +128,9 @@
             <span id="auth-status-text" class="status muted"></span>
           </div>
           <div id="auth-user-info" hidden>
-            <span class="muted">Signed in as </span><strong id="auth-email"></strong>
+            <span class="muted">Connected to </span><strong id="auth-org-name"></strong>
+            <span class="auth-email-sep muted"> &middot; </span><em id="auth-email" class="muted"></em>
+            <button id="auth-switch-org-btn" class="ghost small">Switch org</button>
             <button id="auth-logout-btn" class="ghost small">Sign out</button>
           </div>
           <div class="actions inline spaced">
@@ -327,9 +329,9 @@
 
   <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
 
-  <!-- CRM credential entry modal -->
-  <div id="crm-modal-overlay" class="modal-overlay" hidden>
-    <div id="crm-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="crm-modal-title">
+  <!-- Org picker modal — shown after SSO login to let the user select a CRM org -->
+  <div id="org-modal-overlay" class="modal-overlay" hidden>
+    <div id="org-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="org-modal-title">
       <div class="modal-header">
         <span class="modal-icon">
           <span class="bm-grid bm-grid-sm">
@@ -339,35 +341,21 @@
             <span class="bm-q" style="background:#FF8B00"></span>
           </span>
         </span>
-        <h3 id="crm-modal-title">Connect Zoho CRM</h3>
+        <h3 id="org-modal-title">Select CRM Organisation</h3>
       </div>
-      <p class="modal-hint">Enter your Zoho CRM OAuth credentials. Get them from <strong>api-console.zoho.com</strong> → Self Client → Generate Token with scope <code>ZohoCRM.modules.ALL</code>.</p>
+      <p class="modal-hint">Choose which Zoho CRM organisation to connect to. All organisations linked to your Zoho account are listed below.</p>
 
-      <div class="modal-fields">
-        <label for="crm-client-id">Client ID</label>
-        <input id="crm-client-id" type="text" placeholder="1000.XXXXX" autocomplete="off" spellcheck="false" />
-
-        <label for="crm-client-secret">Client Secret</label>
-        <input id="crm-client-secret" type="password" placeholder="Your client secret" autocomplete="off" />
-
-        <label for="crm-refresh-token">Refresh Token</label>
-        <input id="crm-refresh-token" type="password" placeholder="1000.XXXXX.XXXXX" autocomplete="off" />
-
-        <label for="crm-dc">Data Centre</label>
-        <select id="crm-dc">
-          <option value="com">Global (zoho.com)</option>
-          <option value="in" selected>India (zoho.in)</option>
-          <option value="eu">Europe (zoho.eu)</option>
-          <option value="au">Australia (zoho.com.au)</option>
-          <option value="jp">Japan (zoho.jp)</option>
-        </select>
+      <div id="org-modal-list" class="org-list" aria-live="polite">
+        <div class="org-list-loading">
+          <div class="mini-spinner"></div>
+          <span>Loading your organisations…</span>
+        </div>
       </div>
 
-      <p id="crm-modal-error" class="status err" style="min-height:1.2em"></p>
+      <p id="org-modal-error" class="status err" style="min-height:1.2em"></p>
 
       <div class="modal-actions">
-        <button id="crm-modal-cancel" class="ghost">Cancel</button>
-        <button id="crm-modal-submit" class="primary">Connect</button>
+        <button id="org-modal-cancel" class="ghost">Cancel</button>
       </div>
     </div>
   </div>

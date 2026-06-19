@@ -51,6 +51,9 @@ public class CrmTokenStore {
         public final String clientSecret;
         public final String accountsBase; // e.g. https://accounts.zoho.in
         public final String apiBase;      // e.g. https://www.zohoapis.in
+        // CRM org identity — populated after a successful OAuth callback.
+        public volatile String orgId;
+        public volatile String orgName;
 
         TokenBundle(String accessToken, long expiresAt,
                     String refreshToken, String email,

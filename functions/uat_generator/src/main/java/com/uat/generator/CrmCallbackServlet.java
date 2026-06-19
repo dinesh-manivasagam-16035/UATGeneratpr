@@ -81,11 +81,24 @@ public class CrmCallbackServlet extends HttpServlet {
             throw new RuntimeException("Missing access_token in token response.");
         }
 
+        // Use api_domain from the token response — it is org-specific and more
+        // accurate than the DC env var (important when the user has multiple orgs).
+        String apiDomainFromToken = tokenResponse.path("api_domain").asText("").trim();
+        String apiBase = apiDomainFromToken.isEmpty()
+                ? CrmAuthServlet.apiBase() : apiDomainFromToken;
+        String accountsBase = CrmAuthServlet.accountsBase();
+
         // Optionally fetch the user's email.
         String email = fetchEmail(accessToken);
 
-        // Persist in the in-memory store and set a session cookie.
-        String sid = CrmTokenStore.create(accessToken, expiresAt, refreshToken, email);
+        // Persist credentials so CrmClient can refresh the token automatically.
+        String clientIdEnv     = System.getenv("ZOHO_CLIENT_ID");
+        String clientSecretEnv = System.getenv("ZOHO_CLIENT_SECRET");
+        String sid = CrmTokenStore.create(accessToken, expiresAt, refreshToken, email,
+                clientIdEnv, clientSecretEnv, accountsBase, apiBase);
+
+        // Fetch the org name for display — non-fatal if it fails.
+        fetchAndStoreOrgInfo(accessToken, apiBase, sid);
 
         Cookie sidCookie = new Cookie("tp_crm_sid", sid);
         sidCookie.setPath("/");
@@ -105,7 +118,7 @@ public class CrmCallbackServlet extends HttpServlet {
     private String fetchEmail(String accessToken) {
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpGet get = new HttpGet(
-                    "https://accounts.zoho.com/oauth/v2/user?access_token=" + accessToken);
+                    CrmAuthServlet.accountsBase() + "/oauth/v2/user?access_token=" + accessToken);
             return http.execute(get, response -> {
                 String body = EntityUtils.toString(response.getEntity());
                 JsonNode root = MAPPER.readTree(body);
@@ -113,6 +126,37 @@ public class CrmCallbackServlet extends HttpServlet {
             });
         } catch (Exception ignored) {
             return "";
+        }
+    }
+
+    /**
+     * Calls GET <apiBase>/crm/v3/org and stores the org id + name into the session bundle.
+     * Failures are silently swallowed — org info is cosmetic and must not break the auth flow.
+     */
+    private void fetchAndStoreOrgInfo(String accessToken, String apiBase, String sid) {
+        try (CloseableHttpClient http = HttpClients.createDefault()) {
+            HttpGet get = new HttpGet(apiBase + "/crm/v3/org");
+            get.setHeader("Authorization", "Zoho-oauthtoken " + accessToken);
+            http.execute(get, response -> {
+                String body = EntityUtils.toString(response.getEntity());
+                JsonNode root = MAPPER.readTree(body);
+                JsonNode orgArr = root.path("org");
+                if (orgArr.isArray() && orgArr.size() > 0) {
+                    JsonNode org = orgArr.get(0);
+                    String orgId   = org.path("id").asText("");
+                    // Zoho may use "company_name" or "name" depending on plan/edition.
+                    String orgName = org.path("company_name").asText("");
+                    if (orgName.isEmpty()) orgName = org.path("name").asText("");
+                    CrmTokenStore.TokenBundle bundle = CrmTokenStore.get(sid);
+                    if (bundle != null) {
+                        bundle.orgId   = orgId;
+                        bundle.orgName = orgName;
+                    }
+                }
+                return null;
+            });
+        } catch (Exception ignored) {
+            // Org name is cosmetic — swallow errors silently.
         }
     }
 

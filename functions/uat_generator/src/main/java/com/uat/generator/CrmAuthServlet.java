@@ -18,7 +18,9 @@ public class CrmAuthServlet extends HttpServlet {
 
     private static final String SCOPES =
             "ZohoCRM.modules.ALL,ZohoCRM.settings.ALL," +
-            "ZohoProjects.projects.ALL,ZohoProjects.bugs.ALL";
+            "ZohoProjects.portals.READ,ZohoProjects.projects.ALL," +
+            "ZohoProjects.tasks.ALL,ZohoProjects.bugs.ALL," +
+            "AaaServer.profile.READ";
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -43,13 +45,16 @@ public class CrmAuthServlet extends HttpServlet {
         stateCookie.setMaxAge(300); // 5 minutes
         resp.addCookie(stateCookie);
 
+        // ?switch=true forces Zoho's org-picker so the user can select a different org.
+        boolean switchOrg = "true".equalsIgnoreCase(req.getParameter("switch"));
         String url = accountsBase + "/oauth/v2/auth"
                 + "?response_type=code"
                 + "&client_id=" + encode(clientId)
                 + "&scope=" + encode(SCOPES)
                 + "&redirect_uri=" + encode(redirectUri)
                 + "&state=" + encode(oauthState)
-                + "&access_type=offline";
+                + "&access_type=offline"
+                + (switchOrg ? "&prompt=select_account" : "");
 
         resp.sendRedirect(url);
     }
@@ -58,12 +63,26 @@ public class CrmAuthServlet extends HttpServlet {
     static String accountsBase() {
         String env = System.getenv("ZOHO_ACCOUNTS_BASE");
         if (env != null && !env.trim().isEmpty()) return env.trim();
-        // Auto-detect from ZOHO_DC env var (com / in / eu / au / jp).
         String dc = System.getenv("ZOHO_DC");
         if (dc == null || dc.trim().isEmpty() || dc.trim().equalsIgnoreCase("com")) {
             return "https://accounts.zoho.com";
         }
         return "https://accounts.zoho." + dc.trim().toLowerCase();
+    }
+
+    /** Returns the Zoho API base URL derived from ZOHO_DC env var. */
+    static String apiBase() {
+        String dc = System.getenv("ZOHO_DC");
+        if (dc == null || dc.trim().isEmpty() || dc.trim().equalsIgnoreCase("com")) {
+            return "https://www.zohoapis.com";
+        }
+        switch (dc.trim().toLowerCase()) {
+            case "in": return "https://www.zohoapis.in";
+            case "eu": return "https://www.zohoapis.eu";
+            case "au": return "https://www.zohoapis.com.au";
+            case "jp": return "https://www.zohoapis.jp";
+            default:   return "https://www.zohoapis.com";
+        }
     }
 
     static String buildRedirectUri(HttpServletRequest req) {
