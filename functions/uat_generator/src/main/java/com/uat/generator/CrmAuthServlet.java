@@ -119,20 +119,10 @@ public class CrmAuthServlet extends HttpServlet {
             sb.append(':').append(port);
         }
 
-        // Derive the function path prefix from requestURI minus servletPath.
-        // On Catalyst: requestURI = "/server/uat_generator/crm/auth"
-        //              servletPath = "/crm/auth"  →  prefix = "/server/uat_generator"
-        // This ensures the redirect URI routes back through Catalyst to our function.
-        String pathPrefix = "";
-        String requestUri  = req.getRequestURI();
-        String servletPath = req.getServletPath();
-        if (requestUri != null && servletPath != null
-                && !servletPath.isEmpty()
-                && requestUri.endsWith(servletPath)) {
-            pathPrefix = requestUri.substring(0, requestUri.length() - servletPath.length());
-        }
-
-        sb.append(pathPrefix).append("/crm/callback");
+        // Redirect to the static client page — the JS there forwards the OAuth code
+        // to /crm/callback via fetch.  This avoids Catalyst function-path routing
+        // issues (/server/uat_generator/ prefix) with a direct server callback.
+        sb.append("/app/index.html");
         return sb.toString();
     }
 

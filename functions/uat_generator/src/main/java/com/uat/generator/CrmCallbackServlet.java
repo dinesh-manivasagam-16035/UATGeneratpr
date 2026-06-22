@@ -2,6 +2,7 @@ package com.uat.generator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.entity.UrlEncodedFormEntity;
@@ -24,10 +25,15 @@ public class CrmCallbackServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json");
         try {
             handleCallback(req, resp);
         } catch (Exception e) {
-            resp.sendRedirect("/app/index.html?crm_auth_error=1");
+            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            ObjectNode err = MAPPER.createObjectNode();
+            err.put("success", false);
+            err.put("error", e.getMessage() != null ? e.getMessage() : "OAuth callback failed");
+            resp.getWriter().write(MAPPER.writeValueAsString(err));
         }
     }
 
@@ -50,6 +56,13 @@ public class CrmCallbackServlet extends HttpServlet {
         String clientSecret = System.getenv("ZOHO_CLIENT_SECRET");
         String redirectUri  = CrmAuthServlet.buildRedirectUri(req);
 
+        // Zoho passes accounts-server in the redirect URL (forwarded as accounts_server
+        // by the client JS).  Use it so the token exchange hits the right DC endpoint.
+        String accountsServerParam = req.getParameter("accounts_server");
+        String accountsBase = (accountsServerParam != null && !accountsServerParam.trim().isEmpty())
+                ? accountsServerParam.trim()
+                : CrmAuthServlet.accountsBase();
+
         // Exchange code for tokens.
         List<BasicNameValuePair> params = Arrays.asList(
                 new BasicNameValuePair("grant_type",    "authorization_code"),
@@ -61,7 +74,7 @@ public class CrmCallbackServlet extends HttpServlet {
 
         JsonNode tokenResponse;
         try (CloseableHttpClient http = HttpClients.createDefault()) {
-            HttpPost post = new HttpPost(CrmAuthServlet.accountsBase() + "/oauth/v2/token");
+            HttpPost post = new HttpPost(accountsBase + "/oauth/v2/token");
             post.setEntity(new UrlEncodedFormEntity(params));
             tokenResponse = http.execute(post, response -> {
                 String body = EntityUtils.toString(response.getEntity());
@@ -86,10 +99,10 @@ public class CrmCallbackServlet extends HttpServlet {
         String apiDomainFromToken = tokenResponse.path("api_domain").asText("").trim();
         String apiBase = apiDomainFromToken.isEmpty()
                 ? CrmAuthServlet.apiBase() : apiDomainFromToken;
-        String accountsBase = CrmAuthServlet.accountsBase();
+        // accountsBase was resolved earlier from the accounts_server param or env var.
 
         // Optionally fetch the user's email.
-        String email = fetchEmail(accessToken);
+        String email = fetchEmail(accessToken, accountsBase);
 
         // Persist credentials so CrmClient can refresh the token automatically.
         String clientIdEnv     = System.getenv("ZOHO_CLIENT_ID");
@@ -112,13 +125,16 @@ public class CrmCallbackServlet extends HttpServlet {
         clearState.setMaxAge(0);
         resp.addCookie(clearState);
 
-        resp.sendRedirect("/app/index.html");
+        resp.setStatus(HttpServletResponse.SC_OK);
+        ObjectNode result = MAPPER.createObjectNode();
+        result.put("success", true);
+        resp.getWriter().write(MAPPER.writeValueAsString(result));
     }
 
-    private String fetchEmail(String accessToken) {
+    private String fetchEmail(String accessToken, String accountsBase) {
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpGet get = new HttpGet(
-                    CrmAuthServlet.accountsBase() + "/oauth/v2/user?access_token=" + accessToken);
+                    accountsBase + "/oauth/v2/user?access_token=" + accessToken);
             return http.execute(get, response -> {
                 String body = EntityUtils.toString(response.getEntity());
                 JsonNode root = MAPPER.readTree(body);

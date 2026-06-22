@@ -936,8 +936,34 @@
     });
   }
 
+  async function handleOAuthCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const code  = params.get("code");
+    const state = params.get("state");
+    if (!code || !state) return;
+
+    // Clean up URL so back/refresh doesn't re-trigger the exchange.
+    window.history.replaceState({}, "", window.location.pathname);
+
+    const qs = new URLSearchParams({ code, state });
+    const accountsServer = params.get("accounts-server");
+    if (accountsServer) qs.set("accounts_server", accountsServer);
+
+    try {
+      const res  = await fetch(FUNCTION_BASE + "/crm/callback?" + qs.toString(), {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showToast("CRM connection failed: " + (data.error || res.statusText), "err");
+      }
+    } catch (e) {
+      showToast("CRM connection failed: " + e.message, "err");
+    }
+  }
+
   function initAuth() {
-    checkAuthStatus();
+    handleOAuthCallback().then(() => checkAuthStatus());
 
     // Brief tab "Connect Zoho CRM" — OAuth redirect (no credential entry needed).
     if (els.authLoginBtn) {
