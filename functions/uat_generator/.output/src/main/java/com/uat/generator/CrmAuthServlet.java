@@ -86,24 +86,22 @@ public class CrmAuthServlet extends HttpServlet {
     }
 
     static String buildRedirectUri(HttpServletRequest req) {
-        // Explicit env-var override is the most reliable in proxied environments.
+        // Explicit env-var override — most reliable when auto-detection isn't enough.
         String envUri = System.getenv("ZOHO_REDIRECT_URI");
         if (envUri != null && !envUri.trim().isEmpty()) return envUri.trim();
 
-        // Catalyst runs behind a reverse proxy; Jetty may not populate scheme/host
-        // from the original request — read forwarded headers first.
+        // Catalyst runs behind a reverse proxy; Jetty may not populate scheme/host.
         String scheme = req.getHeader("X-Forwarded-Proto");
         if (scheme == null || scheme.isEmpty()) scheme = req.getScheme();
         if (scheme == null || scheme.isEmpty()) scheme = "https";
 
-        // Host header (or X-Forwarded-Host) may include a port number.
+        // Host header may include a port number.
         String rawHost = req.getHeader("X-Forwarded-Host");
         if (rawHost == null || rawHost.isEmpty()) rawHost = req.getHeader("Host");
         if (rawHost == null || rawHost.isEmpty()) rawHost = req.getServerName();
 
         String host = rawHost;
         int port = -1;
-        // Split embedded port, guarding against IPv6 addresses.
         int colon = rawHost == null ? -1 : rawHost.lastIndexOf(':');
         if (colon > rawHost.lastIndexOf(']')) {
             try {
@@ -120,9 +118,11 @@ public class CrmAuthServlet extends HttpServlet {
         if (!defaultPort) {
             sb.append(':').append(port);
         }
-        String ctx = req.getContextPath();
-        if (ctx == null || "null".equals(ctx)) ctx = "";
-        sb.append(ctx).append("/crm/callback");
+
+        // Redirect to the static client page — the JS there forwards the OAuth code
+        // to /crm/callback via fetch.  This avoids Catalyst function-path routing
+        // issues (/server/uat_generator/ prefix) with a direct server callback.
+        sb.append("/app/index.html");
         return sb.toString();
     }
 
