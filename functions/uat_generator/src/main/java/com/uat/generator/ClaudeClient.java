@@ -14,41 +14,47 @@ import org.apache.hc.core5.http.io.entity.StringEntity;
 public final class ClaudeClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
-    private static final String ANTHROPIC_VERSION   = "2023-06-01";
-    private static final String DEFAULT_MODEL       = "claude-sonnet-4-6";
+    // GitHub Models / Copilot — OpenAI-compatible endpoint
+    private static final String DEFAULT_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions";
+    private static final String DEFAULT_MODEL    = "claude-3-7-sonnet";
 
     private ClaudeClient() {}
 
     public static String generate(String brd, String module, String moduleSchema) throws Exception {
-        String apiKey = System.getenv("ANTHROPIC_API_KEY");
-        if (apiKey == null || apiKey.isEmpty()) {
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token == null || token.isEmpty()) {
             throw new IllegalStateException(
-                "ANTHROPIC_API_KEY env var is not set. Add your Anthropic API key in Catalyst function env vars.");
+                "GITHUB_TOKEN env var is not set. Add your GitHub Copilot token in Catalyst function env vars.");
         }
 
-        String model = System.getenv().getOrDefault("CLAUDE_MODEL", DEFAULT_MODEL);
+        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
+        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
 
         ObjectNode payload = MAPPER.createObjectNode();
         payload.put("model", model);
         payload.put("max_tokens", 16000);
-        payload.put("system", systemPrompt());
 
         ArrayNode messages = payload.putArray("messages");
+
+        ObjectNode sys = messages.addObject();
+        sys.put("role", "system");
+        sys.put("content", systemPrompt());
+
         ObjectNode user = messages.addObject();
         user.put("role", "user");
         user.put("content", buildUserPrompt(brd, module, moduleSchema));
 
-        return callAnthropic(apiKey, payload);
+        return callGithubModels(token, endpoint, payload);
     }
 
     public static String analyze(String brd, String moduleNames) throws Exception {
-        String apiKey = System.getenv("ANTHROPIC_API_KEY");
-        if (apiKey == null || apiKey.isEmpty()) {
-            throw new IllegalStateException("ANTHROPIC_API_KEY not set");
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token == null || token.isEmpty()) {
+            throw new IllegalStateException("GITHUB_TOKEN not set");
         }
 
-        String model = System.getenv().getOrDefault("CLAUDE_MODEL", DEFAULT_MODEL);
+        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
+        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
 
         String sysPrompt =
             "You are a Zoho CRM expert. You will receive a UAT specification document and a "
@@ -67,21 +73,22 @@ public final class ClaudeClient {
         ObjectNode payload = MAPPER.createObjectNode();
         payload.put("model", model);
         payload.put("max_tokens", 512);
-        payload.put("system", sysPrompt);
 
         ArrayNode messages = payload.putArray("messages");
+        ObjectNode sys = messages.addObject();
+        sys.put("role", "system");
+        sys.put("content", sysPrompt);
         ObjectNode user = messages.addObject();
         user.put("role", "user");
         user.put("content", userPrompt);
 
-        return callAnthropic(apiKey, payload);
+        return callGithubModels(token, endpoint, payload);
     }
 
-    private static String callAnthropic(String apiKey, ObjectNode payload) throws Exception {
+    private static String callGithubModels(String token, String endpoint, ObjectNode payload) throws Exception {
         try (CloseableHttpClient http = HttpClients.createDefault()) {
-            HttpPost post = new HttpPost(ANTHROPIC_ENDPOINT);
-            post.setHeader("x-api-key", apiKey);
-            post.setHeader("anthropic-version", ANTHROPIC_VERSION);
+            HttpPost post = new HttpPost(endpoint);
+            post.setHeader("Authorization", "Bearer " + token);
             post.setHeader("Content-Type", "application/json");
             post.setEntity(new StringEntity(MAPPER.writeValueAsString(payload), ContentType.APPLICATION_JSON));
 
@@ -89,12 +96,12 @@ public final class ClaudeClient {
                 String body = EntityUtils.toString(response.getEntity());
                 int code = response.getCode();
                 if (code >= 400) {
-                    throw new RuntimeException("Anthropic API error " + code + ": " + body);
+                    throw new RuntimeException("GitHub Models API error " + code + ": " + body);
                 }
-                // Anthropic response: content[0].text
+                // OpenAI-compatible response: choices[0].message.content
                 JsonNode root = MAPPER.readTree(body);
-                JsonNode text = root.path("content").path(0).path("text");
-                return text.isMissingNode() ? body : text.asText();
+                JsonNode content = root.path("choices").path(0).path("message").path("content");
+                return content.isMissingNode() ? body : content.asText();
             });
         }
     }
