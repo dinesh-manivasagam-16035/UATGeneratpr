@@ -98,9 +98,9 @@ public class AnalyzeServlet extends HttpServlet {
             ObjectNode out = MAPPER.createObjectNode();
             String method = "heuristic";
 
-            // Try LLM-powered analysis first (requires GITHUB_TOKEN)
+            // Try LLM-powered analysis first (requires ANTHROPIC_API_KEY)
             boolean llmSucceeded = false;
-            if (System.getenv("GITHUB_TOKEN") != null && !System.getenv("GITHUB_TOKEN").isEmpty()) {
+            if (System.getenv("ANTHROPIC_API_KEY") != null && !System.getenv("ANTHROPIC_API_KEY").isEmpty()) {
                 try {
                     String llmRaw = ClaudeClient.analyze(brd, moduleNameList);
                     // Strip markdown fencing if model wrapped it
