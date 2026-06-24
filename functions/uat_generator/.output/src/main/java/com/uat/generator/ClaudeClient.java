@@ -14,9 +14,9 @@ import org.apache.hc.core5.http.io.entity.StringEntity;
 public final class ClaudeClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    // GitHub Models hosts Claude models via OpenAI-compatible API
+    // GitHub Models / Copilot — OpenAI-compatible endpoint
     private static final String DEFAULT_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions";
-    private static final String DEFAULT_MODEL = "Claude-3.7-Sonnet";
+    private static final String DEFAULT_MODEL    = "claude-3-7-sonnet";
 
     private ClaudeClient() {}
 
@@ -24,13 +24,12 @@ public final class ClaudeClient {
         String token = System.getenv("GITHUB_TOKEN");
         if (token == null || token.isEmpty()) {
             throw new IllegalStateException(
-                "GITHUB_TOKEN env var is not set. Add your GitHub Personal Access Token in Catalyst function env.");
+                "GITHUB_TOKEN env var is not set. Add your GitHub Copilot token in Catalyst function env vars.");
         }
 
         String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
         String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
 
-        // OpenAI chat-completions format
         ObjectNode payload = MAPPER.createObjectNode();
         payload.put("model", model);
         payload.put("max_tokens", 16000);
@@ -45,6 +44,48 @@ public final class ClaudeClient {
         user.put("role", "user");
         user.put("content", buildUserPrompt(brd, module, moduleSchema));
 
+        return callGithubModels(token, endpoint, payload);
+    }
+
+    public static String analyze(String brd, String moduleNames) throws Exception {
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token == null || token.isEmpty()) {
+            throw new IllegalStateException("GITHUB_TOKEN not set");
+        }
+
+        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
+        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
+
+        String sysPrompt =
+            "You are a Zoho CRM expert. You will receive a UAT specification document and a "
+            + "JSON array of CRM module api_names available in the org. "
+            + "Your job: identify which modules (up to 3) the spec is primarily testing, "
+            + "and write a concise 1–2 sentence analysis of what the document covers. "
+            + "Output ONLY a JSON object with exactly two keys: "
+            + "\"suggested_modules\" (array of api_name strings, up to 3, from the provided list) "
+            + "and \"analysis\" (string). No markdown, no prose outside the JSON.";
+
+        String userPrompt =
+            "Available modules: " + moduleNames + "\n\n"
+            + "UAT spec document:\n" + brd + "\n\n"
+            + "Return JSON only: {\"suggested_modules\":[...],\"analysis\":\"...\"}";
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("model", model);
+        payload.put("max_tokens", 512);
+
+        ArrayNode messages = payload.putArray("messages");
+        ObjectNode sys = messages.addObject();
+        sys.put("role", "system");
+        sys.put("content", sysPrompt);
+        ObjectNode user = messages.addObject();
+        user.put("role", "user");
+        user.put("content", userPrompt);
+
+        return callGithubModels(token, endpoint, payload);
+    }
+
+    private static String callGithubModels(String token, String endpoint, ObjectNode payload) throws Exception {
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(endpoint);
             post.setHeader("Authorization", "Bearer " + token);
@@ -57,7 +98,7 @@ public final class ClaudeClient {
                 if (code >= 400) {
                     throw new RuntimeException("GitHub Models API error " + code + ": " + body);
                 }
-                // OpenAI response: choices[0].message.content
+                // OpenAI-compatible response: choices[0].message.content
                 JsonNode root = MAPPER.readTree(body);
                 JsonNode content = root.path("choices").path(0).path("message").path("content");
                 return content.isMissingNode() ? body : content.asText();
@@ -134,65 +175,6 @@ public final class ClaudeClient {
             + " - Use realistic sample data (UAT-Smoke-* prefixes for created records).\n"
             + " - Mix priorities: ~20% P0, ~50% P1, ~30% P2.\n"
             + " - No prose, no markdown fencing — JSON array only.";
-    }
-
-    /**
-     * Analyze a UAT spec document and suggest up to 3 CRM modules using the
-     * GitHub Models API. Returns a raw JSON string:
-     * { "suggested_modules": ["Leads",...], "analysis": "..." }
-     */
-    public static String analyze(String brd, String moduleNames) throws Exception {
-        String token = System.getenv("GITHUB_TOKEN");
-        if (token == null || token.isEmpty()) {
-            throw new IllegalStateException("GITHUB_TOKEN not set");
-        }
-
-        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
-        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
-
-        String sysPrompt =
-            "You are a Zoho CRM expert. You will receive a UAT specification document and a "
-            + "JSON array of CRM module api_names available in the org. "
-            + "Your job: identify which modules (up to 3) the spec is primarily testing, "
-            + "and write a concise 1–2 sentence analysis of what the document covers. "
-            + "Output ONLY a JSON object with exactly two keys: "
-            + "\"suggested_modules\" (array of api_name strings, up to 3, from the provided list) "
-            + "and \"analysis\" (string). No markdown, no prose outside the JSON.";
-
-        String userPrompt =
-            "Available modules: " + moduleNames + "\n\n"
-            + "UAT spec document:\n" + brd + "\n\n"
-            + "Return JSON only: {\"suggested_modules\":[...],\"analysis\":\"...\"}";
-
-        ObjectNode payload = MAPPER.createObjectNode();
-        payload.put("model", model);
-        payload.put("max_tokens", 512);
-
-        ArrayNode messages = payload.putArray("messages");
-        ObjectNode sys = messages.addObject();
-        sys.put("role", "system");
-        sys.put("content", sysPrompt);
-        ObjectNode user = messages.addObject();
-        user.put("role", "user");
-        user.put("content", userPrompt);
-
-        try (CloseableHttpClient http = HttpClients.createDefault()) {
-            HttpPost post = new HttpPost(endpoint);
-            post.setHeader("Authorization", "Bearer " + token);
-            post.setHeader("Content-Type", "application/json");
-            post.setEntity(new StringEntity(MAPPER.writeValueAsString(payload), ContentType.APPLICATION_JSON));
-
-            return http.execute(post, response -> {
-                String body2 = EntityUtils.toString(response.getEntity());
-                int code = response.getCode();
-                if (code >= 400) {
-                    throw new RuntimeException("GitHub Models API error " + code + ": " + body2);
-                }
-                JsonNode root = MAPPER.readTree(body2);
-                JsonNode content = root.path("choices").path(0).path("message").path("content");
-                return content.isMissingNode() ? body2 : content.asText();
-            });
-        }
     }
 
     private static String buildUserPrompt(String brd, String module, String moduleSchema) {
