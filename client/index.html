@@ -38,15 +38,30 @@
       </div>
     </div>
     <div class="header-actions">
-      <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme">
-        <svg class="theme-icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-        </svg>
-        <svg class="theme-icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-      </button>
+      <div class="theme-picker-wrap" id="theme-picker-wrap">
+        <button class="theme-picker-btn" id="theme-picker-btn" aria-label="Choose theme" title="Choose theme">
+          <span class="theme-swatch-small" id="theme-swatch-preview"></span>
+          <span id="theme-picker-label">Theme</span>
+          <svg viewBox="0 0 10 6" width="10" height="6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+        </button>
+        <div class="theme-dropdown" id="theme-dropdown" hidden>
+          <div class="theme-option" data-theme-pick="light">
+            <span class="theme-swatch swatch-light"></span> Light
+          </div>
+          <div class="theme-option" data-theme-pick="dark">
+            <span class="theme-swatch swatch-dark"></span> Dark
+          </div>
+          <div class="theme-option" data-theme-pick="ocean">
+            <span class="theme-swatch swatch-ocean"></span> Ocean
+          </div>
+          <div class="theme-option" data-theme-pick="sunset">
+            <span class="theme-swatch swatch-sunset"></span> Sunset
+          </div>
+          <div class="theme-option" data-theme-pick="forest">
+            <span class="theme-swatch swatch-forest"></span> Forest
+          </div>
+        </div>
+      </div>
       <span class="live-pill">Live</span>
     </div>
   </header>
@@ -62,13 +77,29 @@
       </div>
       <h2 class="login-title">Lift<span class="brand-accent">Off</span></h2>
       <p class="login-tagline">Your UAT, on autopilot.</p>
-      <!-- Spinner while isUserAuthenticated() runs; hidden once resolved -->
+
+      <!-- Spinner while isUserAuthenticated() checks the session -->
       <div id="login-auth-loader" class="login-loader">
         <div class="mini-spinner"></div>
         <span>Checking your session…</span>
       </div>
-      <!-- Catalyst SDK injects the Zoho sign-in form here when not authenticated -->
-      <div id="loginDivElementId"></div>
+
+      <!-- Sign-in button — shown after auth check fails -->
+      <div id="login-action-area" hidden>
+        <button id="zoho-signin-btn" class="zoho-signin-btn" type="button">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+            <rect x="2"  y="2"  width="9" height="9" rx="2" fill="#0052CC"/>
+            <rect x="13" y="2"  width="9" height="9" rx="2" fill="#F26C01"/>
+            <rect x="2"  y="13" width="9" height="9" rx="2" fill="#00875A"/>
+            <rect x="13" y="13" width="9" height="9" rx="2" fill="#FF8B00"/>
+          </svg>
+          Sign in with Zoho
+        </button>
+        <p class="login-footnote">You'll be redirected to Zoho Accounts to authenticate.</p>
+      </div>
+
+      <!-- Hidden div kept for Catalyst SDK compatibility -->
+      <div id="loginDivElementId" hidden style="display:none"></div>
     </div>
   </section>
 
@@ -140,9 +171,9 @@
         </div>
         <iframe id="sso-frame" src="" hidden style="display:none"></iframe>
 
-        <label>Target modules <span class="muted">(pick up to 3 — we auto-suggest from the spec)</span></label>
+        <label>Target modules <span class="muted">(pick up to 5 — we auto-suggest from the spec)</span></label>
         <div class="module-picker" id="module-picker">
-          <p class="muted" id="module-picker-empty">Click <strong>Load modules from CRM</strong> above, or use the default list:</p>
+          <p class="muted" id="module-picker-empty">Modules will load automatically when CRM is connected, or use the default list:</p>
           <div id="analysis-summary" class="analysis-summary" hidden></div>
           <div class="module-chips" id="module-chips"></div>
           <div class="module-selected" id="module-selected" hidden>

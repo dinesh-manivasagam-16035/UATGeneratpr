@@ -25,6 +25,8 @@
     modulePickerEmpty:  document.getElementById("module-picker-empty"),
     analysisSummary:    document.getElementById("analysis-summary"),
     loadModulesBtn:     document.getElementById("load-modules-btn"),
+    themeSwatchPreview: document.getElementById("theme-swatch-preview"),
+    themePickerLabel:   document.getElementById("theme-picker-label"),
     modulesStatus:      document.getElementById("modules-status"),
     authLoginBtn:    document.getElementById("auth-login-btn"),
     authLoginArea:   document.getElementById("auth-login-area"),
@@ -88,7 +90,7 @@
     stepDone: { input: false, cases: false, execute: false, push: false },
   };
 
-  const MAX_MODULES = 3;
+  const MAX_MODULES = 5;
 
   const DEFAULT_MODULES = [
     { api_name: "Leads",    plural_label: "Leads" },
@@ -111,16 +113,44 @@
     try { return localStorage.getItem("testpilot_theme") || "light"; }
     catch (e) { return "light"; }
   }
+  const THEMES = [
+    { id: "light",  label: "Light",  swatchBg: "radial-gradient(circle at 35% 35%, #fff 0%, #e0e8f4 100%)", swatchBorder: "rgba(0,0,0,0.15)" },
+    { id: "dark",   label: "Dark",   swatchBg: "radial-gradient(circle at 35% 35%, #2a3550 0%, #0d1117 100%)", swatchBorder: "" },
+    { id: "ocean",  label: "Ocean",  swatchBg: "radial-gradient(circle at 35% 35%, #00c8d4 0%, #020e1a 100%)", swatchBorder: "" },
+    { id: "sunset", label: "Sunset", swatchBg: "radial-gradient(circle at 35% 35%, #ff7043 0%, #160b1e 100%)", swatchBorder: "" },
+    { id: "forest", label: "Forest", swatchBg: "radial-gradient(circle at 35% 35%, #2ecc71 0%, #050e08 100%)", swatchBorder: "" },
+  ];
   function setTheme(theme) {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem("testpilot_theme", theme); } catch (e) {}
-  }
-  const themeToggleBtn = document.getElementById("theme-toggle");
-  if (themeToggleBtn) {
-    themeToggleBtn.addEventListener("click", () => {
-      setTheme(getTheme() === "dark" ? "light" : "dark");
+    const meta = THEMES.find(t => t.id === theme) || THEMES[0];
+    if (els.themeSwatchPreview) {
+      els.themeSwatchPreview.style.background = meta.swatchBg;
+      if (meta.swatchBorder) els.themeSwatchPreview.style.borderColor = meta.swatchBorder;
+    }
+    if (els.themePickerLabel) els.themePickerLabel.textContent = meta.label;
+    // update active state in dropdown
+    document.querySelectorAll(".theme-option").forEach(opt => {
+      opt.classList.toggle("active", opt.dataset.themePick === theme);
     });
   }
+  const themePickerBtn = document.getElementById("theme-picker-btn");
+  const themeDropdown  = document.getElementById("theme-dropdown");
+  if (themePickerBtn && themeDropdown) {
+    themePickerBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      themeDropdown.hidden = !themeDropdown.hidden;
+    });
+    themeDropdown.addEventListener("click", (e) => {
+      const opt = e.target.closest(".theme-option");
+      if (!opt) return;
+      const picked = opt.dataset.themePick;
+      if (picked) { setTheme(picked); themeDropdown.hidden = true; }
+    });
+    document.addEventListener("click", () => { themeDropdown.hidden = true; });
+  }
+  // Apply saved theme on load (updates picker label + swatch).
+  setTheme(getTheme());
 
   // ---- Count-up animation on numeric content of an element ----
   function animateCountUp(el, to, duration = 800) {
@@ -356,7 +386,7 @@
       // Run spec analysis to auto-suggest modules. Non-blocking.
       analyzeBrd().then(() => {
         if (!state.modulesSelected.length) {
-          setStatus("input", "Spec parsed. Now pick up to 3 target modules.", "");
+          setStatus("input", "Spec parsed. Now pick up to 5 target modules.", "");
         } else if (state.suggestedModules.length) {
           setStatus("input",
             `Spec parsed. ${state.suggestedModules.length} module(s) suggested — review and click Generate.`,
@@ -799,12 +829,17 @@
       // Also pull the org list so the picker is ready without an extra round-trip.
       await fetchOrgList();
     } catch {
-      // Not authenticated — hide the spinner and render the Zoho sign-in form.
+      // Not authenticated — hide spinner and show styled sign-in button.
       state.authUser      = null;
       state.crmAuthorized = false;
       const loader = document.getElementById("login-auth-loader");
       if (loader) loader.hidden = true;
-      window.catalyst.auth.signIn("loginDivElementId", { service_url: "/app/index.html" });
+      const actionArea = document.getElementById("login-action-area");
+      if (actionArea) actionArea.hidden = false;
+      document.getElementById("zoho-signin-btn")?.addEventListener("click", () => {
+        // Full-page redirect to Zoho Accounts (no embedded iframe).
+        window.catalyst.auth.signIn(null, { service_url: "/app/index.html" });
+      }, { once: true });
     }
     updateAuthUI();
   }
@@ -831,6 +866,7 @@
         state.oauthAvailable = data.oauth_available !== false;
         return;
       }
+      const wasAuthorized = state.crmAuthorized;
       state.crmAuthorized = true;
       state.oauthAvailable = true;
       state.crmOrgList = Array.isArray(data.orgs) ? data.orgs : [];
@@ -838,6 +874,8 @@
         state.crmOrgName = data.current.org_name || "";
         if (!state.crmEmail && data.current.email) state.crmEmail = data.current.email;
       }
+      // Auto-load modules on first successful CRM connection.
+      if (!wasAuthorized) loadModules();
     } catch {
       // Non-fatal — leave existing state.
     }
@@ -1299,7 +1337,7 @@
       els.modulesStatus.textContent = "Loading modules...";
       els.modulesStatus.className = "status";
     }
-    els.loadModulesBtn.disabled = true;
+    if (els.loadModulesBtn) els.loadModulesBtn.disabled = true;
     try {
       const res = await fetch(FUNCTION_BASE + "/modules", {
         method: "POST",
@@ -1328,7 +1366,7 @@
       }
       showToast("Failed to load modules: " + e.message, "err");
     } finally {
-      els.loadModulesBtn.disabled = false;
+      if (els.loadModulesBtn) els.loadModulesBtn.disabled = false;
     }
   }
 
@@ -1643,8 +1681,6 @@
   // Inspect tab wiring
   if (els.loadFunctionsBtn) els.loadFunctionsBtn.addEventListener("click", loadCrmFunctions);
   if (els.runAllFunctionsBtn) els.runAllFunctionsBtn.addEventListener("click", runAllFunctions);
-
-  // Module picker wiring
   if (els.loadModulesBtn) els.loadModulesBtn.addEventListener("click", loadModules);
 
   // Auth

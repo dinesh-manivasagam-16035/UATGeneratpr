@@ -84,6 +84,126 @@
   --shadow-accent: 0 4px 14px rgba(76, 154, 255, 0.30);
 }
 
+/* ---- Ocean theme ---- */
+:root[data-theme="ocean"] {
+  --bg: #020E1A;
+  --bg-elevated: #041829;
+  --bg-subtle: #071F34;
+  --bg-hover: #0A2840;
+
+  --text: #D0ECF8;
+  --text-secondary: #7BBDD9;
+  --text-muted: #4A8AA8;
+
+  --accent: #00C8D4;
+  --accent-hover: #00E0EE;
+  --accent-active: #00A8B4;
+  --accent-soft: #002E35;
+  --accent-line: #005060;
+  --accent-gradient: linear-gradient(135deg, #005F73 0%, #00C8D4 55%, #6EEEFF 100%);
+
+  --border: #0D3048;
+  --border-strong: #1A4A68;
+  --divider: #092540;
+
+  --ok: #00C896;
+  --ok-bg: #002E1F;
+  --ok-border: #005C40;
+
+  --warn: #F0A500;
+  --warn-bg: #2A1E00;
+  --warn-border: #6B4800;
+
+  --err: #FF5A6E;
+  --err-bg: #2D0A10;
+  --err-border: #6E1525;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.50);
+  --shadow-md: 0 4px 12px -2px rgba(0, 200, 212, 0.12), 0 0 0 1px rgba(0, 200, 212, 0.08);
+  --shadow-lg: 0 10px 24px -4px rgba(0, 200, 212, 0.18), 0 0 0 1px rgba(0, 200, 212, 0.10);
+  --shadow-accent: 0 4px 16px rgba(0, 200, 212, 0.40);
+}
+
+/* ---- Sunset theme ---- */
+:root[data-theme="sunset"] {
+  --bg: #160B1E;
+  --bg-elevated: #1F1030;
+  --bg-subtle: #281540;
+  --bg-hover: #301B50;
+
+  --text: #F2D8FF;
+  --text-secondary: #C49FDE;
+  --text-muted: #8A6AA8;
+
+  --accent: #FF7043;
+  --accent-hover: #FF8A65;
+  --accent-active: #E64A19;
+  --accent-soft: #3D1508;
+  --accent-line: #6B2910;
+  --accent-gradient: linear-gradient(135deg, #C2185B 0%, #FF7043 55%, #FFB74D 100%);
+
+  --border: #3A1A50;
+  --border-strong: #5A2878;
+  --divider: #2A1240;
+
+  --ok: #66BB6A;
+  --ok-bg: #0A2010;
+  --ok-border: #1A5020;
+
+  --warn: #FFCA28;
+  --warn-bg: #2A1E00;
+  --warn-border: #6B4800;
+
+  --err: #EF5350;
+  --err-bg: #2D0808;
+  --err-border: #6E1515;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.50);
+  --shadow-md: 0 4px 12px -2px rgba(255, 112, 67, 0.12), 0 0 0 1px rgba(255, 112, 67, 0.08);
+  --shadow-lg: 0 10px 24px -4px rgba(255, 112, 67, 0.18), 0 0 0 1px rgba(194, 24, 91, 0.10);
+  --shadow-accent: 0 4px 16px rgba(255, 112, 67, 0.40);
+}
+
+/* ---- Forest theme ---- */
+:root[data-theme="forest"] {
+  --bg: #050E08;
+  --bg-elevated: #0A1A0E;
+  --bg-subtle: #0F2415;
+  --bg-hover: #142E1A;
+
+  --text: #CEEEDD;
+  --text-secondary: #7EBB95;
+  --text-muted: #4A7A5A;
+
+  --accent: #2ECC71;
+  --accent-hover: #3DDC80;
+  --accent-active: #27AE60;
+  --accent-soft: #062810;
+  --accent-line: #0E4C20;
+  --accent-gradient: linear-gradient(135deg, #1A6B3A 0%, #2ECC71 55%, #82EEB5 100%);
+
+  --border: #123020;
+  --border-strong: #1E4A30;
+  --divider: #0C2414;
+
+  --ok: #2ECC71;
+  --ok-bg: #062810;
+  --ok-border: #0E4C20;
+
+  --warn: #F39C12;
+  --warn-bg: #2A1A00;
+  --warn-border: #6B4200;
+
+  --err: #E74C3C;
+  --err-bg: #2D0808;
+  --err-border: #6E1515;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.50);
+  --shadow-md: 0 4px 12px -2px rgba(46, 204, 113, 0.12), 0 0 0 1px rgba(46, 204, 113, 0.08);
+  --shadow-lg: 0 10px 24px -4px rgba(46, 204, 113, 0.18), 0 0 0 1px rgba(46, 204, 113, 0.10);
+  --shadow-accent: 0 4px 16px rgba(46, 204, 113, 0.40);
+}
+
 /* ---- Shared design tokens (theme-independent) ---- */
 :root {
   --radius-sm: 6px;
@@ -202,11 +322,115 @@ header .brand-mark-zoho {
   border-color: var(--border-strong);
 }
 
-.theme-icon-sun, .theme-icon-moon { transition: opacity var(--t-base) var(--ease), transform var(--t-base) var(--ease); }
-:root[data-theme="dark"] .theme-icon-sun { display: inline-block; }
-:root[data-theme="dark"] .theme-icon-moon { display: none; }
-:root:not([data-theme="dark"]) .theme-icon-sun { display: none; }
-:root:not([data-theme="dark"]) .theme-icon-moon { display: inline-block; }
+/* ---- Theme picker ---- */
+.theme-picker-wrap {
+  position: relative;
+}
+.theme-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 34px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease);
+  white-space: nowrap;
+}
+.theme-picker-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.theme-swatch-small {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.18);
+  flex-shrink: 0;
+}
+.theme-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 200;
+  min-width: 160px;
+  animation: menuEnter 0.15s var(--ease-out) both;
+}
+@keyframes menuEnter {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.theme-option:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.theme-option.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.theme-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+.swatch-light   { background: radial-gradient(circle at 35% 35%, #fff 0%, #e0e8f4 100%); border-color: rgba(0,0,0,0.15); }
+.swatch-dark    { background: radial-gradient(circle at 35% 35%, #2a3550 0%, #0d1117 100%); }
+.swatch-ocean   { background: radial-gradient(circle at 35% 35%, #00c8d4 0%, #020e1a 100%); }
+.swatch-sunset  { background: radial-gradient(circle at 35% 35%, #ff7043 0%, #160b1e 100%); }
+.swatch-forest  { background: radial-gradient(circle at 35% 35%, #2ecc71 0%, #050e08 100%); }
+
+/* ---- CRM connected pulse animation ---- */
+@keyframes crmConnectedPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(var(--ok-rgb, 45, 184, 125), 0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(var(--ok-rgb, 45, 184, 125), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--ok-rgb, 45, 184, 125), 0); }
+}
+.crm-connected-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-border);
+  border-radius: var(--radius-pill);
+  color: var(--ok);
+  font-size: 12px;
+  font-weight: 600;
+  animation: crmConnectedPulse 1.5s ease-out 1;
+}
+.crm-connected-badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+}
 
 header h1 {
   margin: 0;
@@ -377,9 +601,9 @@ header .live-pill::before {
 
 /* ---- Main + panels ---- */
 main {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 32px 24px 64px;
+  width: 100%;
+  padding: 32px 32px 64px;
+  box-sizing: border-box;
 }
 
 .tab-panel {
@@ -2014,15 +2238,43 @@ footer code {
   animation: panelEnter 0.25s ease;
 }
 
-/* Catalyst SDK renders the Zoho sign-in form in this div */
-#loginDivElementId {
-  margin-top: 0.5rem;
-  text-align: left;
-}
-#loginDivElementId iframe {
-  width: 100% !important;
+/* Sign-in button */
+.zoho-signin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 20px;
+  background: var(--accent);
+  color: #fff;
   border: none;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  box-shadow: var(--shadow-accent);
+  margin-top: 0.25rem;
 }
+.zoho-signin-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(76, 154, 255, 0.35);
+}
+.zoho-signin-btn:active {
+  background: var(--accent-active);
+  transform: translateY(0);
+}
+.login-footnote {
+  margin: 0.9rem 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Hidden Catalyst SDK compatibility div */
+#loginDivElementId { display: none !important; }
 
 /* Zoho 4-colour icon grid used in login + consent */
 .zoho-icon-grid {

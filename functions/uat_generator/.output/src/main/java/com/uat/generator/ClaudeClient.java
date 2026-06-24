@@ -11,54 +11,34 @@ import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.http.io.entity.StringEntity;
 
+/**
+ * LLM client backed by Google Gemini (generateContent REST API).
+ * Set GEMINI_API_KEY in Catalyst function env vars.
+ * Optionally override model via GEMINI_MODEL (default: gemini-1.5-flash).
+ */
 public final class ClaudeClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    // GitHub Models / Copilot — OpenAI-compatible endpoint
-    private static final String DEFAULT_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions";
-    private static final String DEFAULT_MODEL    = "claude-3-7-sonnet";
+    private static final String BASE_URL     = "https://generativelanguage.googleapis.com/v1beta/models/";
+    private static final String DEFAULT_MODEL = "gemini-1.5-flash";
 
     private ClaudeClient() {}
 
     public static String generate(String brd, String module, String moduleSchema) throws Exception {
-        String token = System.getenv("GITHUB_TOKEN");
-        if (token == null || token.isEmpty()) {
-            throw new IllegalStateException(
-                "GITHUB_TOKEN env var is not set. Add your GitHub Copilot token in Catalyst function env vars.");
-        }
+        String apiKey = apiKey();
+        String model  = model();
 
-        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
-        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
-
-        ObjectNode payload = MAPPER.createObjectNode();
-        payload.put("model", model);
-        payload.put("max_tokens", 16000);
-
-        ArrayNode messages = payload.putArray("messages");
-
-        ObjectNode sys = messages.addObject();
-        sys.put("role", "system");
-        sys.put("content", systemPrompt());
-
-        ObjectNode user = messages.addObject();
-        user.put("role", "user");
-        user.put("content", buildUserPrompt(brd, module, moduleSchema));
-
-        return callGithubModels(token, endpoint, payload);
+        ObjectNode payload = buildPayload(systemPrompt(), buildUserPrompt(brd, module, moduleSchema), 16000);
+        return callGemini(apiKey, model, payload);
     }
 
     public static String analyze(String brd, String moduleNames) throws Exception {
-        String token = System.getenv("GITHUB_TOKEN");
-        if (token == null || token.isEmpty()) {
-            throw new IllegalStateException("GITHUB_TOKEN not set");
-        }
-
-        String model    = System.getenv().getOrDefault("COPILOT_MODEL", DEFAULT_MODEL);
-        String endpoint = System.getenv().getOrDefault("COPILOT_ENDPOINT", DEFAULT_ENDPOINT);
+        String apiKey = apiKey();
+        String model  = model();
 
         String sysPrompt =
             "You are a Zoho CRM expert. You will receive a UAT specification document and a "
-            + "JSON array of CRM module api_names available in the org. "
+            + "list of CRM module api_names available in the org. "
             + "Your job: identify which modules (up to 3) the spec is primarily testing, "
             + "and write a concise 1–2 sentence analysis of what the document covers. "
             + "Output ONLY a JSON object with exactly two keys: "
@@ -70,38 +50,74 @@ public final class ClaudeClient {
             + "UAT spec document:\n" + brd + "\n\n"
             + "Return JSON only: {\"suggested_modules\":[...],\"analysis\":\"...\"}";
 
-        ObjectNode payload = MAPPER.createObjectNode();
-        payload.put("model", model);
-        payload.put("max_tokens", 512);
-
-        ArrayNode messages = payload.putArray("messages");
-        ObjectNode sys = messages.addObject();
-        sys.put("role", "system");
-        sys.put("content", sysPrompt);
-        ObjectNode user = messages.addObject();
-        user.put("role", "user");
-        user.put("content", userPrompt);
-
-        return callGithubModels(token, endpoint, payload);
+        ObjectNode payload = buildPayload(sysPrompt, userPrompt, 512);
+        return callGemini(apiKey, model, payload);
     }
 
-    private static String callGithubModels(String token, String endpoint, ObjectNode payload) throws Exception {
+    // ---- Helpers ----
+
+    private static String apiKey() {
+        String key = System.getenv("GEMINI_API_KEY");
+        if (key == null || key.isEmpty()) {
+            throw new IllegalStateException(
+                "GEMINI_API_KEY env var is not set. Add your Google AI Studio key in Catalyst function env vars.");
+        }
+        return key;
+    }
+
+    private static String model() {
+        return System.getenv().getOrDefault("GEMINI_MODEL", DEFAULT_MODEL);
+    }
+
+    private static ObjectNode buildPayload(String systemInstruction, String userText, int maxTokens) {
+        ObjectNode payload = MAPPER.createObjectNode();
+
+        // System instruction
+        ObjectNode sys = payload.putObject("system_instruction");
+        ArrayNode sysParts = sys.putArray("parts");
+        sysParts.addObject().put("text", systemInstruction);
+
+        // User message
+        ArrayNode contents = payload.putArray("contents");
+        ObjectNode turn = contents.addObject();
+        turn.put("role", "user");
+        ArrayNode parts = turn.putArray("parts");
+        parts.addObject().put("text", userText);
+
+        // Generation config
+        ObjectNode genConfig = payload.putObject("generationConfig");
+        genConfig.put("maxOutputTokens", maxTokens);
+        genConfig.put("temperature", 0.2);
+
+        return payload;
+    }
+
+    private static String callGemini(String apiKey, String model, ObjectNode payload) throws Exception {
+        String url = BASE_URL + model + ":generateContent?key=" + apiKey;
         try (CloseableHttpClient http = HttpClients.createDefault()) {
-            HttpPost post = new HttpPost(endpoint);
-            post.setHeader("Authorization", "Bearer " + token);
-            post.setHeader("Content-Type", "application/json");
+            HttpPost post = new HttpPost(url);
+            post.setHeader("content-type", "application/json");
             post.setEntity(new StringEntity(MAPPER.writeValueAsString(payload), ContentType.APPLICATION_JSON));
 
             return http.execute(post, response -> {
                 String body = EntityUtils.toString(response.getEntity());
                 int code = response.getCode();
                 if (code >= 400) {
-                    throw new RuntimeException("GitHub Models API error " + code + ": " + body);
+                    throw new RuntimeException("Gemini API error " + code + ": " + body);
                 }
-                // OpenAI-compatible response: choices[0].message.content
+                // Gemini response: candidates[0].content.parts[0].text
                 JsonNode root = MAPPER.readTree(body);
-                JsonNode content = root.path("choices").path(0).path("message").path("content");
-                return content.isMissingNode() ? body : content.asText();
+                JsonNode text = root.path("candidates").path(0)
+                                    .path("content").path("parts").path(0).path("text");
+                if (text.isMissingNode()) {
+                    // Check for prompt blocking
+                    JsonNode blocked = root.path("promptFeedback").path("blockReason");
+                    if (!blocked.isMissingNode()) {
+                        throw new RuntimeException("Gemini blocked prompt: " + blocked.asText());
+                    }
+                    throw new RuntimeException("Unexpected Gemini response: " + body);
+                }
+                return text.asText();
             });
         }
     }
