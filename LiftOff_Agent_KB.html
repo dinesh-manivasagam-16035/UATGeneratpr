@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LiftOff UAT Generator — Agent Knowledge Base</title>
+  <style>
+    :root {
+      --brand: #4f46e5;
+      --brand-light: #eef2ff;
+      --accent: #0ea5e9;
+      --success: #16a34a;
+      --warn: #d97706;
+      --danger: #dc2626;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --muted: #64748b;
+      --code-bg: #f1f5f9;
+      --tag-bg: #dbeafe;
+      --tag-text: #1d4ed8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+
+    /* ── Layout ── */
+    .page-wrap {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 16px;
+      font-size: 13px;
+    }
+
+    nav .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    nav .logo svg { flex-shrink: 0; }
+
+    nav .logo-text { font-weight: 700; font-size: 16px; color: var(--brand); line-height: 1.2; }
+    nav .logo-sub  { font-size: 11px; color: var(--muted); }
+
+    nav h4 {
+      text-transform: uppercase;
+      font-size: 10.5px;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin: 18px 0 6px;
+    }
+
+    nav a {
+      display: block;
+      padding: 5px 10px;
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+      transition: background .15s;
+    }
+
+    nav a:hover { background: var(--brand-light); color: var(--brand); }
+
+    /* ── Main ── */
+    main {
+      padding: 48px 56px;
+      max-width: 960px;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(135deg, var(--brand) 0%, #7c3aed 100%);
+      color: #fff;
+      border-radius: 16px;
+      padding: 40px 44px;
+      margin-bottom: 48px;
+    }
+
+    .hero h1 { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+    .hero p  { opacity: .85; max-width: 600px; }
+
+    .hero .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+    .hero .badge {
+      background: rgba(255,255,255,.2);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* ── Section headings ── */
+    section { margin-bottom: 52px; }
+
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--brand);
+      border-bottom: 2px solid var(--brand-light);
+      padding-bottom: 8px;
+      margin-bottom: 20px;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 24px 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    p { margin-bottom: 12px; }
+    ul, ol { padding-left: 22px; margin-bottom: 12px; }
+    li { margin-bottom: 5px; }
+
+    /* ── Info / Warning cards ── */
+    .card {
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 16px 0;
+    }
+
+    .card.info    { background: #eff6ff; border-left: 4px solid var(--accent); }
+    .card.success { background: #f0fdf4; border-left: 4px solid var(--success); }
+    .card.warn    { background: #fffbeb; border-left: 4px solid var(--warn); }
+    .card.danger  { background: #fef2f2; border-left: 4px solid var(--danger); }
+
+    .card .card-title {
+      font-weight: 700;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 6px;
+    }
+
+    .card.info    .card-title { color: var(--accent); }
+    .card.success .card-title { color: var(--success); }
+    .card.warn    .card-title { color: var(--warn); }
+    .card.danger  .card-title { color: var(--danger); }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 13.5px;
+    }
+
+    th {
+      background: var(--brand-light);
+      color: var(--brand);
+      text-align: left;
+      font-weight: 700;
+      padding: 9px 14px;
+      border: 1px solid #c7d2fe;
+    }
+
+    td {
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td { background: var(--bg); }
+
+    /* ── Code blocks ── */
+    pre, code {
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      font-size: 13px;
+    }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      margin: 14px 0;
+    }
+
+    code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+
+    /* ── Tags ── */
+    .tag {
+      display: inline-block;
+      background: var(--tag-bg);
+      color: var(--tag-text);
+      font-size: 11.5px;
+      font-weight: 600;
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin: 2px 2px;
+    }
+
+    .tag.green  { background: #dcfce7; color: #15803d; }
+    .tag.orange { background: #ffedd5; color: #c2410c; }
+    .tag.red    { background: #fee2e2; color: #b91c1c; }
+    .tag.purple { background: #f3e8ff; color: #7e22ce; }
+    .tag.gray   { background: #f1f5f9; color: #475569; }
+
+    /* ── Step tracker ── */
+    .steps { list-style: none; padding: 0; counter-reset: step; }
+    .steps li {
+      counter-increment: step;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .steps li::before {
+      content: counter(step);
+      min-width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    /* ── FAQ accordion ── */
+    details {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    summary {
+      padding: 13px 18px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--surface);
+      user-select: none;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    summary::after { content: '＋'; color: var(--brand); font-size: 16px; }
+    details[open] summary::after { content: '－'; }
+    details[open] summary { background: var(--brand-light); color: var(--brand); }
+
+    .faq-body { padding: 14px 18px; border-top: 1px solid var(--border); }
+
+    /* ── Guardrail section ── */
+    .guardrail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .guardrail-box {
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+
+    .guardrail-box.allowed  { background: #f0fdf4; border: 1px solid #86efac; }
+    .guardrail-box.blocked  { background: #fef2f2; border: 1px solid #fca5a5; }
+
+    .guardrail-box h4 { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+    .guardrail-box.allowed h4 { color: var(--success); }
+    .guardrail-box.blocked  h4 { color: var(--danger); }
+    .guardrail-box li { font-size: 13px; }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12.5px;
+    }
+
+    @media print {
+      .page-wrap { grid-template-columns: 1fr; }
+      nav { display: none; }
+      main { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <!-- ── Sidebar navigation ── -->
+  <nav>
+    <div class="logo">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="8" fill="#4f46e5"/>
+        <path d="M16 6 L20 20 L16 17 L12 20 Z" fill="white"/>
+        <circle cx="16" cy="24" r="2" fill="#a5b4fc"/>
+      </svg>
+      <div>
+        <div class="logo-text">LiftOff</div>
+        <div class="logo-sub">Agent Knowledge Base</div>
+      </div>
+    </div>
+
+    <h4>Overview</h4>
+    <a href="#what-is">What is LiftOff?</a>
+    <a href="#who-for">Who is it for?</a>
+    <a href="#workflow">Core Workflow</a>
+
+    <h4>Features</h4>
+    <a href="#brd-upload">BRD Upload</a>
+    <a href="#module-selection">Module Selection</a>
+    <a href="#generation">Test Generation</a>
+    <a href="#execution">Test Execution</a>
+    <a href="#push">Push to Projects</a>
+    <a href="#export">Export &amp; Download</a>
+
+    <h4>Integration</h4>
+    <a href="#crm-connect">CRM Connection</a>
+    <a href="#projects-connect">Zoho Projects</a>
+    <a href="#auth">Authentication</a>
+
+    <h4>Guidance</h4>
+    <a href="#faq">FAQ</a>
+    <a href="#guardrails">Agent Guardrails</a>
+    <a href="#out-of-scope">Out-of-Scope Topics</a>
+    <a href="#escalation">Escalation Path</a>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <main>
+
+    <!-- Hero -->
+    <div class="hero">
+      <h1>LiftOff — UAT Generator</h1>
+      <p>
+        AI-powered platform that converts Business Requirements Documents into executable
+        UAT test cases, runs them against live Zoho CRM orgs, and syncs results to Zoho Projects.
+      </p>
+      <div class="badges">
+        <span class="badge">Zoho Catalyst</span>
+        <span class="badge">Zoho CRM</span>
+        <span class="badge">Zoho Projects</span>
+        <span class="badge">AI-Powered</span>
+        <span class="badge">Agent KB v1.0</span>
+      </div>
+    </div>
+
+    <!-- ── 1. What is LiftOff ── -->
+    <section id="what-is">
+      <h2>1. What is LiftOff?</h2>
+      <p>
+        <strong>LiftOff</strong> is a web application that automates User Acceptance Testing (UAT)
+        for Zoho CRM implementations. It reads a Business Requirements Document (BRD) written by
+        a developer or business analyst, uses an AI language model to generate 30–100+ structured
+        test cases, executes those tests directly against a live CRM org, and then pushes the
+        results — tasks for passing tests, bugs for failing ones — into Zoho Projects.
+      </p>
+
+      <div class="card info">
+        <div class="card-title">Core Value Proposition</div>
+        What used to take a QA team days of manual test-plan writing is reduced to
+        <strong>under 10 minutes</strong> of work: upload a BRD, click Generate, review,
+        click Execute, click Push. Done.
+      </div>
+
+      <h3>🏗️ Technology Platform</h3>
+      <ul>
+        <li>Hosted on <strong>Zoho Catalyst</strong> (serverless cloud, AdvancedIO function)</li>
+        <li>Backend: Java 11 servlet layer; Frontend: Vanilla HTML/CSS/JavaScript</li>
+        <li>AI engine: Large Language Model (LLM) integration via a configured provider</li>
+        <li>Integrations: Zoho CRM v3 API, Zoho Projects v3 API</li>
+      </ul>
+    </section>
+
+    <!-- ── 2. Who is it for ── -->
+    <section id="who-for">
+      <h2>2. Who Uses LiftOff?</h2>
+
+      <table>
+        <thead>
+          <tr><th>User Role</th><th>Primary Use</th><th>Key Benefit</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>QA Engineers</strong></td>
+            <td>Review &amp; run generated test cases</td>
+            <td>Skip manual test case authoring</td>
+          </tr>
+          <tr>
+            <td><strong>Business Analysts</strong></td>
+            <td>Upload BRDs; verify coverage</td>
+            <td>Immediate traceability from spec to test</td>
+          </tr>
+          <tr>
+            <td><strong>CRM Developers</strong></td>
+            <td>Write BRDs; inspect execution results</td>
+            <td>Instant feedback on API compliance</td>
+          </tr>
+          <tr>
+            <td><strong>Project Managers</strong></td>
+            <td>Review Projects tasks &amp; bugs dashboard</td>
+            <td>Real-time UAT progress without chasing QA</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="card warn">
+        <div class="card-title">Scope of Use</div>
+        LiftOff is designed exclusively for testing <strong>Zoho CRM</strong> configurations.
+        It is not a general-purpose testing tool and does not support other CRMs, ERP systems,
+        or non-Zoho applications.
+      </div>
+    </section>
+
+    <!-- ── 3. Core Workflow ── -->
+    <section id="workflow">
+      <h2>3. Core Workflow — Brief → Cases → Fly → Land</h2>
+      <p>The entire user journey follows four sequential tabs:</p>
+
+      <ol class="steps">
+        <li>
+          <div>
+            <strong>Brief (Input)</strong><br/>
+            Log in via Zoho SSO, connect your CRM org, upload a BRD file
+            (<code>.txt</code>, <code>.md</code>, <code>.pdf</code>, <code>.docx</code>),
+            and select the CRM modules you want to test (up to 5).
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Cases (Generation)</strong><br/>
+            The AI reads your BRD and generates 30–100+ structured test cases with
+            Gherkin scenarios, step-by-step execution plans, priorities, and tags.
+            Review and edit before proceeding.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Fly (Execute)</strong><br/>
+            Run test cases against your live CRM org (or simulate without credentials).
+            Each case makes real API calls, captures variables, and evaluates assertions.
+            Results show pass / fail / skip with full HTTP traces.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Land (Push)</strong><br/>
+            Push results to Zoho Projects. Passing tests become project tasks.
+            Failing tests automatically create linked bugs with reproduction steps.
+          </div>
+        </li>
+      </ol>
+
+      <div class="card success">
+        <div class="card-title">Tab Progression Lock</div>
+        Tabs unlock progressively. You cannot execute tests before generating cases,
+        and you cannot push to Projects before executing. This ensures data integrity
+        at each stage.
+      </div>
+    </section>
+
+    <!-- ── 4. BRD Upload ── -->
+    <section id="brd-upload">
+      <h2>4. BRD Upload &amp; Parsing</h2>
+
+      <h3>📄 Supported File Formats</h3>
+      <table>
+        <thead>
+          <tr><th>Format</th><th>Extension</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Plain Text</td><td><code>.txt</code></td><td>Direct text extraction</td></tr>
+          <tr><td>Markdown</td><td><code>.md</code></td><td>Markdown stripped to plain text</td></tr>
+          <tr><td>PDF</td><td><code>.pdf</code></td><td>Extracted via PDF.js in-browser</td></tr>
+          <tr><td>Word Document</td><td><code>.docx</code></td><td>Extracted via Mammoth.js in-browser</td></tr>
+        </tbody>
+      </table>
+
+      <div class="card info">
+        <div class="card-title">Privacy Note</div>
+        BRD parsing is performed <strong>entirely in the browser</strong>. The file content
+        is never uploaded to a server as a raw file — only the extracted text is sent to the
+        AI model for processing.
+      </div>
+
+      <h3>Writing an Effective BRD</h3>
+      <p>For best results, your BRD should include:</p>
+      <ul>
+        <li>Feature or module name being implemented</li>
+        <li>Specific business rules (e.g., "Leads from US region must auto-assign to the West Coast team")</li>
+        <li>Required and optional fields</li>
+        <li>Edge cases and error conditions the dev has already considered</li>
+        <li>Acceptance criteria (what "done" looks like)</li>
+      </ul>
+    </section>
+
+    <!-- ── 5. Module Selection ── -->
+    <section id="module-selection">
+      <h2>5. Module Selection</h2>
+
+      <p>
+        After uploading a BRD, LiftOff can automatically suggest 1–3 CRM modules to test
+        based on keyword analysis of the document content. Users can also manually select
+        modules from a list fetched from their live CRM org.
+      </p>
+
+      <h3>Supported CRM Modules (examples)</h3>
+      <p>
+        <span class="tag">Leads</span>
+        <span class="tag">Contacts</span>
+        <span class="tag">Deals</span>
+        <span class="tag">Accounts</span>
+        <span class="tag">Tasks</span>
+        <span class="tag">Cases</span>
+        <span class="tag">Quotes</span>
+        <span class="tag">Products</span>
+        <span class="tag">Campaigns</span>
+        <span class="tag">Custom Modules</span>
+      </p>
+
+      <div class="card info">
+        <div class="card-title">Multi-Module Generation</div>
+        Selecting multiple modules generates cases for <strong>each module independently</strong>
+        (35+ cases per module), resulting in 90–100+ total cases for a 3-module selection.
+      </div>
+    </section>
+
+    <!-- ── 6. Test Generation ── -->
+    <section id="generation">
+      <h2>6. AI-Powered Test Case Generation</h2>
+
+      <h3>What Each Generated Test Case Contains</h3>
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Title</strong></td><td>Concise test name</td><td>"Inbound web-form lead with mapped region gets auto-assigned"</td></tr>
+          <tr><td><strong>Priority</strong></td><td>P0 / P1 / P2</td><td>P0 = critical path, P1 = edge case, P2 = inferred</td></tr>
+          <tr><td><strong>Gherkin</strong></td><td>Given/When/Then scenario</td><td>"Given a lead submitted from the US… When the system routes… Then the owner is…"</td></tr>
+          <tr><td><strong>Steps</strong></td><td>Human-readable action + expected result pairs</td><td>"Action: Submit lead form. Expected: Lead created with Owner = West Coast Rep."</td></tr>
+          <tr><td><strong>Acceptance</strong></td><td>Traceability back to BRD requirement</td><td>"BRD §3.2 — Region-based routing must assign within 5 seconds"</td></tr>
+          <tr><td><strong>Tags</strong></td><td>Category labels</td><td>happy-path, auto-assign, create, validation</td></tr>
+          <tr><td><strong>Execution Plan</strong></td><td>Structured API calls with assertions</td><td>POST /crm/v3/Leads → capture ID → assert owner field → DELETE</td></tr>
+          <tr><td><strong>Module</strong></td><td>Target CRM module</td><td>Leads</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Coverage Categories</h3>
+      <p>The AI ensures test cases span all these categories:</p>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin: 12px 0;">
+        <div><span class="tag green">CRUD Operations</span> Create, Edit, Delete, List, Pagination</div>
+        <div><span class="tag green">Validation</span> Required fields, formats, limits</div>
+        <div><span class="tag purple">Permissions</span> Role-based, field-level, sharing rules</div>
+        <div><span class="tag purple">Workflows</span> Stage transitions, mandatory fields</div>
+        <div><span class="tag orange">Search &amp; Filter</span> Query builder, saved views</div>
+        <div><span class="tag orange">Bulk Operations</span> Mass update, bulk delete</div>
+        <div><span class="tag">Integrations</span> Webhooks, third-party sync</div>
+        <div><span class="tag">Data Quality</span> Deduplication, merge, import</div>
+        <div><span class="tag red">Security</span> XSS, SQL injection, OAuth, rate-limiting</div>
+        <div><span class="tag red">Performance</span> Concurrent updates, large record sets</div>
+        <div><span class="tag gray">UI/UX</span> Responsive display, inline edit</div>
+        <div><span class="tag gray">API-Level</span> REST compliance, error codes</td></div>
+      </div>
+
+      <h3>Priority Distribution</h3>
+      <table>
+        <thead><tr><th>Priority</th><th>Share</th><th>What it covers</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tag red">P0</span></td><td>~20%</td><td>Explicit BRD acceptance criteria — must pass for sign-off</td></tr>
+          <tr><td><span class="tag orange">P1</span></td><td>~50%</td><td>Stated edge cases and validation rules from the BRD</td></tr>
+          <tr><td><span class="tag gray">P2</span></td><td>~30%</td><td>Inferred scenarios the QA engineer would think of anyway</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ── 7. Test Execution ── -->
+    <section id="execution">
+      <h2>7. Test Execution (Fly Tab)</h2>
+
+      <h3>Execution Modes</h3>
+      <table>
+        <thead><tr><th>Mode</th><th>Credentials Required</th><th>What Happens</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Simulated</strong></td>
+            <td>None</td>
+            <td>Validates test structure; returns synthetic pass/fail without real API calls</td>
+          </tr>
+          <tr>
+            <td><strong>Live</strong></td>
+            <td>Zoho CRM OAuth token</td>
+            <td>Makes real HTTP calls to your CRM org; assertions evaluated on actual responses</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>What the Executor Does</h3>
+      <ul>
+        <li>Runs each test's API steps in sequence</li>
+        <li>Captures variables (e.g., <code>record_id</code>) from one step and injects them into the next</li>
+        <li>Evaluates assertions: exact match, value-in-list, JSONPath extraction</li>
+        <li>Cleans up after itself — every CREATE is followed by a DELETE to keep the org tidy</li>
+        <li>Records the first failure point, HTTP status code, and full response trace</li>
+      </ul>
+
+      <h3>Result Statuses</h3>
+      <p>
+        <span class="tag green">pass</span> All assertions satisfied<br/>
+        <span class="tag red">fail</span> At least one assertion failed or an API error occurred<br/>
+        <span class="tag gray">skip</span> Prerequisites unmet; test was intentionally skipped
+      </p>
+
+      <div class="card warn">
+        <div class="card-title">Live Mode Warning</div>
+        Live execution interacts with your <strong>real CRM org</strong>. While LiftOff deletes
+        test data after each case, always test against a <strong>sandbox or developer org</strong>
+        first, not a production environment.
+      </div>
+    </section>
+
+    <!-- ── 8. Push to Projects ── -->
+    <section id="push">
+      <h2>8. Push to Zoho Projects (Land Tab)</h2>
+
+      <h3>What Gets Created</h3>
+      <table>
+        <thead><tr><th>Item</th><th>Trigger</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Project</strong></td>
+            <td>Auto-created if name doesn't exist</td>
+            <td>Named "Test Plan — {Module} — {Date}"</td>
+          </tr>
+          <tr>
+            <td><strong>Task</strong></td>
+            <td>Every test case (pass or fail)</td>
+            <td>Title, Gherkin, steps, acceptance criteria, priority, tags</td>
+          </tr>
+          <tr>
+            <td><strong>Bug</strong></td>
+            <td>Failed test cases only</td>
+            <td>"[UAT FAIL] {title}" + failure reason + repro steps, linked to parent task</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Priority Mapping</h3>
+      <table>
+        <thead><tr><th>Test Priority</th><th>Projects Task Priority</th><th>Bug Severity</th></tr></thead>
+        <tbody>
+          <tr><td>P0</td><td>High</td><td>Critical</td></tr>
+          <tr><td>P1</td><td>Medium</td><td>Major</td></tr>
+          <tr><td>P2</td><td>Low</td><td>Minor</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Auth Options for Projects</h3>
+      <ul>
+        <li><strong>Catalyst Connection</strong> — Server-side, most secure; no token entry needed</li>
+        <li><strong>Self-Client OAuth</strong> — Paste your Zoho refresh token; LiftOff handles the token exchange</li>
+      </ul>
+
+      <h3>Zoho Domain Support</h3>
+      <p>
+        <span class="tag">United States (zoho.com)</span>
+        <span class="tag">India (zoho.in)</span>
+        <span class="tag">Europe (zoho.eu)</span>
+        <span class="tag">Australia (zoho.com.au)</span>
+      </p>
+    </section>
+
+    <!-- ── 9. Export ── -->
+    <section id="export">
+      <h2>9. Export &amp; Download</h2>
+
+      <table>
+        <thead><tr><th>Format</th><th>Content</th><th>Use Case</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>JSON</strong></td>
+            <td>Full test case array including execution plans</td>
+            <td>Version control, CI/CD pipelines, re-import</td>
+          </tr>
+          <tr>
+            <td><strong>CSV — Tasks</strong></td>
+            <td>Name, description, priority, status, tags, module, execution result</td>
+            <td>Zoho Projects import, spreadsheet review</td>
+          </tr>
+          <tr>
+            <td><strong>CSV — Bugs</strong></td>
+            <td>Bug title, description, severity, steps to reproduce, module</td>
+            <td>Bug tracker import, defect reporting</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ── 10. CRM Connection ── -->
+    <section id="crm-connect">
+      <h2>10. Connecting Zoho CRM</h2>
+
+      <ol class="steps">
+        <li>
+          <div>
+            <strong>Log in via Zoho SSO</strong><br/>
+            Click "Sign in with Zoho" on the Brief tab. Your Zoho account authenticates
+            via Catalyst-managed SSO — no separate password needed.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Authorize CRM &amp; Projects</strong><br/>
+            An OAuth consent screen will request read access to CRM modules and write
+            access to Zoho Projects tasks. Approve to proceed.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Select Your Org</strong><br/>
+            If your Zoho account has multiple CRM orgs, a dropdown lets you pick the
+            target org. Module lists will reload from the selected org.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Confirm Connection</strong><br/>
+            A green checkmark and the org name appear once the connection is verified.
+            You are now ready to generate and execute tests.
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ── 11. Zoho Projects ── -->
+    <section id="projects-connect">
+      <h2>11. Connecting Zoho Projects</h2>
+
+      <p>
+        LiftOff needs write access to Zoho Projects to create tasks and bugs.
+        Two options are available:
+      </p>
+
+      <h3>Option A — Catalyst Connection (Recommended)</h3>
+      <p>
+        If the Catalyst function has been configured with a Zoho Projects connection
+        by your administrator, no additional setup is needed. The connection is
+        server-managed and tokens rotate automatically.
+      </p>
+
+      <h3>Option B — Self-Client OAuth</h3>
+      <ol>
+        <li>Go to <strong>api-console.zoho.com</strong> and create a Self Client</li>
+        <li>Generate a token with scope: <code>ZohoProjects.tasks.CREATE,ZohoProjects.bugs.CREATE</code></li>
+        <li>Paste the refresh token into the LiftOff "Projects Connection" field in the Land tab</li>
+        <li>Select your Zoho domain and portal</li>
+      </ol>
+
+      <div class="card info">
+        <div class="card-title">Portal &amp; Project Selection</div>
+        LiftOff lists all projects in your portal. You can select an existing project
+        or let LiftOff auto-create one named after the module and date.
+      </div>
+    </section>
+
+    <!-- ── 12. Auth ── -->
+    <section id="auth">
+      <h2>12. Authentication Overview</h2>
+
+      <table>
+        <thead><tr><th>Layer</th><th>Method</th><th>Details</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>App Login</td>
+            <td>Zoho SSO (Catalyst-managed)</td>
+            <td>Standard Zoho account credentials; supports MFA</td>
+          </tr>
+          <tr>
+            <td>CRM Access</td>
+            <td>OAuth 2.0</td>
+            <td>Token stored server-side; session cookie (<code>tp_crm_sid</code>) on client</td>
+          </tr>
+          <tr>
+            <td>Projects Access</td>
+            <td>OAuth 2.0 / Catalyst Connection</td>
+            <td>Either server connection or user-supplied refresh token</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="card danger">
+        <div class="card-title">Security Note</div>
+        OAuth tokens are <strong>never exposed in the browser</strong>. They are stored
+        server-side in the Catalyst function's runtime. The client receives only an
+        opaque session identifier. Never share session cookies or tokens with anyone.
+      </div>
+    </section>
+
+    <!-- ── 13. FAQ ── -->
+    <section id="faq">
+      <h2>13. Frequently Asked Questions</h2>
+
+      <details>
+        <summary>How many test cases will the AI generate?</summary>
+        <div class="faq-body">
+          The AI generates a minimum of <strong>35 test cases per CRM module</strong> selected.
+          With 3 modules selected, expect 90–120 total cases depending on BRD complexity.
+          The default includes 3 smoke tests per module (LIST, CREATE+DELETE, bad-auth) plus
+          scenario-specific cases derived from the BRD.
+        </div>
+      </details>
+
+      <details>
+        <summary>What if the AI generates test cases unrelated to my BRD?</summary>
+        <div class="faq-body">
+          The AI is instructed to anchor every test case to the BRD content. Each case includes
+          an <strong>acceptance</strong> field that references the originating requirement.
+          If you see off-topic cases, improve your BRD by being more specific about requirements,
+          edge cases, and acceptance criteria. You can also delete irrelevant cases before executing.
+        </div>
+      </details>
+
+      <details>
+        <summary>Will running tests affect my CRM data?</summary>
+        <div class="faq-body">
+          Every test case that creates data includes a corresponding DELETE step at the end.
+          However, <strong>always test against a sandbox org first</strong>. If a test fails
+          mid-execution, the cleanup step may not run, leaving a dangling record. LiftOff logs
+          the record ID so you can delete it manually.
+        </div>
+      </details>
+
+      <details>
+        <summary>Can I test custom CRM modules?</summary>
+        <div class="faq-body">
+          Yes. After connecting your CRM org, LiftOff fetches the <strong>live module list</strong>
+          including all custom modules installed in your org. Custom modules appear in the
+          module selector alongside standard ones.
+        </div>
+      </details>
+
+      <details>
+        <summary>Can I re-run failed tests after a fix?</summary>
+        <div class="faq-body">
+          Yes. Go back to the Fly tab and click Execute again. LiftOff will re-run all test
+          cases. You can then push updated results to Zoho Projects — tasks will be updated
+          and bugs will be resolved if the tests now pass.
+        </div>
+      </details>
+
+      <details>
+        <summary>Is there a limit to BRD file size?</summary>
+        <div class="faq-body">
+          File parsing happens in the browser, so the practical limit depends on your device.
+          Most BRDs are well within acceptable limits. If your BRD is very large (e.g., an
+          entire product requirements document), consider extracting only the relevant section
+          for the module you are testing.
+        </div>
+      </details>
+
+      <details>
+        <summary>What CRM API permissions does LiftOff need?</summary>
+        <div class="faq-body">
+          LiftOff requests the following CRM OAuth scopes:
+          <ul style="margin-top:8px">
+            <li>Read access to the modules list</li>
+            <li>Read/Write/Delete on the modules selected for testing</li>
+          </ul>
+          It does not request access to settings, users, billing, or any administrative scopes.
+        </div>
+      </details>
+
+      <details>
+        <summary>What happens if test execution is interrupted?</summary>
+        <div class="faq-body">
+          LiftOff processes test cases sequentially within a batch. If the network drops
+          mid-execution, results for completed cases are preserved in the UI. You can review
+          partial results and re-execute. Cases that were in progress when the connection
+          dropped will show as <span class="tag red">fail</span> or <span class="tag gray">skip</span>.
+        </div>
+      </details>
+
+      <details>
+        <summary>Can multiple people use LiftOff at the same time?</summary>
+        <div class="faq-body">
+          Yes. Each user authenticates independently via Zoho SSO. Sessions are isolated — one
+          user's test run does not affect another's. However, if two users run live tests against
+          the <strong>same CRM org</strong> simultaneously, their API calls may interact (e.g.,
+          record ID conflicts). Coordinate or use separate orgs for parallel runs.
+        </div>
+      </details>
+
+      <details>
+        <summary>Does LiftOff support Zoho Desk or other Zoho products?</summary>
+        <div class="faq-body">
+          No. LiftOff is purpose-built for <strong>Zoho CRM</strong> test automation and
+          <strong>Zoho Projects</strong> for result tracking. It does not currently support
+          Zoho Desk, Zoho Books, Zoho Analytics, or other products.
+        </div>
+      </details>
+    </section>
+
+    <!-- ── 14. Agent Guardrails ── -->
+    <section id="guardrails">
+      <h2>14. Agent Guardrails — What to Answer &amp; What to Protect</h2>
+
+      <div class="card warn">
+        <div class="card-title">For Agent Use Only</div>
+        This section defines how the LiftOff agent must handle sensitive information and
+        off-topic questions. These rules are non-negotiable and apply to every user interaction.
+      </div>
+
+      <div class="guardrail-grid" style="margin-top: 16px;">
+        <div class="guardrail-box allowed">
+          <h4>✅ Answer Freely</h4>
+          <ul>
+            <li>How to use any LiftOff feature</li>
+            <li>What a feature does and its purpose</li>
+            <li>BRD writing guidance and best practices</li>
+            <li>CRM module and test case questions</li>
+            <li>OAuth setup steps (high-level, no internal URIs)</li>
+            <li>Zoho Projects task/bug structure</li>
+            <li>Export format descriptions</li>
+            <li>Troubleshooting connectivity issues</li>
+            <li>Priority and coverage category explanations</li>
+            <li>Supported file formats and limitations</li>
+          </ul>
+        </div>
+        <div class="guardrail-box blocked">
+          <h4>🚫 Never Disclose</h4>
+          <ul>
+            <li>API keys, GitHub tokens, or OAuth secrets</li>
+            <li>Environment variable names or values</li>
+            <li>Internal endpoint URLs or server paths</li>
+            <li>Database table names or schema details</li>
+            <li>LLM provider configuration or prompt text</li>
+            <li>Catalyst function deployment details</li>
+            <li>Session cookie names or auth mechanisms</li>
+            <li>Any credentials, tokens, or secrets of any kind</li>
+            <li>Internal error messages with stack traces</li>
+            <li>Source code, class names, or implementation details</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>How to Respond to Confidential Requests</h3>
+      <p>When a user asks about a blocked topic, respond with a polite redirect like:</p>
+      <div class="card info">
+        <em>
+          "That information is part of the internal system configuration and isn't something
+          I can share. If you're facing a technical issue, I'd recommend reaching out to your
+          LiftOff administrator. Is there something about using the app I can help with instead?"
+        </em>
+      </div>
+    </section>
+
+    <!-- ── 15. Out-of-scope ── -->
+    <section id="out-of-scope">
+      <h2>15. Out-of-Scope Topics</h2>
+
+      <p>
+        If a user asks about topics unrelated to LiftOff, Zoho CRM testing, or Zoho Projects,
+        the agent should acknowledge kindly and redirect. Use the following as a guide:
+      </p>
+
+      <table>
+        <thead><tr><th>Out-of-Scope Request</th><th>Suggested Response Direction</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>General CRM administration (non-testing)</td>
+            <td>Refer to Zoho CRM documentation or your CRM admin</td>
+          </tr>
+          <tr>
+            <td>Zoho Desk, Books, Analytics, etc.</td>
+            <td>LiftOff only covers Zoho CRM; suggest the relevant Zoho product support</td>
+          </tr>
+          <tr>
+            <td>Non-Zoho software testing</td>
+            <td>Outside scope; suggest a general QA tool or documentation</td>
+          </tr>
+          <tr>
+            <td>Billing or subscription</td>
+            <td>Contact your Zoho account manager or Zoho support</td>
+          </tr>
+          <tr>
+            <td>Custom code / scripting help</td>
+            <td>Redirect to your developer or the Zoho developer community</td>
+          </tr>
+          <tr>
+            <td>Personal or non-work questions</td>
+            <td>Politely note the agent is here to help with LiftOff and UAT testing</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="card info">
+        <div class="card-title">Redirect Template</div>
+        <em>
+          "I'm here specifically to help with LiftOff UAT Generator and Zoho CRM testing.
+          For [topic they asked about], I'd suggest [appropriate resource].
+          Is there anything about generating or running test cases I can help with?"
+        </em>
+      </div>
+    </section>
+
+    <!-- ── 16. Escalation ── -->
+    <section id="escalation">
+      <h2>16. Escalation Path</h2>
+
+      <p>When the agent cannot answer a question from this KB, use the following escalation path:</p>
+
+      <ol class="steps">
+        <li>
+          <div>
+            <strong>Check this KB first</strong><br/>
+            Most questions about features, workflow, and integration are answered in
+            sections 1–13. Review all relevant sections before escalating.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Direct to in-app Help</strong><br/>
+            The LiftOff UI includes tooltip hints and status messages. Encourage the
+            user to hover over UI elements and read status messages for context-specific guidance.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Refer to Zoho Documentation</strong><br/>
+            For CRM API, OAuth, or Projects API questions beyond LiftOff's scope,
+            refer to <strong>Zoho CRM Developer Guide</strong> and
+            <strong>Zoho Projects API Reference</strong> on Zoho's official developer portal.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Escalate to LiftOff Administrator</strong><br/>
+            For deployment issues, configuration errors, Catalyst function failures,
+            or suspected bugs in the app itself, the user should contact the LiftOff
+            administrator or the engineering team responsible for the deployment.
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <p>
+        <strong>LiftOff UAT Generator — Agent Knowledge Base</strong> &nbsp;|&nbsp;
+        Version 1.0 &nbsp;|&nbsp; Platform: Zoho Catalyst &nbsp;|&nbsp;
+        Prepared for Catalyst Agent Configuration
+      </p>
+      <p style="margin-top: 6px;">
+        This document is intended for AI agent training and operation only.
+        Confidential system details have been intentionally omitted.
+        Do not distribute externally.
+      </p>
+    </footer>
+
+  </main>
+</div>
+
+</body>
+</html>

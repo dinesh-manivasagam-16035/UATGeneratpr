@@ -829,7 +829,7 @@
       // Also pull the org list so the picker is ready without an extra round-trip.
       await fetchOrgList();
     } catch {
-      // Not authenticated — hide spinner and show styled sign-in button.
+      // Not authenticated — hide spinner, show sign-in button.
       state.authUser      = null;
       state.crmAuthorized = false;
       const loader = document.getElementById("login-auth-loader");
@@ -837,8 +837,11 @@
       const actionArea = document.getElementById("login-action-area");
       if (actionArea) actionArea.hidden = false;
       document.getElementById("zoho-signin-btn")?.addEventListener("click", () => {
-        // Full-page redirect to Zoho Accounts (no embedded iframe).
-        window.catalyst.auth.signIn(null, { service_url: "/app/index.html" });
+        // Hide button, show the Catalyst widget div, then render the login widget.
+        if (actionArea) actionArea.hidden = true;
+        const widgetWrap = document.getElementById("catalyst-widget-wrap");
+        if (widgetWrap) widgetWrap.hidden = false;
+        window.catalyst.auth.signIn("loginDivElementId", { service_url: "/app/index.html" });
       }, { once: true });
     }
     updateAuthUI();

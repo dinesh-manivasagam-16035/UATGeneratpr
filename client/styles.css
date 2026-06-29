@@ -2273,8 +2273,19 @@ footer code {
   text-align: center;
 }
 
-/* Hidden Catalyst SDK compatibility div */
-#loginDivElementId { display: none !important; }
+/* Catalyst login widget wrapper */
+#catalyst-widget-wrap {
+  margin-top: 0.75rem;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+}
+#loginDivElementId iframe {
+  width: 100% !important;
+  border: none;
+  display: block;
+}
 
 /* Zoho 4-colour icon grid used in login + consent */
 .zoho-icon-grid {
@@ -2695,5 +2706,15 @@ footer code {
 
 @media (prefers-reduced-motion: reduce) {
   .tab-anim { animation: none !important; }
+}
+
+/* ── ConvoKraft Bot Widget ── */
+.convokraft-anchor {
+  width: 330px;
+  height: 450px;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  z-index: 9999;
 }
 

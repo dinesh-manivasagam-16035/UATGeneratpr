@@ -95,11 +95,13 @@
           </svg>
           Sign in with Zoho
         </button>
-        <p class="login-footnote">You'll be redirected to Zoho Accounts to authenticate.</p>
+        <p class="login-footnote">Sign in using your Zoho account.</p>
       </div>
 
-      <!-- Hidden div kept for Catalyst SDK compatibility -->
-      <div id="loginDivElementId" hidden style="display:none"></div>
+      <!-- Catalyst login widget — shown after button click -->
+      <div id="catalyst-widget-wrap" hidden>
+        <div id="loginDivElementId"></div>
+      </div>
     </div>
   </section>
 
@@ -394,5 +396,20 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="app.js"></script>
+
+  <!-- ConvoKraft Bot Widget -->
+  <script src="https://console.catalyst.zoho.in/convokraft/assets/js/convokraft-chat-sdk.js"></script>
+  <style>
+  div.anchor_convokraft_toBottom {
+    width: 330px;
+    height: 450px;
+    position: fixed;
+    bottom: 0;
+    right: 0;
+  }
+  </style>
+  <div class="anchor_convokraft_toBottom">
+    <convokraft-chat-bot bot-name="nairuken" project-id="41726000000048001" org-id="60071738809"></convokraft-chat-bot>
+  </div>
 </body>
 </html>

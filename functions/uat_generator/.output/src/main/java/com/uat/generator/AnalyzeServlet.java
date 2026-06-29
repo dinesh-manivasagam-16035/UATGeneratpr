@@ -98,9 +98,9 @@ public class AnalyzeServlet extends HttpServlet {
             ObjectNode out = MAPPER.createObjectNode();
             String method = "heuristic";
 
-            // Try LLM-powered analysis first (requires GEMINI_API_KEY)
+            // Try LLM-powered analysis first (requires GITHUB_TOKEN)
             boolean llmSucceeded = false;
-            if (System.getenv("GEMINI_API_KEY") != null && !System.getenv("GEMINI_API_KEY").isEmpty()) {
+            if (System.getenv("GITHUB_TOKEN") != null && !System.getenv("GITHUB_TOKEN").isEmpty()) {
                 try {
                     String llmRaw = ClaudeClient.analyze(brd, moduleNameList);
                     // Strip markdown fencing if model wrapped it
