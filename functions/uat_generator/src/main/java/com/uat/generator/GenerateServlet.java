@@ -40,11 +40,10 @@ public class GenerateServlet extends HttpServlet {
         CorsSupport.apply(req, resp);
 
         String llmProvider = System.getenv().getOrDefault("LLM_PROVIDER", "claude");
-        String model = System.getenv().getOrDefault("COPILOT_MODEL", "Claude-3.7-Sonnet");
-        // Display label shown in the UI — reflects actual model when using GitHub Models
+        String model = System.getenv().getOrDefault("COPILOT_MODEL", "claude-3.7-sonnet");
         String provider = "mock".equalsIgnoreCase(llmProvider) ? "mock"
                         : "zia".equalsIgnoreCase(llmProvider)  ? "zia"
-                        : "GitHub Models (" + model + ")";
+                        : "GitHub Copilot (" + model + ")";
         int brdLength = 0;
         List<String> modules = new ArrayList<>();
 

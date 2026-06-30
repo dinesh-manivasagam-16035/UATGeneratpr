@@ -116,9 +116,9 @@
   const THEMES = [
     { id: "light",  label: "Light",  swatchBg: "radial-gradient(circle at 35% 35%, #fff 0%, #e0e8f4 100%)", swatchBorder: "rgba(0,0,0,0.15)" },
     { id: "dark",   label: "Dark",   swatchBg: "radial-gradient(circle at 35% 35%, #2a3550 0%, #0d1117 100%)", swatchBorder: "" },
-    { id: "ocean",  label: "Ocean",  swatchBg: "radial-gradient(circle at 35% 35%, #00c8d4 0%, #020e1a 100%)", swatchBorder: "" },
-    { id: "sunset", label: "Sunset", swatchBg: "radial-gradient(circle at 35% 35%, #ff7043 0%, #160b1e 100%)", swatchBorder: "" },
-    { id: "forest", label: "Forest", swatchBg: "radial-gradient(circle at 35% 35%, #2ecc71 0%, #050e08 100%)", swatchBorder: "" },
+    { id: "ocean",  label: "Azure",  swatchBg: "radial-gradient(circle at 35% 35%, #7DD3FC 0%, #0369A1 100%)", swatchBorder: "rgba(0,0,0,0.10)" },
+    { id: "sunset", label: "Ember",  swatchBg: "radial-gradient(circle at 35% 35%, #FED7AA 0%, #C2410C 100%)", swatchBorder: "" },
+    { id: "forest", label: "Sage",   swatchBg: "radial-gradient(circle at 35% 35%, #86EFAC 0%, #15803D 100%)", swatchBorder: "rgba(0,0,0,0.10)" },
   ];
   function setTheme(theme) {
     document.documentElement.dataset.theme = theme;
@@ -551,112 +551,211 @@
 
   // ---- Sample template download ----
 
-  function downloadSampleTemplate() {
-    const content = `# UAT Test Cases Document — [Feature Name]
+  // ---- BRD Template Builder ----
 
-## Overview
-**Module:** [e.g., Leads / Contacts / Deals]
-**Developer:** [Your Name]
-**Date:** [YYYY-MM-DD]
-**Version:** 1.0
+  const BRD_TYPES = ["String","Number","Boolean","Date","DateTime","Email","Phone","Picklist","Lookup","MultiSelect","Currency","Textarea"];
 
----
+  function brdEl(tag, attrs, text) {
+    var el = document.createElement(tag);
+    for (var k in attrs) {
+      if (k === "class") el.className = attrs[k];
+      else el.setAttribute(k, attrs[k]);
+    }
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
 
-## Feature Description
-[Describe the feature being tested. What does it do? What business problem does it solve?]
+  function brdInput(placeholder, value) {
+    var inp = brdEl("input", { "class": "brd-in", type: "text", placeholder: placeholder });
+    inp.value = value || "";
+    return inp;
+  }
 
----
+  function brdDelBtn() {
+    var btn = brdEl("button", { "class": "brd-del", type: "button", title: "Remove" }, "✕");
+    return btn;
+  }
 
-## Fields
+  function brdTd(child) {
+    var td = document.createElement("td");
+    td.appendChild(child);
+    return td;
+  }
 
-| Field API Name | Label           | Type     | Required | Constraints                           | Default |
-|----------------|-----------------|----------|----------|---------------------------------------|---------|
-| Last_Name      | Last Name       | Text     | Yes      | Max 80 chars                          | —       |
-| Email          | Email           | Email    | No       | Valid email format                    | —       |
-| Phone          | Phone           | Phone    | No       | Max 30 chars                          | —       |
-| Lead_Status    | Status          | Picklist | No       | New, Contacted, Qualified, Unqualified| New     |
+  function openBrdModal() {
+    var overlay = document.getElementById("brd-modal-overlay");
+    if (overlay) overlay.hidden = false;
+    var tbody = document.getElementById("brd-fields-body");
+    if (tbody && !tbody.children.length) {
+      addBrdFieldRow(); addBrdFieldRow(); addBrdFieldRow();
+    }
+  }
 
----
+  function closeBrdModal() {
+    var overlay = document.getElementById("brd-modal-overlay");
+    if (overlay) overlay.hidden = true;
+  }
 
-## Use Cases
+  function addBrdFieldRow() {
+    var tbody = document.getElementById("brd-fields-body");
+    if (!tbody) return;
+    var tr = document.createElement("tr");
 
-### UC-1: Create a new record
-**Description:** A user creates a new record with all required fields filled.
+    var nameInp = brdInput("Field_Name", "");
 
-**Preconditions:** User is logged in with Create permission.
+    var typeSelect = brdEl("select", { "class": "brd-in" });
+    BRD_TYPES.forEach(function(t) {
+      var opt = brdEl("option", {}, t);
+      if (t === "String") opt.selected = true;
+      typeSelect.appendChild(opt);
+    });
 
-**Required fields:** Last_Name
-**Optional fields:** Email, Phone, Lead_Status
+    var reqSelect = brdEl("select", { "class": "brd-in" });
+    var optOpt = brdEl("option", {}, "Optional");
+    optOpt.selected = true;
+    reqSelect.appendChild(brdEl("option", {}, "Required"));
+    reqSelect.appendChild(optOpt);
 
-**Expected result:** Record is created and appears in the list view.
+    var notesInp = brdInput("Notes / constraints", "");
+    var delBtn   = brdDelBtn();
 
----
+    tr.appendChild(brdTd(nameInp));
+    tr.appendChild(brdTd(typeSelect));
+    tr.appendChild(brdTd(reqSelect));
+    tr.appendChild(brdTd(notesInp));
+    var delTd = document.createElement("td");
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
 
-### UC-2: Edit an existing record
-**Description:** A user edits an existing record's details.
+    delBtn.addEventListener("click", function() { tr.parentNode && tr.parentNode.removeChild(tr); });
+    tbody.appendChild(tr);
+  }
 
-**Preconditions:** A record exists. User has Edit permission.
+  function addBrdFilterRow() {
+    var tbody = document.getElementById("brd-filters-body");
+    if (!tbody) return;
+    var tr = document.createElement("tr");
 
-**Fields to edit:** Email, Phone
+    var fieldInp = brdInput("Field_Name", "");
+    var typeInp  = brdInput("exact | contains | range | picklist", "");
+    var delBtn   = brdDelBtn();
 
-**Expected result:** Changes are saved and reflected on the detail page.
+    tr.appendChild(brdTd(fieldInp));
+    tr.appendChild(brdTd(typeInp));
+    var delTd = document.createElement("td");
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
 
----
+    delBtn.addEventListener("click", function() { tr.parentNode && tr.parentNode.removeChild(tr); });
+    tbody.appendChild(tr);
+  }
 
-### UC-3: Delete a record
-**Description:** A user deletes a record.
+  function addBrdRelRow() {
+    var tbody = document.getElementById("brd-rels-body");
+    if (!tbody) return;
+    var tr = document.createElement("tr");
 
-**Preconditions:** A record exists. User has Delete permission.
+    var modInp  = brdInput("Accounts", "");
+    var relInp  = brdInput("Many-to-One | One-to-Many", "");
+    var fldInp  = brdInput("Account_Name", "");
+    var delBtn  = brdDelBtn();
 
-**Expected result:** Record moves to Recycle Bin. No longer visible in list view.
+    tr.appendChild(brdTd(modInp));
+    tr.appendChild(brdTd(relInp));
+    tr.appendChild(brdTd(fldInp));
+    var delTd = document.createElement("td");
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
 
----
+    delBtn.addEventListener("click", function() { tr.parentNode && tr.parentNode.removeChild(tr); });
+    tbody.appendChild(tr);
+  }
 
-### UC-4: Validation — missing required field
-**Description:** Submitting a form without the required Last_Name field.
+  function getElVal(id) {
+    var el = document.getElementById(id);
+    return el ? (el.value || "") : "";
+  }
 
-**Input:** Leave Last_Name blank, fill all other optional fields.
+  function serializeBrd() {
+    var proj    = (getElVal("brd-project-name") || "Untitled Project").trim();
+    var region  = getElVal("brd-region")  || "IN";
+    var auth    = getElVal("brd-auth")    || "OAuth 2.0";
+    var entity  = (getElVal("brd-entity-name") || "Module").trim();
+    var apiName = (getElVal("brd-module-api")  || entity).trim();
 
-**Expected result:** Validation error is shown. Record is NOT created.
+    var fields = [];
+    var fieldRows = document.querySelectorAll("#brd-fields-body tr");
+    for (var i = 0; i < fieldRows.length; i++) {
+      var cells = fieldRows[i].querySelectorAll("input, select");
+      var fname = cells[0] ? cells[0].value.trim() : "";
+      if (fname) fields.push({ name: fname, type: cells[1] ? cells[1].value : "String", req: cells[2] ? cells[2].value : "Optional", notes: cells[3] ? cells[3].value.trim() : "" });
+    }
 
----
+    var actions = [];
+    var actionCbs = document.querySelectorAll("input[name='brd-action']");
+    for (var j = 0; j < actionCbs.length; j++) {
+      actions.push({ name: actionCbs[j].value, on: actionCbs[j].checked });
+    }
 
-### UC-5: Validation — invalid email format
-**Description:** Entering an invalid value in the Email field.
+    var filters = [];
+    var filterRows = document.querySelectorAll("#brd-filters-body tr");
+    for (var k = 0; k < filterRows.length; k++) {
+      var finps = filterRows[k].querySelectorAll("input");
+      var ff = finps[0] ? finps[0].value.trim() : "";
+      if (ff) filters.push({ field: ff, type: finps[1] ? finps[1].value.trim() : "" });
+    }
 
-**Input:** Email = "not-an-email"
+    var rels = [];
+    var relRows = document.querySelectorAll("#brd-rels-body tr");
+    for (var l = 0; l < relRows.length; l++) {
+      var rinps = relRows[l].querySelectorAll("input");
+      var rm = rinps[0] ? rinps[0].value.trim() : "";
+      if (rm) rels.push({ mod: rm, rel: rinps[1] ? rinps[1].value.trim() : "", field: rinps[2] ? rinps[2].value.trim() : "" });
+    }
 
-**Expected result:** Field-level validation error shown. Record is NOT created.
+    var rules = (getElVal("brd-rules") || "").trim();
+    var rpp = getElVal("brd-records-per-page") || "200";
+    var sf  = (getElVal("brd-sort-field") || "Created_Time").trim();
+    var so  = getElVal("brd-sort-order") || "DESC";
+    var rl  = getElVal("brd-rate-limit") || "Retry";
 
----
+    var brd = "# BRD: " + proj + "\nRegion: " + region + " | Auth: " + auth + "\n\n";
+    brd += "## Entity: " + entity + "\nModule API Name: " + apiName + "\n\n";
 
-### UC-6: Picklist — invalid value
-**Description:** Sending an unlisted picklist value via API.
+    if (fields.length) {
+      brd += "### Fields\n| Field Name | Data Type | Required | Notes |\n|---|---|---|---|\n";
+      fields.forEach(function(f) { brd += "| " + f.name + " | " + f.type + " | " + f.req + " | " + (f.notes || "—") + " |\n"; });
+      brd += "\n";
+    }
 
-**Input:** Lead_Status = "Unknown_Value"
+    brd += "### Actions\n";
+    actions.forEach(function(a) { brd += "- " + a.name + ": " + (a.on ? "YES" : "NO") + "\n"; });
+    brd += "\n";
 
-**Expected result:** API returns INVALID_DATA error.
+    if (filters.length) {
+      brd += "### Search / Filter Fields\n| Field | Filter Type |\n|---|---|\n";
+      filters.forEach(function(f) { brd += "| " + f.field + " | " + f.type + " |\n"; });
+      brd += "\n";
+    }
 
----
+    if (rels.length) {
+      brd += "### Relationships\n| Related Module | Relation Type | Field Name |\n|---|---|---|\n";
+      rels.forEach(function(r) { brd += "| " + r.mod + " | " + r.rel + " | " + r.field + " |\n"; });
+      brd += "\n";
+    }
 
-### UC-7: Duplicate detection
-**Description:** Creating a record with the same Email as an existing one.
+    if (rules) {
+      brd += "### Business Rules\n";
+      rules.split("\n").forEach(function(l) { if (l.trim()) brd += "- " + l.trim() + "\n"; });
+      brd += "\n";
+    }
 
-**Input:** Email = already existing record's email
+    brd += "### Global Settings\n";
+    brd += "- Records per page: " + rpp + "\n";
+    brd += "- Default sort: " + sf + " " + so + "\n";
+    brd += "- Rate limit handling: " + rl + "\n";
 
-**Expected result:** Duplicate alert shown (or API returns DUPLICATE_DATA).
-
----
-
-## Notes
-- Prefix all test record names with **UAT-Smoke-** (e.g. "UAT-Smoke-Lead-001").
-- Delete test records after each run to keep the org clean.
-- Use zohoapis.in for India DC, zohoapis.com for Global DC.
-`;
-    triggerDownload(
-      new Blob([content], { type: "text/markdown;charset=utf-8" }),
-      "test-cases-template.md"
-    );
+    return brd;
   }
 
   // ---- Default API smoke tests injected alongside generated cases ----
@@ -1022,11 +1121,22 @@
       });
     }
 
-    // Sign-out
+    // Disconnect CRM (clears CRM token only, does not sign out of Catalyst)
     if (els.authLogoutBtn) {
-      els.authLogoutBtn.addEventListener("click", () => {
-        if (isLocal) { state.authUser = null; updateAuthUI(); return; }
-        window.catalyst.auth.signOut("/app/index.html");
+      els.authLogoutBtn.addEventListener("click", async () => {
+        try {
+          if (!isLocal) {
+            await fetch(FUNCTION_BASE + "/crm/disconnect", { method: "POST", credentials: "include" });
+          }
+        } catch (e) { /* best-effort */ }
+        state.crmAuthorized = false;
+        state.crmOrgName = "";
+        state.crmEmail = "";
+        state.crmOrgList = [];
+        state.modulesAvailable = [];
+        updateAuthUI();
+        renderModuleChips();
+        if (els.modulesStatus) els.modulesStatus.textContent = "";
       });
     }
 
@@ -1667,7 +1777,40 @@
   });
 
   els.generate.addEventListener("click", generate);
-  if (els.downloadSampleBtn) els.downloadSampleBtn.addEventListener("click", downloadSampleTemplate);
+  if (els.downloadSampleBtn) els.downloadSampleBtn.addEventListener("click", openBrdModal);
+
+  // BRD modal wiring
+  (function() {
+    function wire(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener("click", fn); }
+
+    wire("brd-modal-close",  closeBrdModal);
+    wire("brd-modal-cancel", closeBrdModal);
+    wire("brd-add-field",    addBrdFieldRow);
+    wire("brd-add-filter",   addBrdFilterRow);
+    wire("brd-add-rel",      addBrdRelRow);
+
+    var overlay = document.getElementById("brd-modal-overlay");
+    if (overlay) {
+      overlay.addEventListener("click", function(e) {
+        if (e.target === overlay) closeBrdModal();
+      });
+    }
+
+    wire("brd-download-md", function() {
+      triggerDownload(new Blob([serializeBrd()], { type: "text/markdown;charset=utf-8" }), "brd-template.md");
+    });
+
+    wire("brd-use-template", function() {
+      var text   = serializeBrd();
+      var entity = getElVal("brd-entity-name").trim() || "template";
+      state.brd      = text;
+      state.fileName = entity.replace(/\s+/g, "-").toLowerCase() + "-brd.md";
+      if (els.fileMeta) els.fileMeta.textContent = "✓ BRD loaded from template (" + state.fileName + ")";
+      closeBrdModal();
+      refreshGenerateAvailability();
+      if (state.brd && state.modulesSelected.length) markStepDone("input");
+    });
+  }());
   els.backToInput.addEventListener("click", () => showTab("input"));
   els.toExecute.addEventListener("click", () => showTab("execute"));
   els.download.addEventListener("click", downloadJson);

@@ -24,13 +24,28 @@
 <body>
   <header>
     <div class="brand">
-      <span class="brand-mark brand-mark-zoho" aria-hidden="true">
-        <span class="bm-grid">
-          <span class="bm-q" style="background:#0052CC"></span>
-          <span class="bm-q" style="background:#F26C01"></span>
-          <span class="bm-q" style="background:#00875A"></span>
-          <span class="bm-q" style="background:#FF8B00"></span>
-        </span>
+      <span class="brand-mark liftoff-icon-wrap" aria-hidden="true">
+        <svg class="liftoff-svg" viewBox="0 0 44 44" width="36" height="36" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="liftoff-bg-g" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#4F8EF7"/>
+              <stop offset="100%" stop-color="#1A3DAF"/>
+            </linearGradient>
+          </defs>
+          <rect width="44" height="44" rx="11" fill="url(#liftoff-bg-g)"/>
+          <rect x="1" y="1" width="42" height="19" rx="10" fill="rgba(255,255,255,0.08)"/>
+          <g transform="translate(32,32) scale(0.55) translate(-12,-12)">
+            <g class="li-gear-g">
+              <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98L2.46 14.63a.49.49 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.22.08.49 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" fill="rgba(255,255,255,0.60)"/>
+            </g>
+          </g>
+          <g transform="translate(20,20)">
+            <g class="li-shield-g">
+              <path d="M0-10 8-5.5 8 2Q8 9 0 13Q-8 9-8 2L-8-5.5Z" fill="rgba(255,255,255,0.92)"/>
+              <polyline points="-3.5,0.5 -0.5,4 5,-3.5" fill="none" stroke="#1D4ED8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </g>
+        </svg>
       </span>
       <div>
         <h1>Lift<span class="brand-accent">Off</span></h1>
@@ -52,13 +67,13 @@
             <span class="theme-swatch swatch-dark"></span> Dark
           </div>
           <div class="theme-option" data-theme-pick="ocean">
-            <span class="theme-swatch swatch-ocean"></span> Ocean
+            <span class="theme-swatch swatch-ocean"></span> Azure
           </div>
           <div class="theme-option" data-theme-pick="sunset">
-            <span class="theme-swatch swatch-sunset"></span> Sunset
+            <span class="theme-swatch swatch-sunset"></span> Ember
           </div>
           <div class="theme-option" data-theme-pick="forest">
-            <span class="theme-swatch swatch-forest"></span> Forest
+            <span class="theme-swatch swatch-forest"></span> Sage
           </div>
         </div>
       </div>
@@ -69,11 +84,28 @@
   <!-- Login screen — shown while checking auth or when unauthenticated -->
   <section id="login-screen" aria-label="Sign in to LiftOff">
     <div class="login-card">
-      <div class="zoho-icon-grid" aria-hidden="true">
-        <div class="zi zi-blue"></div>
-        <div class="zi zi-orange"></div>
-        <div class="zi zi-green"></div>
-        <div class="zi zi-amber"></div>
+      <div class="login-icon" aria-hidden="true">
+        <svg class="liftoff-svg liftoff-svg-lg" viewBox="0 0 44 44" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="liftoff-login-bg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#4F8EF7"/>
+              <stop offset="100%" stop-color="#1A3DAF"/>
+            </linearGradient>
+          </defs>
+          <rect width="44" height="44" rx="11" fill="url(#liftoff-login-bg)"/>
+          <rect x="1" y="1" width="42" height="19" rx="10" fill="rgba(255,255,255,0.08)"/>
+          <g transform="translate(32,32) scale(0.55) translate(-12,-12)">
+            <g class="li-gear-g">
+              <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98L2.46 14.63a.49.49 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.22.08.49 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" fill="rgba(255,255,255,0.60)"/>
+            </g>
+          </g>
+          <g transform="translate(20,20)">
+            <g class="li-shield-g">
+              <path d="M0-10 8-5.5 8 2Q8 9 0 13Q-8 9-8 2L-8-5.5Z" fill="rgba(255,255,255,0.92)"/>
+              <polyline points="-3.5,0.5 -0.5,4 5,-3.5" fill="none" stroke="#1D4ED8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </g>
+        </svg>
       </div>
       <h2 class="login-title">Lift<span class="brand-accent">Off</span></h2>
       <p class="login-tagline">Your UAT, on autopilot.</p>
@@ -87,11 +119,23 @@
       <!-- Sign-in button — shown after auth check fails -->
       <div id="login-action-area" hidden>
         <button id="zoho-signin-btn" class="zoho-signin-btn" type="button">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
-            <rect x="2"  y="2"  width="9" height="9" rx="2" fill="#0052CC"/>
-            <rect x="13" y="2"  width="9" height="9" rx="2" fill="#F26C01"/>
-            <rect x="2"  y="13" width="9" height="9" rx="2" fill="#00875A"/>
-            <rect x="13" y="13" width="9" height="9" rx="2" fill="#FF8B00"/>
+          <svg viewBox="0 0 88 34" width="56" height="22" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+            <!-- Yellow (back) -->
+            <g transform="translate(71,17) rotate(13)">
+              <rect x="-13" y="-13" width="26" height="26" rx="6" stroke="#F5A623" stroke-width="3.5" fill="white"/>
+            </g>
+            <!-- Blue -->
+            <g transform="translate(53,17) rotate(5)">
+              <rect x="-13" y="-13" width="26" height="26" rx="6" stroke="#1E70B8" stroke-width="3.5" fill="white"/>
+            </g>
+            <!-- Green -->
+            <g transform="translate(35,17) rotate(-5)">
+              <rect x="-13" y="-13" width="26" height="26" rx="6" stroke="#33A237" stroke-width="3.5" fill="white"/>
+            </g>
+            <!-- Red (front) -->
+            <g transform="translate(17,17) rotate(-13)">
+              <rect x="-13" y="-13" width="26" height="26" rx="6" stroke="#E42527" stroke-width="3.5" fill="white"/>
+            </g>
           </svg>
           Sign in with Zoho
         </button>
@@ -156,20 +200,46 @@
         </div>
 
         <div class="auth-panel" id="auth-panel">
+
+          <!-- Not connected -->
           <div id="auth-login-area">
-            <button id="auth-login-btn" class="primary">Connect Zoho CRM</button>
-            <span id="auth-status-text" class="status muted"></span>
+            <div class="crm-connect-row">
+              <span class="crm-connect-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M17 7H7a5 5 0 0 0 0 10h1v-2H7a3 3 0 1 1 0-6h10a3 3 0 1 1 0 6h-1v2h1a5 5 0 0 0 0-10z" fill="white"/>
+                  <rect x="8" y="11" width="8" height="2" rx="1" fill="white"/>
+                </svg>
+              </span>
+              <div class="crm-connect-text">
+                <strong>Zoho CRM</strong>
+                <span>Connect to load live modules and push test cases</span>
+              </div>
+              <button id="auth-login-btn" class="primary small">Connect &rarr;</button>
+            </div>
+            <span id="auth-status-text" class="status muted" style="display:block;margin-top:6px"></span>
           </div>
+
+          <!-- Connected -->
           <div id="auth-user-info" hidden>
-            <span class="muted">Connected to </span><strong id="auth-org-name"></strong>
-            <span class="auth-email-sep muted"> &middot; </span><em id="auth-email" class="muted"></em>
-            <button id="auth-switch-org-btn" class="ghost small">Switch org</button>
-            <button id="auth-logout-btn" class="ghost small">Sign out</button>
+            <div class="crm-connected-bar">
+              <span class="crm-status-dot" aria-hidden="true"></span>
+              <div class="crm-info">
+                <span class="crm-org-name" id="auth-org-name"></span>
+                <span class="crm-email" id="auth-email"></span>
+              </div>
+              <div class="crm-info-actions">
+                <button id="auth-switch-org-btn" class="ghost small">&#8644; Switch org</button>
+                <button id="auth-logout-btn" class="ghost small">Disconnect</button>
+              </div>
+            </div>
           </div>
-          <div class="actions inline spaced">
-            <button id="load-modules-btn" class="ghost">Load modules from CRM</button>
-            <span id="modules-status" class="status" aria-live="polite"></span>
+
+          <!-- Load modules (always visible) -->
+          <div class="crm-load-row">
+            <button id="load-modules-btn" class="ghost small">&#8635; Load modules</button>
+            <span id="modules-status" class="status muted" aria-live="polite"></span>
           </div>
+
         </div>
         <iframe id="sso-frame" src="" hidden style="display:none"></iframe>
 
@@ -185,8 +255,8 @@
         </div>
 
         <div class="label-row">
-          <label for="brd-file">Test cases Document</label>
-          <button id="download-sample-btn" class="ghost small" type="button">&#8595; Sample template</button>
+          <label for="brd-file">Test Cases Document</label>
+          <button id="download-sample-btn" class="ghost small" type="button">&#9783; BRD Template Builder</button>
         </div>
         <div class="file-drop" id="file-drop">
           <input id="brd-file" type="file" accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
@@ -395,6 +465,172 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+  <!-- BRD Template Builder Modal -->
+  <div id="brd-modal-overlay" class="modal-overlay brd-modal-overlay-wrap" hidden>
+    <div id="brd-modal" class="modal-card brd-modal" role="dialog" aria-modal="true" aria-labelledby="brd-modal-title">
+
+      <div class="modal-header brd-modal-header">
+        <div>
+          <h3 id="brd-modal-title">BRD Template Builder</h3>
+          <p class="modal-hint">Fill in your module spec. Click <strong>Use Template →</strong> to generate test cases from it.</p>
+        </div>
+        <button class="ghost small brd-close-btn" id="brd-modal-close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="brd-body">
+
+        <!-- Project Info -->
+        <div class="brd-section">
+          <h4 class="brd-sec-title">Project Info</h4>
+          <div class="brd-grid brd-grid-3">
+            <div class="brd-field">
+              <label>Project Name</label>
+              <input id="brd-project-name" type="text" placeholder="e.g. CRM Lead Routing v2" />
+            </div>
+            <div class="brd-field">
+              <label>CRM Region</label>
+              <select id="brd-region">
+                <option value="IN">India (IN)</option>
+                <option value="US">United States (US)</option>
+                <option value="EU">Europe (EU)</option>
+                <option value="AU">Australia (AU)</option>
+                <option value="JP">Japan (JP)</option>
+              </select>
+            </div>
+            <div class="brd-field">
+              <label>Auth Type</label>
+              <select id="brd-auth">
+                <option>OAuth 2.0</option>
+                <option>API Key</option>
+                <option>Server-to-Server</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Entity -->
+        <div class="brd-section">
+          <h4 class="brd-sec-title">Entity</h4>
+          <div class="brd-grid brd-grid-2">
+            <div class="brd-field">
+              <label>Entity / Module Name</label>
+              <input id="brd-entity-name" type="text" placeholder="e.g. Contacts, Leads, Deals" />
+            </div>
+            <div class="brd-field">
+              <label>Module API Name</label>
+              <input id="brd-module-api" type="text" placeholder="e.g. Contacts, Custom_Module_1" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Fields -->
+        <div class="brd-section">
+          <div class="brd-sec-header">
+            <h4 class="brd-sec-title">Fields</h4>
+            <button class="ghost small" id="brd-add-field">+ Add Field</button>
+          </div>
+          <p class="brd-hint">Types: String | Number | Boolean | Date | DateTime | Email | Phone | Picklist | Lookup | MultiSelect | Currency | Textarea</p>
+          <div class="brd-table-wrap">
+            <table class="brd-table">
+              <thead>
+                <tr><th>Field Name</th><th>Data Type</th><th>Required</th><th>Notes</th><th></th></tr>
+              </thead>
+              <tbody id="brd-fields-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="brd-section">
+          <h4 class="brd-sec-title">Actions Needed</h4>
+          <div class="brd-actions-grid">
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Read (single)" checked /> Read (single)</label>
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Read (list)" checked /> Read (list)</label>
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Search" checked /> Search</label>
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Create" checked /> Create</label>
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Update" checked /> Update</label>
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Delete" /> Delete</label>
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Bulk Create" /> Bulk Create</label>
+            <label class="brd-toggle"><input type="checkbox" name="brd-action" value="Bulk Update" /> Bulk Update</label>
+          </div>
+        </div>
+
+        <!-- Search / Filter Fields -->
+        <div class="brd-section">
+          <div class="brd-sec-header">
+            <h4 class="brd-sec-title">Search / Filter Fields</h4>
+            <button class="ghost small" id="brd-add-filter">+ Add Filter</button>
+          </div>
+          <div class="brd-table-wrap">
+            <table class="brd-table">
+              <thead><tr><th>Field Name</th><th>Filter Type</th><th></th></tr></thead>
+              <tbody id="brd-filters-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Relationships -->
+        <div class="brd-section">
+          <div class="brd-sec-header">
+            <h4 class="brd-sec-title">Relationships</h4>
+            <button class="ghost small" id="brd-add-rel">+ Add Relationship</button>
+          </div>
+          <div class="brd-table-wrap">
+            <table class="brd-table">
+              <thead><tr><th>Related Module</th><th>Relation Type</th><th>Field Name</th><th></th></tr></thead>
+              <tbody id="brd-rels-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Business Rules -->
+        <div class="brd-section">
+          <h4 class="brd-sec-title">Special Notes / Business Rules</h4>
+          <textarea id="brd-rules" rows="4" placeholder="One rule per line, e.g.:&#10;Email must be unique&#10;Lead_Status defaults to New on creation&#10;Phone must follow E.164 format"></textarea>
+        </div>
+
+        <!-- Global Settings -->
+        <div class="brd-section">
+          <h4 class="brd-sec-title">Global Settings</h4>
+          <div class="brd-grid brd-grid-4">
+            <div class="brd-field">
+              <label>Records per page</label>
+              <input id="brd-records-per-page" type="number" value="200" min="1" max="200" />
+            </div>
+            <div class="brd-field">
+              <label>Default sort field</label>
+              <input id="brd-sort-field" type="text" placeholder="Created_Time" />
+            </div>
+            <div class="brd-field">
+              <label>Default sort order</label>
+              <select id="brd-sort-order">
+                <option value="DESC">DESC</option>
+                <option value="ASC">ASC</option>
+              </select>
+            </div>
+            <div class="brd-field">
+              <label>Rate limit handling</label>
+              <select id="brd-rate-limit">
+                <option>Retry</option>
+                <option>Error</option>
+                <option>Queue</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /brd-body -->
+
+      <div class="modal-actions brd-modal-footer">
+        <button class="ghost" id="brd-modal-cancel">Cancel</button>
+        <button class="ghost" id="brd-download-md">&#8595; Download .md</button>
+        <button class="primary" id="brd-use-template">Use Template &rarr;</button>
+      </div>
+
+    </div>
+  </div>
+
   <script src="app.js"></script>
 
   <!-- ConvoKraft Bot Widget -->

@@ -134,4 +134,13 @@
     <url-pattern>/crm/callback</url-pattern>
   </servlet-mapping>
 
+  <servlet>
+    <servlet-name>crm-disconnect</servlet-name>
+    <servlet-class>com.uat.generator.CrmDisconnectServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>crm-disconnect</servlet-name>
+    <url-pattern>/crm/disconnect</url-pattern>
+  </servlet-mapping>
+
 </web-app>

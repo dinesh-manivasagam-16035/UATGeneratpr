@@ -12,21 +12,21 @@ import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.http.io.entity.StringEntity;
 
 /**
- * LLM client using GitHub Models / Copilot (OpenAI-compatible endpoint).
+ * LLM client using the GitHub Copilot API (OpenAI-compatible).
  *
- * Required env vars (set in Catalyst function environment):
- *   GITHUB_TOKEN  — Personal Access Token from github.com/settings/tokens
- *   COPILOT_MODEL — exact model ID from github.com/marketplace/models
- *                   e.g. "claude-3-5-sonnet" or "claude-3-7-sonnet-20250219"
+ * Required env var (set in Catalyst function environment):
+ *   GITHUB_TOKEN  — GitHub PAT or OAuth token with Copilot access
+ *                   (same token you use for Copilot in VS Code)
  *
  * Optional:
- *   COPILOT_ENDPOINT — override the inference endpoint (default below)
+ *   COPILOT_MODEL    — model ID (default: claude-3.7-sonnet)
+ *   COPILOT_ENDPOINT — override the completions endpoint
  */
 public final class ClaudeClient {
 
     private static final ObjectMapper MAPPER           = new ObjectMapper();
-    private static final String       DEFAULT_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions";
-    private static final String       DEFAULT_MODEL    = "claude-3-5-sonnet";
+    private static final String       DEFAULT_ENDPOINT = "https://api.githubcopilot.com/chat/completions";
+    private static final String       DEFAULT_MODEL    = "claude-3.7-sonnet";
 
     private ClaudeClient() {}
 
@@ -97,18 +97,23 @@ public final class ClaudeClient {
         return (e != null && !e.isEmpty()) ? e : DEFAULT_ENDPOINT;
     }
 
-    private static String callOpenAICompat(String token, String endpoint, ObjectNode payload) throws Exception {
+    private static String callOpenAICompat(String githubToken, String endpoint, ObjectNode payload) throws Exception {
+        String copilotToken = CopilotTokenManager.getToken(githubToken);
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(endpoint);
-            post.setHeader("Authorization", "Bearer " + token);
+            post.setHeader("Authorization", "Bearer " + copilotToken);
             post.setHeader("Content-Type", "application/json");
+            post.setHeader("Copilot-Integration-Id", "vscode-chat");
+            post.setHeader("editor-version", "vscode/1.85.0");
+            post.setHeader("editor-plugin-version", "copilot-chat/0.22.4");
+            post.setHeader("user-agent", "GitHubCopilotChat/0.22.4");
             post.setEntity(new StringEntity(MAPPER.writeValueAsString(payload), ContentType.APPLICATION_JSON));
 
             return http.execute(post, response -> {
                 String body = EntityUtils.toString(response.getEntity());
                 int code = response.getCode();
                 if (code >= 400) {
-                    throw new RuntimeException("GitHub Models API error " + code + ": " + body);
+                    throw new RuntimeException("GitHub Copilot API error " + code + ": " + body);
                 }
                 JsonNode root = MAPPER.readTree(body);
                 JsonNode content = root.path("choices").path(0).path("message").path("content");
