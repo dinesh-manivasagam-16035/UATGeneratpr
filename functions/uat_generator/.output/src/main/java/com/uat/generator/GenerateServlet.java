@@ -1,5 +1,6 @@
 package com.uat.generator;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -31,7 +32,8 @@ import java.util.logging.Logger;
 public class GenerateServlet extends HttpServlet {
 
     private static final Logger LOG = Logger.getLogger(GenerateServlet.class.getName());
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .configure(JsonParser.Feature.ALLOW_COMMENTS, true);
     private static final int MAX_MODULES = 3;
 
     @Override
@@ -40,10 +42,10 @@ public class GenerateServlet extends HttpServlet {
         CorsSupport.apply(req, resp);
 
         String llmProvider = System.getenv().getOrDefault("LLM_PROVIDER", "claude");
-        String model = System.getenv().getOrDefault("COPILOT_MODEL", "claude-3.7-sonnet");
+        String model = System.getenv().getOrDefault("COPILOT_MODEL", "gpt-4o");
         String provider = "mock".equalsIgnoreCase(llmProvider) ? "mock"
                         : "zia".equalsIgnoreCase(llmProvider)  ? "zia"
-                        : "GitHub Copilot (" + model + ")";
+                        : "GitHub Models (" + model + ")";
         int brdLength = 0;
         List<String> modules = new ArrayList<>();
 
