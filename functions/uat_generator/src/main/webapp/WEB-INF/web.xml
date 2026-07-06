@@ -143,4 +143,13 @@
     <url-pattern>/crm/disconnect</url-pattern>
   </servlet-mapping>
 
+  <servlet>
+    <servlet-name>creator-forms</servlet-name>
+    <servlet-class>com.uat.generator.CreatorModulesServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>creator-forms</servlet-name>
+    <url-pattern>/creator/forms</url-pattern>
+  </servlet-mapping>
+
 </web-app>

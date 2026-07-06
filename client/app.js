@@ -6,7 +6,7 @@
     ? "http://localhost:9000/uat_generator"
     : "/server/uat_generator";
 
-  const TABS = ["input", "cases", "execute", "push", "inspect"];
+  const TABS = ["input", "cases", "execute", "push"];
 
   const els = {
     tabs: document.querySelectorAll(".tab"),
@@ -28,6 +28,12 @@
     themeSwatchPreview: document.getElementById("theme-swatch-preview"),
     themePickerLabel:   document.getElementById("theme-picker-label"),
     modulesStatus:      document.getElementById("modules-status"),
+    headerUserChip: document.getElementById("header-user-chip"),
+    hucAvatar:      document.getElementById("huc-avatar"),
+    hucOrg:         document.getElementById("huc-org"),
+    hucEmail:       document.getElementById("huc-email"),
+    hucDot:         document.getElementById("huc-dot"),
+
     authLoginBtn:    document.getElementById("auth-login-btn"),
     authLoginArea:   document.getElementById("auth-login-area"),
     authUserInfo:    document.getElementById("auth-user-info"),
@@ -42,10 +48,12 @@
     cases:     document.getElementById("cases"),
     backToInput: document.getElementById("back-to-input"),
     toExecute: document.getElementById("to-execute-btn"),
+    exportCsvBtn: document.getElementById("export-csv-btn"),
     download:  document.getElementById("download-btn"),
     statusCases: document.getElementById("status-cases"),
 
     execSummary: document.getElementById("exec-summary"),
+    execQuote:   document.getElementById("exec-quote"),
     execResults: document.getElementById("exec-results"),
     execute:   document.getElementById("execute-btn"),
     backToCases: document.getElementById("back-to-cases"),
@@ -55,11 +63,8 @@
 
     projectName: document.getElementById("project_name"),
     pushSummary: document.getElementById("push-summary"),
+    pushLink:    document.getElementById("push-link"),
 
-    loadFunctionsBtn: document.getElementById("load-functions-btn"),
-    runAllFunctionsBtn: document.getElementById("run-all-functions-btn"),
-    functionsStatus: document.getElementById("functions-status"),
-    functionsList:   document.getElementById("functions-list"),
     pushResults: document.getElementById("push-results"),
     backToExecute: document.getElementById("back-to-execute"),
     push:      document.getElementById("push-btn"),
@@ -82,15 +87,90 @@
     executed: false,
     pushed: false,
     authUser: null,
+    authFullName: "",
+    authEmailId: "",
     crmAuthorized: false,
     oauthAvailable: false,
     crmEmail: null,
     crmOrgName: null,
     crmOrgList: [],
     stepDone: { input: false, cases: false, execute: false, push: false },
+    // Creator
+    platform: "crm",
+    creatorOwner: "",
+    creatorApp: "",
+    creatorForms: [],
+    creatorAppDisplayName: "",
+    creatorAppLinkName: "",
+    creatorFormDisplayName: "",
+    creatorFormLinkName: "",
+    creatorFields: [],
   };
 
   const MAX_MODULES = 5;
+
+  // ---- Timeout-aware fetch ----
+  // ms: abort after this many milliseconds; label used in error message
+  async function fetchWithTimeout(url, options, ms, label) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const res = await fetch(url, { ...options, signal: ctrl.signal });
+      clearTimeout(tid);
+      return res;
+    } catch (e) {
+      clearTimeout(tid);
+      if (e.name === "AbortError") {
+        throw new Error(`${label || "Request"} timed out after ${Math.round(ms / 1000)}s. The server may be busy — please try again.`);
+      }
+      throw e;
+    }
+  }
+
+  // ---- LocalStorage persistence ----
+  const STORAGE_KEY = "liftoff_state_v2";
+
+  function saveStateToStorage() {
+    try {
+      const toSave = {
+        cases:                 state.cases,
+        modulesSelected:       state.modulesSelected,
+        platform:              state.platform,
+        creatorOwner:          state.creatorOwner,
+        creatorApp:            state.creatorApp,
+        creatorAppDisplayName: state.creatorAppDisplayName,
+        creatorAppLinkName:    state.creatorAppLinkName,
+        creatorFormDisplayName:state.creatorFormDisplayName,
+        creatorFormLinkName:   state.creatorFormLinkName,
+        creatorFields:         state.creatorFields,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch (e) { /* storage full or private mode */ }
+  }
+
+  function loadStateFromStorage() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (Array.isArray(saved.modulesSelected) && saved.modulesSelected.length) {
+        state.modulesSelected = saved.modulesSelected;
+      }
+      if (Array.isArray(saved.cases) && saved.cases.length) {
+        state.cases    = saved.cases;
+        state.executed = saved.cases.some((c) => c.execution_result);
+        state.pushed   = saved.cases.some((c) => c.push_result);
+      }
+      if (saved.platform) state.platform = saved.platform;
+      if (saved.creatorOwner)           state.creatorOwner           = saved.creatorOwner;
+      if (saved.creatorApp)             state.creatorApp             = saved.creatorApp;
+      if (saved.creatorAppDisplayName)  state.creatorAppDisplayName  = saved.creatorAppDisplayName;
+      if (saved.creatorAppLinkName)     state.creatorAppLinkName     = saved.creatorAppLinkName;
+      if (saved.creatorFormDisplayName) state.creatorFormDisplayName = saved.creatorFormDisplayName;
+      if (saved.creatorFormLinkName)    state.creatorFormLinkName    = saved.creatorFormLinkName;
+      if (Array.isArray(saved.creatorFields)) state.creatorFields    = saved.creatorFields;
+    } catch (e) { /* corrupt data */ }
+  }
 
   const DEFAULT_MODULES = [
     { api_name: "Leads",    plural_label: "Leads" },
@@ -109,16 +189,16 @@
   }
 
   // ---- Theme toggle ----
+  const VALID_THEMES = new Set(["light", "dark"]);
   function getTheme() {
-    try { return localStorage.getItem("testpilot_theme") || "light"; }
-    catch (e) { return "light"; }
+    try {
+      const t = localStorage.getItem("testpilot_theme") || "light";
+      return VALID_THEMES.has(t) ? t : "light";
+    } catch (e) { return "light"; }
   }
   const THEMES = [
-    { id: "light",  label: "Light",  swatchBg: "radial-gradient(circle at 35% 35%, #fff 0%, #e0e8f4 100%)", swatchBorder: "rgba(0,0,0,0.15)" },
-    { id: "dark",   label: "Dark",   swatchBg: "radial-gradient(circle at 35% 35%, #2a3550 0%, #0d1117 100%)", swatchBorder: "" },
-    { id: "ocean",  label: "Azure",  swatchBg: "radial-gradient(circle at 35% 35%, #7DD3FC 0%, #0369A1 100%)", swatchBorder: "rgba(0,0,0,0.10)" },
-    { id: "sunset", label: "Ember",  swatchBg: "radial-gradient(circle at 35% 35%, #FED7AA 0%, #C2410C 100%)", swatchBorder: "" },
-    { id: "forest", label: "Sage",   swatchBg: "radial-gradient(circle at 35% 35%, #86EFAC 0%, #15803D 100%)", swatchBorder: "rgba(0,0,0,0.10)" },
+    { id: "light", label: "Light", swatchBg: "radial-gradient(circle at 35% 35%, #ffffff 0%, #d6e2f8 100%)", swatchBorder: "rgba(21,89,208,0.20)" },
+    { id: "dark",  label: "Night", swatchBg: "radial-gradient(circle at 35% 35%, #22222E 0%, #0A0A10 100%)", swatchBorder: "rgba(124,133,247,0.25)" },
   ];
   function setTheme(theme) {
     document.documentElement.dataset.theme = theme;
@@ -151,6 +231,185 @@
   }
   // Apply saved theme on load (updates picker label + swatch).
   setTheme(getTheme());
+
+  // ---- Generation loader: cycling messages + fake progress bar ----
+
+  const GEN_MESSAGES = [
+    "Analyzing your spec…",
+    "Sketching test scenarios…",
+    "Writing execution plans…",
+    "Applying edge cases & boundaries…",
+    "Checking for coverage gaps…",
+    "Polishing the details…",
+    "Still working — large specs take up to 2 min…",
+    "Almost ready…",
+  ];
+  let _genMsgTimer = null, _genProgressTimer = null, _genProgressVal = 0;
+
+  function startGenLoader() {
+    const loaderEl = document.querySelector('[data-panel="cases"] .loader');
+    if (loaderEl) loaderEl.classList.add("fullscreen");
+    const msgEl  = document.getElementById("gen-message");
+    const fillEl = document.getElementById("gen-bar-fill");
+    if (!msgEl) return;
+    let idx = 0;
+    _genProgressVal = 0;
+    if (fillEl) { fillEl.style.transition = "none"; fillEl.style.width = "0%"; }
+    msgEl.classList.remove("fading");
+    msgEl.textContent = GEN_MESSAGES[0];
+    setTimeout(() => { if (fillEl) fillEl.style.transition = "width 0.6s ease"; }, 60);
+
+    _genMsgTimer = setInterval(() => {
+      const el = document.getElementById("gen-message");
+      if (!el) return;
+      el.classList.add("fading");
+      setTimeout(() => {
+        idx = (idx + 1) % GEN_MESSAGES.length;
+        el.textContent = GEN_MESSAGES[idx];
+        el.classList.remove("fading");
+      }, 350);
+    }, 3200);
+
+    // Creep to 82% over ~25s then stall until done
+    _genProgressTimer = setInterval(() => {
+      _genProgressVal = Math.min(_genProgressVal + 2.8, 82);
+      const f = document.getElementById("gen-bar-fill");
+      if (f) f.style.width = _genProgressVal + "%";
+      if (_genProgressVal >= 82) { clearInterval(_genProgressTimer); _genProgressTimer = null; }
+    }, 700);
+  }
+
+  function stopGenLoader() {
+    const loaderEl = document.querySelector('[data-panel="cases"] .loader');
+    if (loaderEl) loaderEl.classList.remove("fullscreen");
+    clearInterval(_genMsgTimer);
+    clearInterval(_genProgressTimer);
+    _genMsgTimer = null;
+    _genProgressTimer = null;
+    const fillEl = document.getElementById("gen-bar-fill");
+    if (fillEl) { fillEl.style.transition = "width 0.3s ease"; fillEl.style.width = "100%"; }
+  }
+
+  // ---- Execution animated loader ----
+
+  const EXEC_MESSAGES = [
+    "Connecting to Zoho CRM…",
+    "Running test steps…",
+    "Evaluating assertions…",
+    "Checking response data…",
+    "Processing results…",
+    "Still running — complex cases take time…",
+    "Wrapping up execution…",
+    "Almost done…",
+  ];
+  let _execMsgTimer = null, _execProgressTimer = null, _execProgressVal = 0;
+
+  const EXEC_QUOTES_PASS = [
+    "Houston, we have no problems.",
+    "All systems nominal. Cleared for production.",
+    "Zero defects. The spec and the system agree perfectly.",
+    "Clean sweep. Your CRM does exactly what it promises.",
+    "Mission accomplished. The flight plan held.",
+    "Green across the board. Ship it.",
+  ];
+  const EXEC_QUOTES_FAIL = [
+    "The test suite caught them before your users did. That's the job.",
+    "Every failure is a finding. Every finding is progress.",
+    "Cracks found and mapped. Now you know exactly where to look.",
+    "The gap between spec and implementation has been measured.",
+    "Good catch. Fix, re-run, repeat.",
+  ];
+
+  function startExecLoader() {
+    const loaderEl = document.querySelector('[data-panel="execute"] .loader');
+    if (loaderEl) loaderEl.classList.add("fullscreen");
+    const msgEl  = document.getElementById("exec-gen-message");
+    const fillEl = document.getElementById("exec-bar-fill");
+    if (!msgEl) return;
+    let idx = 0;
+    _execProgressVal = 0;
+    if (fillEl) { fillEl.style.transition = "none"; fillEl.style.width = "0%"; }
+    msgEl.classList.remove("fading");
+    msgEl.textContent = EXEC_MESSAGES[0];
+    setTimeout(() => { if (fillEl) fillEl.style.transition = "width 0.6s ease"; }, 60);
+    _execMsgTimer = setInterval(() => {
+      const el = document.getElementById("exec-gen-message");
+      if (!el) return;
+      el.classList.add("fading");
+      setTimeout(() => {
+        idx = (idx + 1) % EXEC_MESSAGES.length;
+        el.textContent = EXEC_MESSAGES[idx];
+        el.classList.remove("fading");
+      }, 350);
+    }, 4000);
+    _execProgressTimer = setInterval(() => {
+      _execProgressVal = Math.min(_execProgressVal + 1.2, 78);
+      const f = document.getElementById("exec-bar-fill");
+      if (f) f.style.width = _execProgressVal + "%";
+      if (_execProgressVal >= 78) { clearInterval(_execProgressTimer); _execProgressTimer = null; }
+    }, 700);
+  }
+
+  function stopExecLoader() {
+    const loaderEl = document.querySelector('[data-panel="execute"] .loader');
+    if (loaderEl) loaderEl.classList.remove("fullscreen");
+    clearInterval(_execMsgTimer);
+    clearInterval(_execProgressTimer);
+    _execMsgTimer = null; _execProgressTimer = null;
+    const fillEl = document.getElementById("exec-bar-fill");
+    if (fillEl) { fillEl.style.transition = "width 0.3s ease"; fillEl.style.width = "100%"; }
+  }
+
+  // ---- Push animated loader ----
+
+  const PUSH_MESSAGES = [
+    "Creating tasks in Zoho Projects…",
+    "Filing bugs for failed cases…",
+    "Linking tasks to project…",
+    "Finalising records…",
+    "Almost done…",
+  ];
+  let _pushMsgTimer = null, _pushProgressTimer = null, _pushProgressVal = 0;
+
+  function startPushLoader() {
+    const loaderEl = document.querySelector('[data-panel="push"] .loader');
+    if (loaderEl) loaderEl.classList.add("fullscreen");
+    const msgEl  = document.getElementById("push-gen-message");
+    const fillEl = document.getElementById("push-bar-fill");
+    if (!msgEl) return;
+    let idx = 0;
+    _pushProgressVal = 0;
+    if (fillEl) { fillEl.style.transition = "none"; fillEl.style.width = "0%"; }
+    msgEl.classList.remove("fading");
+    msgEl.textContent = PUSH_MESSAGES[0];
+    setTimeout(() => { if (fillEl) fillEl.style.transition = "width 0.6s ease"; }, 60);
+    _pushMsgTimer = setInterval(() => {
+      const el = document.getElementById("push-gen-message");
+      if (!el) return;
+      el.classList.add("fading");
+      setTimeout(() => {
+        idx = (idx + 1) % PUSH_MESSAGES.length;
+        el.textContent = PUSH_MESSAGES[idx];
+        el.classList.remove("fading");
+      }, 350);
+    }, 4500);
+    _pushProgressTimer = setInterval(() => {
+      _pushProgressVal = Math.min(_pushProgressVal + 2.5, 80);
+      const f = document.getElementById("push-bar-fill");
+      if (f) f.style.width = _pushProgressVal + "%";
+      if (_pushProgressVal >= 80) { clearInterval(_pushProgressTimer); _pushProgressTimer = null; }
+    }, 700);
+  }
+
+  function stopPushLoader() {
+    const loaderEl = document.querySelector('[data-panel="push"] .loader');
+    if (loaderEl) loaderEl.classList.remove("fullscreen");
+    clearInterval(_pushMsgTimer);
+    clearInterval(_pushProgressTimer);
+    _pushMsgTimer = null; _pushProgressTimer = null;
+    const fillEl = document.getElementById("push-bar-fill");
+    if (fillEl) { fillEl.style.transition = "width 0.3s ease"; fillEl.style.width = "100%"; }
+  }
 
   // ---- Count-up animation on numeric content of an element ----
   function animateCountUp(el, to, duration = 800) {
@@ -259,11 +518,9 @@
   function markStepDone(name) {
     state.stepDone[name] = true;
     setTabState(name, { done: true, running: false });
-    // Only auto-unlock the next tab within the main pilot flow (steps 1-4).
-    // The Inspect tab is utility and stays unlocked at boot.
     if (name === "push") return;
     const next = TABS[TABS.indexOf(name) + 1];
-    if (next && next !== "inspect") setTabState(next, { locked: false });
+    if (next) setTabState(next, { locked: false });
   }
   function showLoader(panelName, text) {
     const panel = getPanel(panelName);
@@ -369,6 +626,7 @@
       state.fileName = file.name;
       els.fileMeta.textContent =
         `${file.name} — ${kind.toUpperCase()}, ${text.length.toLocaleString()} chars`;
+      saveStateToStorage();
       // Suggest a Projects project name from the spec filename so the user
       // doesn't have to type it. They can still override on the Land tab.
       if (els.projectName && !els.projectName.value.trim()) {
@@ -377,14 +635,17 @@
         els.projectName.value = `Test Plan — ${base} — ${today}`;
       }
       refreshGenerateAvailability();
-      if (state.modulesSelected.length) markStepDone("input");
+      const readyForCreator = state.platform === "creator" && !!getCreatorFormLink();
+      if (state.modulesSelected.length || readyForCreator) markStepDone("input");
       setStatus("input",
-        state.modulesSelected.length
+        (state.modulesSelected.length || readyForCreator)
           ? "Spec parsed. Click Generate UAT cases."
-          : "Spec parsed. Analyzing for module suggestions...",
-        state.modulesSelected.length ? "ok" : "");
-      // Run spec analysis to auto-suggest modules. Non-blocking.
-      analyzeBrd().then(() => {
+          : state.platform === "creator"
+            ? "Spec parsed. Enter the form name above to continue."
+            : "Spec parsed. Analyzing for module suggestions...",
+        (state.modulesSelected.length || readyForCreator) ? "ok" : "");
+      // Run spec analysis to auto-suggest modules (CRM only). Non-blocking.
+      if (state.platform !== "creator") analyzeBrd().then(() => {
         if (!state.modulesSelected.length) {
           setStatus("input", "Spec parsed. Now pick up to 5 target modules.", "");
         } else if (state.suggestedModules.length) {
@@ -520,6 +781,14 @@
     return parts.length ? `<div class="push-info">${parts.join(" ")}</div>` : "";
   }
 
+  // Stagger the caseEnter animation across ALL cards so they reveal one-by-one,
+  // giving a "streaming" feel even though the response arrives all at once.
+  function applyStreamReveal(container) {
+    container.querySelectorAll(".case").forEach((el, i) => {
+      el.style.animationDelay = Math.min(i * 45, 1600) + "ms";
+    });
+  }
+
   function renderCasesList(container, opts) {
     const list = state.cases;
     if (!list.length) {
@@ -535,6 +804,7 @@
     });
     if (groups.size <= 1) {
       container.innerHTML = list.map((tc, i) => caseCardHtml(tc, i, opts)).join("");
+      if (opts.streamReveal) applyStreamReveal(container);
       return;
     }
     const html = [];
@@ -547,6 +817,7 @@
       items.forEach(({ tc, i }) => html.push(caseCardHtml(tc, i, opts)));
     }
     container.innerHTML = html.join("");
+    if (opts.streamReveal) applyStreamReveal(container);
   }
 
   // ---- Sample template download ----
@@ -637,11 +908,18 @@
     var tr = document.createElement("tr");
 
     var fieldInp = brdInput("Field_Name", "");
-    var typeInp  = brdInput("exact | contains | range | picklist", "");
+
+    var typeSelect = brdEl("select", { "class": "brd-in" });
+    ["is", "isn't", "contains", "not contains"].forEach(function(t) {
+      typeSelect.appendChild(brdEl("option", {}, t));
+    });
+
+    var valueInp = brdInput("value", "");
     var delBtn   = brdDelBtn();
 
     tr.appendChild(brdTd(fieldInp));
-    tr.appendChild(brdTd(typeInp));
+    tr.appendChild(brdTd(typeSelect));
+    tr.appendChild(brdTd(valueInp));
     var delTd = document.createElement("td");
     delTd.appendChild(delBtn);
     tr.appendChild(delTd);
@@ -650,25 +928,233 @@
     tbody.appendChild(tr);
   }
 
+  function getFieldNamesForRel() {
+    var names = [];
+    var rows = document.querySelectorAll("#brd-fields-body tr");
+    for (var i = 0; i < rows.length; i++) {
+      var inp = rows[i].querySelector("input");
+      var v = inp ? inp.value.trim() : "";
+      if (v) names.push(v);
+    }
+    return names;
+  }
+
   function addBrdRelRow() {
     var tbody = document.getElementById("brd-rels-body");
     if (!tbody) return;
     var tr = document.createElement("tr");
 
-    var modInp  = brdInput("Accounts", "");
-    var relInp  = brdInput("Many-to-One | One-to-Many", "");
-    var fldInp  = brdInput("Account_Name", "");
-    var delBtn  = brdDelBtn();
+    var modInp = brdInput("Accounts", "");
+
+    var relSelect = brdEl("select", { "class": "brd-in" });
+    ["1-1", "1-M", "M-1", "M-N"].forEach(function(t) {
+      relSelect.appendChild(brdEl("option", {}, t));
+    });
+
+    // Field name: populate from existing field names as datalist suggestions
+    var fieldNames = getFieldNamesForRel();
+    var listId = "rel-fields-dl-" + Date.now();
+    var fldInp = brdInput(fieldNames.length ? "pick or type" : "Account_Name", "");
+    fldInp.setAttribute("list", listId);
+    var dl = document.createElement("datalist");
+    dl.id = listId;
+    fieldNames.forEach(function(n) {
+      var opt = document.createElement("option");
+      opt.value = n;
+      dl.appendChild(opt);
+    });
+
+    var delBtn = brdDelBtn();
 
     tr.appendChild(brdTd(modInp));
-    tr.appendChild(brdTd(relInp));
-    tr.appendChild(brdTd(fldInp));
+    tr.appendChild(brdTd(relSelect));
+    var fldTd = document.createElement("td");
+    fldTd.appendChild(fldInp);
+    fldTd.appendChild(dl);
+    tr.appendChild(fldTd);
     var delTd = document.createElement("td");
     delTd.appendChild(delBtn);
     tr.appendChild(delTd);
 
     delBtn.addEventListener("click", function() { tr.parentNode && tr.parentNode.removeChild(tr); });
     tbody.appendChild(tr);
+  }
+
+  // ---- Auto-fill default CRM fields by module name ----
+  var CRM_DEFAULT_FIELDS = {
+    Leads:    [
+      { name: "Last_Name",      type: "String",   req: "Required", notes: "Contact last name" },
+      { name: "First_Name",     type: "String",   req: "Optional", notes: "" },
+      { name: "Email",          type: "Email",    req: "Optional", notes: "Must be unique" },
+      { name: "Phone",          type: "Phone",    req: "Optional", notes: "" },
+      { name: "Company",        type: "String",   req: "Optional", notes: "" },
+      { name: "Lead_Status",    type: "Picklist", req: "Optional", notes: "Default: New" },
+      { name: "Lead_Source",    type: "Picklist", req: "Optional", notes: "" },
+      { name: "Annual_Revenue", type: "Currency", req: "Optional", notes: "" },
+    ],
+    Contacts: [
+      { name: "Last_Name",   type: "String",   req: "Required", notes: "" },
+      { name: "First_Name",  type: "String",   req: "Optional", notes: "" },
+      { name: "Email",       type: "Email",    req: "Optional", notes: "" },
+      { name: "Phone",       type: "Phone",    req: "Optional", notes: "" },
+      { name: "Account_Name",type: "Lookup",   req: "Optional", notes: "Links to Accounts" },
+      { name: "Title",       type: "String",   req: "Optional", notes: "" },
+      { name: "Department",  type: "String",   req: "Optional", notes: "" },
+    ],
+    Accounts: [
+      { name: "Account_Name",   type: "String",   req: "Required", notes: "" },
+      { name: "Phone",          type: "Phone",    req: "Optional", notes: "" },
+      { name: "Website",        type: "String",   req: "Optional", notes: "" },
+      { name: "Industry",       type: "Picklist", req: "Optional", notes: "" },
+      { name: "Annual_Revenue", type: "Currency", req: "Optional", notes: "" },
+      { name: "Rating",         type: "Picklist", req: "Optional", notes: "" },
+    ],
+    Deals: [
+      { name: "Deal_Name",    type: "String",   req: "Required", notes: "" },
+      { name: "Stage",        type: "Picklist", req: "Required", notes: "e.g. Qualification" },
+      { name: "Closing_Date", type: "Date",     req: "Required", notes: "YYYY-MM-DD" },
+      { name: "Amount",       type: "Currency", req: "Optional", notes: "" },
+      { name: "Account_Name", type: "Lookup",   req: "Optional", notes: "" },
+      { name: "Probability",  type: "Number",   req: "Optional", notes: "" },
+    ],
+    Tasks: [
+      { name: "Subject",     type: "String",   req: "Required", notes: "" },
+      { name: "Due_Date",    type: "Date",     req: "Optional", notes: "" },
+      { name: "Status",      type: "Picklist", req: "Optional", notes: "Default: Not Started" },
+      { name: "Priority",    type: "Picklist", req: "Optional", notes: "" },
+      { name: "Description", type: "Textarea", req: "Optional", notes: "" },
+    ],
+    Cases: [
+      { name: "Subject",     type: "String",   req: "Required", notes: "" },
+      { name: "Status",      type: "Picklist", req: "Optional", notes: "" },
+      { name: "Priority",    type: "Picklist", req: "Optional", notes: "" },
+      { name: "Description", type: "Textarea", req: "Optional", notes: "" },
+    ],
+    Products: [
+      { name: "Product_Name", type: "String",   req: "Required", notes: "" },
+      { name: "Unit_Price",   type: "Currency", req: "Required", notes: "" },
+      { name: "Product_Code", type: "String",   req: "Optional", notes: "" },
+      { name: "Description",  type: "Textarea", req: "Optional", notes: "" },
+    ],
+  };
+
+  function autoFillDefaultFields(moduleName) {
+    var tbody = document.getElementById("brd-fields-body");
+    if (!tbody) return;
+    var hasData = Array.from(tbody.querySelectorAll("input")).some(function(inp) {
+      return inp.value.trim().length > 0;
+    });
+    if (hasData) return; // don't overwrite manually entered data
+    tbody.innerHTML = "";
+    var normalized = moduleName.trim();
+    var defaults = null;
+    Object.keys(CRM_DEFAULT_FIELDS).forEach(function(k) {
+      if (k.toLowerCase() === normalized.toLowerCase()) defaults = CRM_DEFAULT_FIELDS[k];
+    });
+    if (!defaults) defaults = [
+      { name: "Name",          type: "String",   req: "Required", notes: "" },
+      { name: "Created_Time",  type: "DateTime", req: "Optional", notes: "Auto-set by CRM" },
+      { name: "Modified_Time", type: "DateTime", req: "Optional", notes: "Auto-set by CRM" },
+      { name: "Owner",         type: "Lookup",   req: "Optional", notes: "Assigned user" },
+    ];
+    defaults.forEach(function(f) {
+      addBrdFieldRowWithData(f.name, f.type, f.req, f.notes);
+    });
+  }
+
+  function addBrdFieldRowWithData(name, type, req, notes) {
+    var tbody = document.getElementById("brd-fields-body");
+    if (!tbody) return;
+    var tr = document.createElement("tr");
+
+    var nameInp = brdInput("Field_Name", name || "");
+
+    var typeSelect = brdEl("select", { "class": "brd-in" });
+    BRD_TYPES.forEach(function(t) {
+      var opt = brdEl("option", {}, t);
+      if (t === (type || "String")) opt.selected = true;
+      typeSelect.appendChild(opt);
+    });
+
+    var reqSelect = brdEl("select", { "class": "brd-in" });
+    var reqOpt = brdEl("option", {}, "Required");
+    var optOpt = brdEl("option", {}, "Optional");
+    if (req === "Required") reqOpt.selected = true; else optOpt.selected = true;
+    reqSelect.appendChild(reqOpt);
+    reqSelect.appendChild(optOpt);
+
+    var notesInp = brdInput("Notes / constraints", notes || "");
+    var delBtn   = brdDelBtn();
+
+    tr.appendChild(brdTd(nameInp));
+    tr.appendChild(brdTd(typeSelect));
+    tr.appendChild(brdTd(reqSelect));
+    tr.appendChild(brdTd(notesInp));
+    var delTd = document.createElement("td");
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
+
+    delBtn.addEventListener("click", function() { tr.parentNode && tr.parentNode.removeChild(tr); });
+    tbody.appendChild(tr);
+  }
+
+  // ---- Import fields from CSV ----
+  function importFieldsCsv(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var lines = (e.target.result || "").split(/\r?\n/).filter(function(l) { return l.trim(); });
+      if (!lines.length) return;
+      // Skip header row if it looks like a header (Field Name / Data Type)
+      var start = /field[\s_]?name/i.test(lines[0]) ? 1 : 0;
+      var tbody = document.getElementById("brd-fields-body");
+      if (!tbody) return;
+      var added = 0;
+      for (var i = start; i < lines.length; i++) {
+        var cols = lines[i].split(",").map(function(c) { return c.trim().replace(/^"|"$/g, ""); });
+        var fname = cols[0] || "";
+        if (!fname) continue;
+        var ftype = cols[1] || "String";
+        if (!BRD_TYPES.includes(ftype)) ftype = "String";
+        var freq = /required/i.test(cols[2] || "") ? "Required" : "Optional";
+        var fnotes = cols[3] || "";
+        addBrdFieldRowWithData(fname, ftype, freq, fnotes);
+        added++;
+      }
+      showToast("Imported " + added + " field(s) from CSV", "ok");
+    };
+    reader.readAsText(file);
+  }
+
+  // ---- Reset BRD modal ----
+  function resetBrdModal() {
+    var confirmReset = window.confirm("Reset all BRD builder fields?");
+    if (!confirmReset) return;
+    var setVal = function(id, v) { var el = document.getElementById(id); if (el) el.value = v; };
+    setVal("brd-project-name", "");
+    setVal("brd-region", "IN");
+    setVal("brd-auth", "OAuth 2.0");
+    setVal("brd-entity-name", "");
+    setVal("brd-module-api", "");
+    setVal("brd-rules", "");
+    setVal("brd-records-per-page", "200");
+    setVal("brd-sort-field", "");
+    setVal("brd-sort-order", "DESC");
+    setVal("brd-rate-limit", "Retry");
+    var tbody = document.getElementById("brd-fields-body");
+    if (tbody) tbody.innerHTML = "";
+    var fbody = document.getElementById("brd-filters-body");
+    if (fbody) fbody.innerHTML = "";
+    var rbody = document.getElementById("brd-rels-body");
+    if (rbody) rbody.innerHTML = "";
+    // Reset action checkboxes to defaults
+    var defaultActions = state.platform === "creator"
+      ? ["Read (list)", "Create", "Update", "Delete"]
+      : ["Read (single)", "Read (list)", "Search", "Create", "Update"];
+    document.querySelectorAll("input[name='brd-action']").forEach(function(cb) {
+      cb.checked = defaultActions.includes(cb.value);
+    });
+    addBrdFieldRow(); addBrdFieldRow(); addBrdFieldRow();
   }
 
   function getElVal(id) {
@@ -680,8 +1166,20 @@
     var proj    = (getElVal("brd-project-name") || "Untitled Project").trim();
     var region  = getElVal("brd-region")  || "IN";
     var auth    = getElVal("brd-auth")    || "OAuth 2.0";
-    var entity  = (getElVal("brd-entity-name") || "Module").trim();
-    var apiName = (getElVal("brd-module-api")  || entity).trim();
+
+    var isCreator = state.platform === "creator";
+    var entity, apiName;
+    if (isCreator) {
+      var appName  = (getElVal("brd-creator-app-name") || "MyApp").trim();
+      var appLink  = (getElVal("brd-creator-app")      || appName).trim();
+      var formName = (getElVal("brd-creator-form-name") || "Form").trim();
+      var formLink = (getElVal("brd-creator-form")      || formName).trim();
+      entity  = formName;
+      apiName = formLink;
+    } else {
+      entity  = (getElVal("brd-entity-name") || "Module").trim();
+      apiName = (getElVal("brd-module-api")  || entity).trim();
+    }
 
     var fields = [];
     var fieldRows = document.querySelectorAll("#brd-fields-body tr");
@@ -700,17 +1198,27 @@
     var filters = [];
     var filterRows = document.querySelectorAll("#brd-filters-body tr");
     for (var k = 0; k < filterRows.length; k++) {
-      var finps = filterRows[k].querySelectorAll("input");
-      var ff = finps[0] ? finps[0].value.trim() : "";
-      if (ff) filters.push({ field: ff, type: finps[1] ? finps[1].value.trim() : "" });
+      var fcells = filterRows[k].querySelectorAll("input, select");
+      var ff = fcells[0] ? fcells[0].value.trim() : "";
+      if (ff) filters.push({
+        field: ff,
+        type: fcells[1] ? fcells[1].value.trim() : "is",
+        value: fcells[2] ? fcells[2].value.trim() : "",
+      });
     }
 
     var rels = [];
     var relRows = document.querySelectorAll("#brd-rels-body tr");
     for (var l = 0; l < relRows.length; l++) {
-      var rinps = relRows[l].querySelectorAll("input");
-      var rm = rinps[0] ? rinps[0].value.trim() : "";
-      if (rm) rels.push({ mod: rm, rel: rinps[1] ? rinps[1].value.trim() : "", field: rinps[2] ? rinps[2].value.trim() : "" });
+      var rmod = relRows[l].querySelector("td:nth-child(1) input");
+      var rrel = relRows[l].querySelector("td:nth-child(2) select");
+      var rfld = relRows[l].querySelector("td:nth-child(3) input");
+      var rm = rmod ? rmod.value.trim() : "";
+      if (rm) rels.push({
+        mod: rm,
+        rel: rrel ? rrel.value.trim() : "",
+        field: rfld ? rfld.value.trim() : "",
+      });
     }
 
     var rules = (getElVal("brd-rules") || "").trim();
@@ -719,8 +1227,16 @@
     var so  = getElVal("brd-sort-order") || "DESC";
     var rl  = getElVal("brd-rate-limit") || "Retry";
 
-    var brd = "# BRD: " + proj + "\nRegion: " + region + " | Auth: " + auth + "\n\n";
-    brd += "## Entity: " + entity + "\nModule API Name: " + apiName + "\n\n";
+    var brd = "# BRD: " + proj + "\nRegion: " + region + " | Auth: " + auth + "\n";
+    if (isCreator) {
+      brd += "Platform: Zoho Creator | App: " + appName + " (link: " + appLink + ")\n";
+    }
+    brd += "\n";
+    if (isCreator) {
+      brd += "## Form: " + entity + "\nForm Link Name: " + apiName + "\n\n";
+    } else {
+      brd += "## Entity: " + entity + "\nModule API Name: " + apiName + "\n\n";
+    }
 
     if (fields.length) {
       brd += "### Fields\n| Field Name | Data Type | Required | Notes |\n|---|---|---|---|\n";
@@ -733,8 +1249,8 @@
     brd += "\n";
 
     if (filters.length) {
-      brd += "### Search / Filter Fields\n| Field | Filter Type |\n|---|---|\n";
-      filters.forEach(function(f) { brd += "| " + f.field + " | " + f.type + " |\n"; });
+      brd += "### Search / Filter Fields\n| Field | Filter Type | Value |\n|---|---|---|\n";
+      filters.forEach(function(f) { brd += "| " + f.field + " | " + f.type + " | " + (f.value || "—") + " |\n"; });
       brd += "\n";
     }
 
@@ -843,31 +1359,50 @@
 
   async function generate() {
     if (!state.brd) { setStatus("input", "Attach a UAT spec file first.", "warn"); return; }
-    if (!state.modulesSelected.length) {
+    if (state.platform === "creator") {
+      if (!getCreatorFormLink()) {
+        setStatus("input", "Enter the Form Name in the Creator spec above first.", "warn");
+        document.getElementById("creator-form-display-name")?.focus();
+        return;
+      }
+    } else if (!state.modulesSelected.length) {
       setStatus("input", "Pick at least one target module.", "warn");
       return;
     }
 
     showTab("cases");
     setStatus("cases", "");
-    const count = state.modulesSelected.length;
-    showLoader("cases",
-      `Generating UAT cases for ${count} module${count === 1 ? "" : "s"}... (10–30s per module)`);
+    startGenLoader();
+    showLoader("cases", "");
     els.toExecute.disabled = true;
     els.download.disabled = true;
     els.casesMeta.textContent = "";
     els.cases.innerHTML = "";
 
     try {
-      const res = await fetch(FUNCTION_BASE + "/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brd: state.brd,
-          modules: state.modulesSelected,
-          project_key: "",
-        }),
-      });
+      const body = {
+        brd: state.brd,
+        modules: state.modulesSelected,
+        project_key: "",
+        platform: state.platform,
+      };
+      if (state.platform === "creator") {
+        const formLink = getCreatorFormLink();
+        const appLink  = getCreatorAppLink();
+        body.modules        = [formLink];
+        body.creator_owner  = state.creatorOwner || ownerFromEmail(state.authEmailId || state.authUser || "");
+        body.creator_app    = appLink;
+        state.creatorApp    = appLink;
+        // Prepend field spec to BRD so LLM knows the form structure
+        const fieldSpec = buildCreatorFieldSpec();
+        if (fieldSpec) body.brd = fieldSpec + "\n\n---\n\n" + state.brd;
+      }
+      const res = await fetchWithTimeout(
+        FUNCTION_BASE + "/generate",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body) },
+        150_000, "Case generation"
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
 
@@ -877,6 +1412,7 @@
       state.payload = data.projects_payload || null;
       state.executed = false;
       state.pushed = false;
+      saveStateToStorage();
 
       const breakdown = data.counts
         ? Object.entries(data.counts).map(([m, n]) => `${m}: ${n}`).join("  •  ")
@@ -886,17 +1422,25 @@
         ` case(s) — ${defaultTests.length} API smoke + ${aiCases.length} via ${escapeHtml(data.provider)}` +
         (breakdown ? `  •  ${escapeHtml(breakdown)}` : "");
       animateCountUp(document.getElementById("cases-count"), state.cases.length);
-      renderCasesList(els.cases, { showExec: false, showPush: false });
+      renderCasesList(els.cases, { showExec: false, showPush: false, streamReveal: true });
 
       const have = state.cases.length > 0;
       els.toExecute.disabled = !have;
       els.download.disabled = !have;
+      if (els.exportCsvBtn) els.exportCsvBtn.disabled = !have;
       if (have) markStepDone("cases");
       setStatus("cases", have ? "Review the cases, then click Execute." : "No cases were returned.",
                 have ? "ok" : "warn");
     } catch (e) {
-      setStatus("cases", "Error: " + e.message, "err");
+      const msg = e.message || "Unknown error";
+      const isJsonErr = msg.includes("JSON parse error") || msg.includes("Unexpected character");
+      const friendly = isJsonErr
+        ? "The AI returned malformed JSON. Try generating again — it usually resolves on retry."
+        : "Generation failed: " + msg;
+      setStatus("cases", friendly, "err");
+      showToast(isJsonErr ? "Malformed AI response — retry should fix it" : "Generate failed: " + msg.slice(0, 80), "err", 6000);
     } finally {
+      stopGenLoader();
       hideLoader("cases");
     }
   }
@@ -913,6 +1457,8 @@
   async function checkAuthStatus() {
     if (isLocal) {
       state.authUser      = "dev@localhost (local)";
+      state.authFullName  = "Local Dev";
+      state.authEmailId   = "dev@localhost";
       state.crmAuthorized = true;
       state.crmOrgName    = "Local Dev Org";
       updateAuthUI();
@@ -921,9 +1467,9 @@
     try {
       const result = await window.catalyst.auth.isUserAuthenticated();
       const u = result.content;
-      state.authUser = u.email_id
-        || ((u.first_name || "") + " " + (u.last_name || "")).trim()
-        || "Zoho User";
+      state.authEmailId  = u.email_id || "";
+      state.authFullName = ((u.first_name || "") + " " + (u.last_name || "")).trim();
+      state.authUser = state.authEmailId || state.authFullName || "Zoho User";
       await checkCrmStatus();
       // Also pull the org list so the picker is ready without an extra round-trip.
       await fetchOrgList();
@@ -976,8 +1522,12 @@
         state.crmOrgName = data.current.org_name || "";
         if (!state.crmEmail && data.current.email) state.crmEmail = data.current.email;
       }
-      // Auto-load modules on first successful CRM connection.
-      if (!wasAuthorized) loadModules();
+      // Auto-load modules whenever CRM is authorized (page load or first connect).
+      if (state.platform === "creator") {
+        loadCreatorForms();
+      } else {
+        loadModules();
+      }
     } catch {
       // Non-fatal — leave existing state.
     }
@@ -988,13 +1538,12 @@
     const loginScreen = document.getElementById("login-screen");
     const tabsNav     = document.querySelector("nav.tabs");
     const mainEl      = document.querySelector("main");
-    const footerEl    = document.querySelector("footer");
 
     if (!loggedIn) {
       if (loginScreen) loginScreen.hidden = false;
       if (tabsNav)     tabsNav.hidden     = true;
       if (mainEl)      mainEl.hidden      = true;
-      if (footerEl)    footerEl.hidden    = true;
+      if (els.headerUserChip) els.headerUserChip.hidden = true;
       return;
     }
 
@@ -1002,13 +1551,47 @@
     if (loginScreen) loginScreen.hidden = true;
     if (tabsNav)     tabsNav.hidden     = false;
     if (mainEl)      mainEl.hidden      = false;
-    if (footerEl)    footerEl.hidden    = false;
 
-    // Brief tab: show CRM connection state
-    if (els.authOrgName) els.authOrgName.textContent = state.crmOrgName || "Zoho CRM";
-    if (els.authEmail)   els.authEmail.textContent   = state.crmEmail   || state.authUser || "";
-    if (els.authLoginArea) els.authLoginArea.hidden = state.crmAuthorized;
-    if (els.authUserInfo)  els.authUserInfo.hidden  = !state.crmAuthorized;
+    // Header user chip — shows Zoho account as soon as logged in
+    if (els.headerUserChip) {
+      const displayName = state.authFullName || state.authEmailId || state.authUser || "Zoho";
+      const displayEmail = state.authEmailId && state.authEmailId !== state.authFullName
+        ? state.authEmailId : "";
+      const initial = displayName[0]?.toUpperCase() || "Z";
+      els.headerUserChip.hidden = false;
+      if (els.hucAvatar) els.hucAvatar.textContent = initial;
+      if (els.hucOrg)    els.hucOrg.textContent    = displayName;
+      if (els.hucEmail)  els.hucEmail.textContent  = displayEmail;
+      if (els.hucDot)    els.hucDot.dataset.connected = "1"; // logged in = connected
+    }
+
+    // Auth panel: platform-aware connection state
+    if (state.platform === "creator") {
+      if (els.authLoginArea)    els.authLoginArea.hidden    = true;
+      if (els.authUserInfo)     els.authUserInfo.hidden     = false;
+      if (els.authOrgName)      els.authOrgName.textContent = "Zoho Creator";
+      if (els.authEmail)        els.authEmail.textContent   = state.authEmailId || state.authUser || "";
+      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = true;
+      if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = true;
+    } else {
+      if (els.authOrgName) els.authOrgName.textContent = state.crmOrgName || "Zoho CRM";
+      if (els.authEmail)   els.authEmail.textContent   = state.crmEmail   || state.authUser || "";
+      if (els.authLoginArea) els.authLoginArea.hidden = state.crmAuthorized;
+      if (els.authUserInfo)  els.authUserInfo.hidden  = !state.crmAuthorized;
+      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = state.crmOrgList.length <= 1;
+      if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = false;
+    }
+
+    // Gate Execute button: show lock label when CRM not connected
+    if (els.toExecute) {
+      if (!state.crmAuthorized && !isLocal) {
+        els.toExecute.title = "Connect Zoho CRM first to execute test cases";
+        els.toExecute.setAttribute("data-crm-locked", "1");
+      } else {
+        els.toExecute.title = "";
+        els.toExecute.removeAttribute("data-crm-locked");
+      }
+    }
   }
 
   // ---- Org picker modal ----
@@ -1103,7 +1686,16 @@
   }
 
   function initAuth() {
-    handleOAuthCallback().then(() => checkAuthStatus());
+    handleOAuthCallback()
+      .then(() => checkAuthStatus())
+      .then(() => {
+        const resumeExec = sessionStorage.getItem("liftoff_resume_exec");
+        if (resumeExec && state.crmAuthorized && state.cases.length) {
+          try { sessionStorage.removeItem("liftoff_resume_exec"); } catch (e) {}
+          showTab("execute");
+          setTimeout(() => executeInCrm(), 400);
+        }
+      });
 
     // Brief tab "Connect Zoho CRM" — OAuth redirect (no credential entry needed).
     if (els.authLoginBtn) {
@@ -1226,13 +1818,22 @@
       if (state.modulesSelected.length >= MAX_MODULES) return;
       state.modulesSelected.push(apiName);
     }
+    // For Creator: update creatorApp from the selected form's app metadata
+    if (state.platform === "creator" && state.modulesSelected.length) {
+      const first = state.creatorForms.find((f) => f.api_name === state.modulesSelected[0]);
+      if (first && first.app) state.creatorApp = first.app;
+    }
     renderModuleChips();
     refreshGenerateAvailability();
     if (state.brd && state.modulesSelected.length) markStepDone("input");
   }
 
   function refreshGenerateAvailability() {
-    els.generate.disabled = !(state.brd && state.modulesSelected.length);
+    if (state.platform === "creator") {
+      els.generate.disabled = !(state.brd && getCreatorFormLink());
+    } else {
+      els.generate.disabled = !(state.brd && state.modulesSelected.length);
+    }
   }
 
   function renderAnalysisSummary() {
@@ -1251,11 +1852,12 @@
     const list = state.modulesAvailable.length ? state.modulesAvailable : DEFAULT_MODULES;
     if (!list.length) return;
     try {
-      const res = await fetch(FUNCTION_BASE + "/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brd: state.brd, modules: list }),
-      });
+      const res = await fetchWithTimeout(
+        FUNCTION_BASE + "/analyze",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brd: state.brd, modules: list }) },
+        30_000, "Spec analysis"
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Analyze failed");
       state.suggestedModules = Array.isArray(data.suggested_modules) ? data.suggested_modules : [];
@@ -1274,177 +1876,6 @@
     }
   }
 
-  // ---- Inspect tab: CRM functions ----
-
-  const inspectState = { functions: [], results: {} };
-
-  async function loadCrmFunctions() {
-    if (!state.authUser) {
-      setFnStatus("Sign in first.", "err");
-      return;
-    }
-    setFnStatus("Loading functions from CRM...");
-    showLoader("inspect", "Loading CRM functions...");
-    els.loadFunctionsBtn.disabled = true;
-    try {
-      const res = await fetch(FUNCTION_BASE + "/functions/list", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load functions");
-      inspectState.functions = Array.isArray(data.functions) ? data.functions : [];
-      inspectState.results = {};
-      renderFunctionsList();
-      els.runAllFunctionsBtn.disabled = inspectState.functions.length === 0;
-      setFnStatus(
-        inspectState.functions.length
-          ? `${inspectState.functions.length} function(s) loaded.`
-          : "No standalone functions found on this CRM org.",
-        inspectState.functions.length ? "ok" : "warn"
-      );
-    } catch (e) {
-      setFnStatus("Error: " + e.message, "err");
-      showToast("Failed to load CRM functions: " + e.message, "err");
-    } finally {
-      hideLoader("inspect");
-      els.loadFunctionsBtn.disabled = false;
-    }
-  }
-
-  function setFnStatus(msg, kind) {
-    if (!els.functionsStatus) return;
-    els.functionsStatus.textContent = msg || "";
-    els.functionsStatus.className = "status " + (kind || "");
-  }
-
-  function renderFunctionsList() {
-    if (!els.functionsList) return;
-    if (!inspectState.functions.length) {
-      els.functionsList.innerHTML = '<div class="empty-state"><div class="empty-icon">\u2699\uFE0F</div><div class="empty-title">No CRM functions loaded</div><div class="empty-hint">Click "Load CRM Functions" to fetch the list.</div></div>';
-      return;
-    }
-    els.functionsList.innerHTML = inspectState.functions.map((f, i) => functionRowHtml(f, i)).join("");
-    els.functionsList.querySelectorAll(".fn-run").forEach((b) =>
-      b.addEventListener("click", () => runOneFunction(parseInt(b.dataset.idx, 10)))
-    );
-  }
-
-  function functionRowHtml(fn, idx) {
-    const r = inspectState.results[fn.name];
-    const executable = fn.executable !== false;     // default true if missing
-    const statusPill = !r
-      ? `<span class="fn-pill idle">Not run</span>`
-      : r.status === "ok"
-        ? `<span class="fn-pill pass">PASS ${r.status_code} · ${r.duration_ms}ms</span>`
-        : `<span class="fn-pill fail">FAIL ${r.status_code} · ${r.duration_ms}ms</span>`;
-    const logs = r ? renderFunctionLogs(r) : "";
-    const desc = fn.description
-      ? `<p class="fn-desc">${escapeHtml(fn.description)}</p>`
-      : "";
-    const meta = [
-      fn.type ? `<span class="fn-type-tag">${escapeHtml(fn.type)}</span>` : "",
-      fn.language ? `<code>${escapeHtml(fn.language)}</code>` : "",
-      fn.category ? escapeHtml(fn.category) : "",
-      fn.modified_time ? `modified ${escapeHtml(fn.modified_time)}` : "",
-    ].filter(Boolean).join(" · ");
-    const runButton = executable
-      ? `<button class="primary fn-run" data-idx="${idx}">Run</button>`
-      : `<button class="primary" disabled title="Only standalone (org-type) functions can be executed via API">Run</button>`;
-    return `
-      <div class="fn-row" data-idx="${idx}">
-        <div class="fn-head">
-          <div class="fn-id">
-            <h3>${escapeHtml(fn.display_name || fn.name)}</h3>
-            <code class="fn-name">${escapeHtml(fn.name)}</code>
-          </div>
-          <div class="fn-controls">
-            ${statusPill}
-            ${runButton}
-          </div>
-        </div>
-        ${meta ? `<div class="fn-meta">${meta}</div>` : ""}
-        ${desc}
-        ${logs}
-      </div>
-    `;
-  }
-
-  function renderFunctionLogs(r) {
-    const sections = [];
-    if (r.error) {
-      sections.push(`<div class="fn-log-err"><strong>Error:</strong> ${escapeHtml(r.error)}</div>`);
-    }
-    const responseJson = r.response
-      ? JSON.stringify(r.response, null, 2)
-      : (r.raw_response || "");
-    if (responseJson) {
-      sections.push(
-        `<details class="fn-log-section" ${r.status === "error" ? "open" : ""}>` +
-        `<summary>Response body</summary>` +
-        `<pre>${escapeHtml(responseJson)}</pre>` +
-        `</details>`
-      );
-    }
-    if (r.output && Object.keys(r.output).length) {
-      sections.push(
-        `<details class="fn-log-section">` +
-        `<summary>Function output</summary>` +
-        `<pre>${escapeHtml(JSON.stringify(r.output, null, 2))}</pre>` +
-        `</details>`
-      );
-    }
-    return sections.length ? `<div class="fn-logs">${sections.join("")}</div>` : "";
-  }
-
-  async function runOneFunction(idx) {
-    const fn = inspectState.functions[idx];
-    if (!fn) return;
-    // Show "running" state inline
-    inspectState.results[fn.name] = { status: "running", status_code: 0, duration_ms: 0 };
-    const row = els.functionsList.querySelector(`.fn-row[data-idx="${idx}"]`);
-    if (row) {
-      const pill = row.querySelector(".fn-pill");
-      if (pill) { pill.className = "fn-pill running"; pill.textContent = "Running..."; }
-    }
-    try {
-      const res = await fetch(FUNCTION_BASE + "/functions/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name: fn.name, arguments: {} }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Run failed");
-      inspectState.results[fn.name] = data;
-    } catch (e) {
-      inspectState.results[fn.name] = {
-        status: "error", status_code: 0, duration_ms: 0,
-        error: e.message,
-      };
-    }
-    renderFunctionsList();
-  }
-
-  async function runAllFunctions() {
-    if (!inspectState.functions.length) return;
-    els.runAllFunctionsBtn.disabled = true;
-    // Only execute org-type (standalone) functions; others can't be invoked via API.
-    const runnable = inspectState.functions
-      .map((f, i) => ({ f, i }))
-      .filter(({ f }) => f.executable !== false);
-    setFnStatus(`Running ${runnable.length} executable function(s) sequentially...`);
-    for (const { i } of runnable) {
-      await runOneFunction(i);
-    }
-    const passed = runnable.filter(({ f }) => (inspectState.results[f.name] || {}).status === "ok").length;
-    const failed = runnable.length - passed;
-    setFnStatus(`Done. ${passed} passed, ${failed} failed.`, failed ? "warn" : "ok");
-    els.runAllFunctionsBtn.disabled = false;
-  }
-
   async function loadModules() {
     if (els.modulesStatus) {
       els.modulesStatus.textContent = "Loading modules...";
@@ -1452,12 +1883,12 @@
     }
     if (els.loadModulesBtn) els.loadModulesBtn.disabled = true;
     try {
-      const res = await fetch(FUNCTION_BASE + "/modules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({}),
-      });
+      const res = await fetchWithTimeout(
+        FUNCTION_BASE + "/modules",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "include", body: JSON.stringify({}) },
+        20_000, "Load modules"
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
       state.modulesAvailable = Array.isArray(data.modules) ? data.modules : [];
@@ -1483,25 +1914,300 @@
     }
   }
 
+  async function loadCreatorForms() {
+    if (els.modulesStatus) {
+      els.modulesStatus.textContent = "Loading Creator forms...";
+      els.modulesStatus.className = "status";
+    }
+    if (els.loadModulesBtn) els.loadModulesBtn.disabled = true;
+    try {
+      const res = await fetchWithTimeout(
+        FUNCTION_BASE + "/creator/forms",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "include", body: JSON.stringify({}) },
+        20_000, "Load Creator forms"
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load Creator forms");
+
+      state.creatorOwner = data.owner || "";
+      state.creatorForms = Array.isArray(data.forms) ? data.forms : [];
+
+      // Group forms: use api_name as chip key, display_name as label
+      state.modulesAvailable = state.creatorForms.map((f) => ({
+        api_name:    f.api_name,
+        plural_label: f.display_name || f.api_name,
+        app:         f.app,
+      }));
+
+      // Set creatorApp to first app found (user can override via chip selection)
+      if (state.creatorForms.length && !state.creatorApp) {
+        state.creatorApp = state.creatorForms[0].app || "";
+      }
+
+      renderModuleChips();
+
+      if (els.modulesStatus) {
+        const live = data.source === "live";
+        els.modulesStatus.textContent =
+          `${state.creatorForms.length} form(s) loaded from Creator` +
+          (state.creatorOwner ? ` (owner: ${state.creatorOwner})` : "") +
+          (!live ? " — no forms found, check connection" : "");
+        els.modulesStatus.className = "status " + (state.creatorForms.length ? "ok" : "warn");
+      }
+
+      // Pre-populate Creator spec inputs from first loaded form
+      if (state.creatorForms.length) {
+        const first = state.creatorForms[0];
+        const setIfEmpty = (id, val) => {
+          const el = document.getElementById(id);
+          if (el && !el.value && val) el.value = val;
+        };
+        setIfEmpty("creator-app-display-name",  first.app_name || first.app || "");
+        setIfEmpty("creator-app-link-name",      first.app || "");
+        setIfEmpty("creator-form-display-name",  first.display_name || first.api_name || "");
+        setIfEmpty("creator-form-link-name",     first.api_name || "");
+        refreshGenerateAvailability();
+      }
+      if (state.brd) analyzeBrd();
+    } catch (e) {
+      if (els.modulesStatus) {
+        // Graceful fallback — user can fill the spec manually
+        els.modulesStatus.textContent = "Could not load forms from Creator — fill in the spec above manually.";
+        els.modulesStatus.className = "status muted";
+      }
+    } finally {
+      if (els.loadModulesBtn) els.loadModulesBtn.disabled = false;
+    }
+  }
+
+  // ---- Creator Form Spec helpers ----
+
+  const FIELD_TYPES = [
+    "Text", "Number", "Email", "Phone", "Date", "Date-Time",
+    "Dropdown", "Multi-select", "Checkbox", "Radio",
+    "File Upload", "Image", "Currency", "Percent",
+    "URL", "Name", "Address", "Notes", "Formula",
+  ];
+
+  function ownerFromEmail(email) {
+    if (!email) return "";
+    const at = email.indexOf("@");
+    return at > 0 ? email.substring(0, at).toLowerCase() : email.toLowerCase();
+  }
+
+  function addCreatorField() {
+    state.creatorFields.push({ name: "", type: "Text", required: false, notes: "" });
+    renderCreatorFields();
+    saveStateToStorage();
+    // Focus the new row's name input
+    const rows = document.querySelectorAll(".creator-field-row");
+    if (rows.length) rows[rows.length - 1].querySelector(".cf-name")?.focus();
+  }
+
+  function removeCreatorField(idx) {
+    state.creatorFields.splice(idx, 1);
+    renderCreatorFields();
+    saveStateToStorage();
+  }
+
+  function renderCreatorFields() {
+    const tbody    = document.getElementById("creator-fields-tbody");
+    const empty    = document.getElementById("creator-fields-empty");
+    const tableWrap = document.getElementById("creator-fields-table-wrap");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    const hasRows = state.creatorFields.length > 0;
+    if (empty)     empty.hidden     = hasRows;
+    if (tableWrap) tableWrap.hidden = !hasRows;
+
+    state.creatorFields.forEach((f, i) => {
+      const row = document.createElement("div");
+      row.className = "creator-field-row";
+      const typeOpts = FIELD_TYPES.map(
+        (t) => `<option${t === f.type ? " selected" : ""}>${escapeHtml(t)}</option>`
+      ).join("");
+      row.innerHTML =
+        `<input type="text" class="cf-name" placeholder="e.g. Employee Name" value="${escapeHtml(f.name)}" />` +
+        `<select class="cf-type">${typeOpts}</select>` +
+        `<label class="cf-req-label"><input type="checkbox" class="cf-req"${f.required ? " checked" : ""} /> Req</label>` +
+        `<input type="text" class="cf-notes" placeholder="e.g. max 100 chars, options: Yes/No" value="${escapeHtml(f.notes)}" />` +
+        `<button type="button" class="cf-remove" aria-label="Remove field">&times;</button>`;
+      row.querySelector(".cf-name").addEventListener("input",  (e) => { state.creatorFields[i].name     = e.target.value; saveStateToStorage(); });
+      row.querySelector(".cf-type").addEventListener("change", (e) => { state.creatorFields[i].type     = e.target.value; saveStateToStorage(); });
+      row.querySelector(".cf-req").addEventListener("change",  (e) => { state.creatorFields[i].required = e.target.checked; saveStateToStorage(); });
+      row.querySelector(".cf-notes").addEventListener("input", (e) => { state.creatorFields[i].notes    = e.target.value; saveStateToStorage(); });
+      row.querySelector(".cf-remove").addEventListener("click", () => removeCreatorField(i));
+      tbody.appendChild(row);
+    });
+  }
+
+  function buildCreatorFieldSpec() {
+    const appName  = (document.getElementById("creator-app-display-name")?.value  || state.creatorAppDisplayName  || "").trim();
+    const appLink  = (document.getElementById("creator-app-link-name")?.value      || state.creatorAppLinkName      || appName).trim();
+    const formName = (document.getElementById("creator-form-display-name")?.value  || state.creatorFormDisplayName  || "").trim();
+    const formLink = (document.getElementById("creator-form-link-name")?.value     || state.creatorFormLinkName     || formName).trim();
+
+    if (!appName && !formName && !state.creatorFields.length) return "";
+
+    let spec = "## Zoho Creator Form Specification\n";
+    if (appName)  spec += `App: ${appName}${appLink && appLink !== appName ? " (link: " + appLink + ")" : ""}\n`;
+    if (formName) spec += `Form: ${formName}${formLink && formLink !== formName ? " (link: " + formLink + ")" : ""}\n`;
+
+    const activeFields = state.creatorFields.filter((f) => f.name.trim());
+    if (activeFields.length) {
+      spec += "\n### Form Fields\n| Field Name | Type | Required | Notes |\n|---|---|---|---|\n";
+      activeFields.forEach((f) => {
+        spec += `| ${f.name} | ${f.type} | ${f.required ? "Yes" : "No"} | ${f.notes || "—"} |\n`;
+      });
+    }
+    return spec;
+  }
+
+  function restoreCreatorSpecInputs() {
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    set("creator-app-display-name",  state.creatorAppDisplayName);
+    set("creator-app-link-name",     state.creatorAppLinkName);
+    set("creator-form-display-name", state.creatorFormDisplayName);
+    set("creator-form-link-name",    state.creatorFormLinkName);
+  }
+
+  function getCreatorFormLink() {
+    return (document.getElementById("creator-form-link-name")?.value
+      || document.getElementById("creator-form-display-name")?.value
+      || state.creatorFormLinkName || state.creatorFormDisplayName || "").trim();
+  }
+
+  function getCreatorAppLink() {
+    return (document.getElementById("creator-app-link-name")?.value
+      || document.getElementById("creator-app-display-name")?.value
+      || state.creatorAppLinkName || state.creatorAppDisplayName || state.creatorApp || "").trim();
+  }
+
+  function switchPlatform(platform) {
+    if (state.platform === platform) return;
+    state.platform = platform;
+
+    // Update platform selector button active states
+    document.querySelectorAll(".platform-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.platform === platform);
+    });
+
+    // Sync auth panel to selected platform
+    const platformLabel = document.getElementById("auth-platform-label");
+    if (platformLabel) platformLabel.textContent = platform === "creator" ? "Zoho Creator" : "Zoho CRM";
+    if (platform === "creator") {
+      if (els.authLoginArea)    els.authLoginArea.hidden    = true;
+      if (els.authUserInfo)     els.authUserInfo.hidden     = false;
+      if (els.authOrgName)      els.authOrgName.textContent = "Zoho Creator";
+      if (els.authEmail)        els.authEmail.textContent   = state.authEmailId || state.authUser || "";
+      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = true;
+      if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = true;
+    } else {
+      if (els.authLoginArea)    els.authLoginArea.hidden    = state.crmAuthorized;
+      if (els.authUserInfo)     els.authUserInfo.hidden     = !state.crmAuthorized;
+      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = state.crmOrgList.length <= 1;
+      if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = false;
+      if (els.authOrgName)      els.authOrgName.textContent = state.crmOrgName || "Zoho CRM";
+      if (els.authEmail)        els.authEmail.textContent   = state.crmEmail   || state.authUser || "";
+    }
+
+    // Show/hide CRM vs Creator sections in BRD builder
+    document.querySelectorAll(".brd-crm-only").forEach((el) => {
+      el.style.display = platform === "crm" ? "" : "none";
+    });
+    document.querySelectorAll(".brd-creator-only").forEach((el) => {
+      el.style.display = platform === "creator" ? "" : "none";
+    });
+
+    // Update module picker label
+    const pickerLabel = document.getElementById("module-picker-label");
+    if (pickerLabel) {
+      pickerLabel.textContent = platform === "creator" ? "Target forms" : "Target modules";
+    }
+
+    // Update "Execute in…" button label on Cases tab
+    if (els.toExecute) {
+      // Keep the arrow, just swap the label text node
+      const arrow = " →";
+      els.toExecute.textContent = platform === "creator"
+        ? "Execute in Zoho Creator" + arrow
+        : "Execute in Zoho CRM" + arrow;
+    }
+
+    // Show/hide platform-specific sections
+    const modulePicker      = document.getElementById("module-picker");
+    const modulePickerLabel = document.getElementById("module-picker-label");
+    const creatorSpec       = document.getElementById("creator-spec-section");
+    if (platform === "creator") {
+      if (modulePicker)      modulePicker.hidden      = true;
+      if (modulePickerLabel) modulePickerLabel.hidden = true;
+      if (creatorSpec)       creatorSpec.hidden       = false;
+      if (els.loadModulesBtn) els.loadModulesBtn.textContent = "↻ Load forms from Creator";
+      // Restore persisted Creator spec into inputs
+      restoreCreatorSpecInputs();
+      renderCreatorFields();
+    } else {
+      if (modulePicker)      modulePicker.hidden      = false;
+      if (modulePickerLabel) modulePickerLabel.hidden = false;
+      if (creatorSpec)       creatorSpec.hidden       = true;
+      if (els.loadModulesBtn) els.loadModulesBtn.textContent = "↻ Reload modules";
+    }
+
+    // Clear existing module selection
+    state.modulesSelected = [];
+    state.modulesAvailable = [];
+    state.suggestedModules = [];
+    state.creatorForms = [];
+
+    if (platform === "creator") {
+      renderModuleChips();
+      // Do NOT auto-call loadCreatorForms — user fills spec manually.
+      // They can click "Load forms from Creator" to populate from API.
+    } else {
+      renderModuleChips();
+      if (state.crmAuthorized || isLocal) loadModules();
+    }
+
+    refreshGenerateAvailability();
+    saveStateToStorage();
+  }
+
+  function showCrmRequiredModal() {
+    const overlay = document.getElementById("crm-req-overlay");
+    if (overlay) overlay.hidden = false;
+  }
+
   async function executeInCrm() {
     if (!state.cases.length) {
       setStatus("execute", "Generate cases first.", "warn");
       return;
     }
-    showLoader("execute", "Executing test cases against Zoho CRM...");
+    if (!state.crmAuthorized && !isLocal) {
+      showCrmRequiredModal();
+      return;
+    }
+    startExecLoader();
+    showLoader("execute", "");
     els.execute.disabled = true;
     els.toPush.disabled = true;
     els.execSummary.textContent = "";
+    if (els.execQuote) { els.execQuote.textContent = ""; els.execQuote.hidden = true; }
     els.execResults.innerHTML = "";
     setStatus("execute", "");
 
     try {
-      const res = await fetch(FUNCTION_BASE + "/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ cases: state.cases }),
-      });
+      const execBody = { cases: state.cases, platform: state.platform };
+      if (state.platform === "creator") {
+        execBody.creator_owner = state.creatorOwner;
+        execBody.creator_app   = state.creatorApp;
+      }
+      const res = await fetchWithTimeout(
+        FUNCTION_BASE + "/execute",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "include", body: JSON.stringify(execBody) },
+        180_000, "Execution"
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Execute failed");
 
@@ -1514,6 +2220,11 @@
       els.execSummary.textContent =
         `Execution complete (${mode}): ${data.passed} passed, ${data.failed} failed, ${data.skipped} skipped.`;
       els.execSummary.className = "exec-summary " + kind;
+      if (els.execQuote) {
+        const pool = data.failed === 0 ? EXEC_QUOTES_PASS : EXEC_QUOTES_FAIL;
+        els.execQuote.textContent = "“" + pool[Math.floor(Math.random() * pool.length)] + "”";
+        els.execQuote.hidden = false;
+      }
 
       els.toPush.disabled = false;
       markStepDone("execute");
@@ -1526,6 +2237,7 @@
     } catch (e) {
       setStatus("execute", "Error: " + e.message, "err");
     } finally {
+      stopExecLoader();
       hideLoader("execute");
       els.execute.disabled = false;
     }
@@ -1537,9 +2249,11 @@
       return;
     }
 
-    showLoader("push", `Pushing ${state.cases.length} case(s) to Zoho Projects...`);
+    startPushLoader();
+    showLoader("push", "");
     els.push.disabled = true;
     els.pushSummary.textContent = "";
+    if (els.pushLink) { els.pushLink.innerHTML = ""; els.pushLink.hidden = true; }
     els.pushResults.innerHTML = "";
 
     try {
@@ -1548,11 +2262,12 @@
       const payload = { cases: state.cases };
       const projectName = els.projectName && els.projectName.value.trim();
       if (projectName) payload.project_name = projectName;
-      const res = await fetch(FUNCTION_BASE + "/push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetchWithTimeout(
+        FUNCTION_BASE + "/push",
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload) },
+        120_000, "Push to Projects"
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Push failed");
 
@@ -1572,12 +2287,18 @@
       els.pushSummary.textContent =
         `Push complete: ${data.tasks_created} task(s), ${data.bugs_created} bug(s) created${inProject}${mock}.`;
       els.pushSummary.className = "exec-summary " + kind;
+      if (data.project_url && !data.mock && els.pushLink) {
+        els.pushLink.innerHTML =
+          `<a href="${escapeHtml(data.project_url)}" target="_blank" rel="noopener" class="project-link-btn">Open in Zoho Projects &rarr;</a>`;
+        els.pushLink.hidden = false;
+      }
 
       markStepDone("push");
       setStatus("push", "Push complete.", kind);
     } catch (e) {
       setStatus("push", "Error: " + e.message, "err");
     } finally {
+      stopPushLoader();
       hideLoader("push");
       els.push.disabled = false;
     }
@@ -1587,6 +2308,28 @@
     const blob = new Blob([JSON.stringify({ cases: state.cases, projects_payload: state.payload }, null, 2)],
                          { type: "application/json" });
     triggerDownload(blob, "uat-cases.json");
+  }
+
+  function exportCsv() {
+    if (!state.cases.length) return;
+    const tasksCsv = buildTasksCsv(state.cases);
+    triggerDownload(
+      new Blob(["﻿" + tasksCsv], { type: "text/csv;charset=utf-8" }),
+      "uat-cases.csv"
+    );
+    const bugsCsv = buildBugsCsv(state.cases);
+    if (bugsCsv) {
+      const failCount = state.cases.filter(
+        (tc) => tc.execution_result && tc.execution_result.status === "fail"
+      ).length;
+      setTimeout(() => triggerDownload(
+        new Blob(["﻿" + bugsCsv], { type: "text/csv;charset=utf-8" }),
+        "uat-bugs.csv"
+      ), 200);
+      showToast(`Exported ${state.cases.length} cases + ${failCount} bugs as CSV`, "ok");
+    } else {
+      showToast(`Exported ${state.cases.length} cases as CSV`, "ok");
+    }
   }
 
   function triggerDownload(blob, filename) {
@@ -1716,6 +2459,7 @@
   }
 
   function restart() {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     state.brd = "";
     state.fileName = "";
     state.cases = [];
@@ -1735,11 +2479,14 @@
     els.toExecute.disabled = true;
     els.toPush.disabled = true;
     els.download.disabled = true;
+    if (els.exportCsvBtn) els.exportCsvBtn.disabled = true;
     els.casesMeta.textContent = "";
     els.cases.innerHTML = "";
     els.execSummary.textContent = "";
+    if (els.execQuote) { els.execQuote.textContent = ""; els.execQuote.hidden = true; }
     els.execResults.innerHTML = "";
     els.pushSummary.textContent = "";
+    if (els.pushLink) { els.pushLink.innerHTML = ""; els.pushLink.hidden = true; }
     els.pushResults.innerHTML = "";
     ["input", "cases", "execute", "push"].forEach((t) => {
       setStatus(t, "");
@@ -1788,6 +2535,24 @@
     wire("brd-add-field",    addBrdFieldRow);
     wire("brd-add-filter",   addBrdFilterRow);
     wire("brd-add-rel",      addBrdRelRow);
+    wire("brd-reset",        resetBrdModal);
+
+    // Import CSV for fields
+    var importBtn  = document.getElementById("brd-import-fields");
+    var importFile = document.getElementById("brd-import-fields-file");
+    if (importBtn && importFile) {
+      importBtn.addEventListener("click", function() { importFile.value = ""; importFile.click(); });
+      importFile.addEventListener("change", function() { importFieldsCsv(importFile.files[0]); });
+    }
+
+    // Auto-fill defaults when module API name is filled
+    var moduleApiInput = document.getElementById("brd-module-api");
+    if (moduleApiInput) {
+      moduleApiInput.addEventListener("blur", function() {
+        var v = moduleApiInput.value.trim();
+        if (v) autoFillDefaultFields(v);
+      });
+    }
 
     var overlay = document.getElementById("brd-modal-overlay");
     if (overlay) {
@@ -1796,13 +2561,41 @@
       });
     }
 
+    function brdValidateMandatory() {
+      var proj = (getElVal("brd-project-name") || "").trim();
+      if (!proj) {
+        showToast("Please fill in Project Name (marked *)", "warn", 4000);
+        return false;
+      }
+      if (state.platform === "creator") {
+        var appName  = (getElVal("brd-creator-app-name")  || "").trim();
+        var formName = (getElVal("brd-creator-form-name") || "").trim();
+        if (!appName || !formName) {
+          showToast("Please fill in App Name and Form Name (marked *)", "warn", 4000);
+          return false;
+        }
+      } else {
+        var entity = (getElVal("brd-entity-name") || "").trim();
+        var api    = (getElVal("brd-module-api")  || "").trim();
+        if (!entity || !api) {
+          showToast("Please fill in Entity / Module Name and Module API Name (marked *)", "warn", 4000);
+          return false;
+        }
+      }
+      return true;
+    }
+
     wire("brd-download-md", function() {
+      if (!brdValidateMandatory()) return;
       triggerDownload(new Blob([serializeBrd()], { type: "text/markdown;charset=utf-8" }), "brd-template.md");
     });
 
     wire("brd-use-template", function() {
+      if (!brdValidateMandatory()) return;
       var text   = serializeBrd();
-      var entity = getElVal("brd-entity-name").trim() || "template";
+      var entity = state.platform === "creator"
+        ? (getElVal("brd-creator-form-name").trim() || "form")
+        : (getElVal("brd-entity-name").trim() || "template");
       state.brd      = text;
       state.fileName = entity.replace(/\s+/g, "-").toLowerCase() + "-brd.md";
       if (els.fileMeta) els.fileMeta.textContent = "✓ BRD loaded from template (" + state.fileName + ")";
@@ -1811,9 +2604,32 @@
       if (state.brd && state.modulesSelected.length) markStepDone("input");
     });
   }());
+
+  // ---- ConvoKraft chatbot FAB toggle ----
+  (function() {
+    var fab       = document.getElementById("chatbot-fab");
+    var container = document.getElementById("chatbot-container");
+    if (!fab || !container) return;
+    // Ensure hidden state is driven by a class so CSS-defined display doesn't conflict
+    container.style.display = "none";
+    var chatOpen = false;
+    fab.addEventListener("click", function() {
+      chatOpen = !chatOpen;
+      container.style.display = chatOpen ? "block" : "none";
+      fab.classList.toggle("active", chatOpen);
+      fab.setAttribute("aria-expanded", String(chatOpen));
+    });
+  }());
   els.backToInput.addEventListener("click", () => showTab("input"));
-  els.toExecute.addEventListener("click", () => showTab("execute"));
+  els.toExecute.addEventListener("click", () => {
+    if (!state.crmAuthorized && !isLocal) {
+      document.getElementById("crm-req-overlay").hidden = false;
+      return;
+    }
+    showTab("execute");
+  });
   els.download.addEventListener("click", downloadJson);
+  if (els.exportCsvBtn) els.exportCsvBtn.addEventListener("click", exportCsv);
 
   els.execute.addEventListener("click", executeInCrm);
   els.backToCases.addEventListener("click", () => showTab("cases"));
@@ -1824,10 +2640,107 @@
   if (els.downloadCsv) els.downloadCsv.addEventListener("click", downloadCsv);
   els.restart.addEventListener("click", restart);
 
-  // Inspect tab wiring
-  if (els.loadFunctionsBtn) els.loadFunctionsBtn.addEventListener("click", loadCrmFunctions);
-  if (els.runAllFunctionsBtn) els.runAllFunctionsBtn.addEventListener("click", runAllFunctions);
-  if (els.loadModulesBtn) els.loadModulesBtn.addEventListener("click", loadModules);
+  if (els.loadModulesBtn) els.loadModulesBtn.addEventListener("click", () => {
+    if (state.platform === "creator") loadCreatorForms();
+    else loadModules();
+  });
+
+  // Creator form spec — live input wiring
+  (function () {
+    function toSlug(str, sep) {
+      return str.trim().replace(/\s+/g, sep).replace(/[^a-zA-Z0-9_\-]/g, "");
+    }
+    // App display → auto-fill link name
+    const appDisplay = document.getElementById("creator-app-display-name");
+    const appLink    = document.getElementById("creator-app-link-name");
+    if (appDisplay) appDisplay.addEventListener("input", (e) => {
+      state.creatorAppDisplayName = e.target.value;
+      if (appLink && !appLink.dataset.edited) appLink.value = toSlug(e.target.value, "_").toLowerCase();
+      saveStateToStorage();
+    });
+    if (appLink) appLink.addEventListener("input", (e) => {
+      appLink.dataset.edited = "1";
+      state.creatorAppLinkName = e.target.value;
+      saveStateToStorage();
+    });
+    // Form display → auto-fill link name + enable generate button
+    const formDisplay = document.getElementById("creator-form-display-name");
+    const formLink    = document.getElementById("creator-form-link-name");
+    if (formDisplay) formDisplay.addEventListener("input", (e) => {
+      state.creatorFormDisplayName = e.target.value;
+      if (formLink && !formLink.dataset.edited) formLink.value = toSlug(e.target.value, "_");
+      refreshGenerateAvailability();
+      const ready = !!getCreatorFormLink() && !!state.brd;
+      if (ready) markStepDone("input");
+      saveStateToStorage();
+    });
+    if (formLink) formLink.addEventListener("input", (e) => {
+      formLink.dataset.edited = "1";
+      state.creatorFormLinkName = e.target.value;
+      refreshGenerateAvailability();
+      saveStateToStorage();
+    });
+    // Add field button
+    const addBtn = document.getElementById("creator-add-field-btn");
+    if (addBtn) addBtn.addEventListener("click", addCreatorField);
+  }());
+
+  // CRM required modal wiring
+  (function () {
+    const overlay = document.getElementById("crm-req-overlay");
+    const connectBtn = document.getElementById("crm-req-connect");
+    const cancelBtn  = document.getElementById("crm-req-cancel");
+    if (connectBtn) connectBtn.addEventListener("click", () => {
+      // Remember to resume execution after OAuth returns
+      try { sessionStorage.setItem("liftoff_resume_exec", "1"); } catch (e) {}
+      window.location.href = FUNCTION_BASE + "/crm/auth";
+    });
+    if (cancelBtn)  cancelBtn.addEventListener("click",  () => { if (overlay) overlay.hidden = true; });
+    if (overlay)    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.hidden = true; });
+  }());
+
+  // Platform selector
+  document.querySelectorAll(".platform-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchPlatform(btn.dataset.platform));
+  });
+
+  // Restore persisted state (before auth so UI is pre-populated)
+  loadStateFromStorage();
+  // Sync platform UI to restored state
+  if (state.platform === "creator") {
+    document.querySelectorAll(".platform-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.platform === "creator");
+    });
+    document.querySelectorAll(".brd-crm-only").forEach((el) => { el.style.display = "none"; });
+    document.querySelectorAll(".brd-creator-only").forEach((el) => { el.style.display = ""; });
+    const lbl = document.getElementById("module-picker-label");
+    if (lbl) lbl.hidden = true;
+    const modulePicker = document.getElementById("module-picker");
+    if (modulePicker) modulePicker.hidden = true;
+    const creatorSpec  = document.getElementById("creator-spec-section");
+    if (creatorSpec) creatorSpec.hidden = false;
+    if (els.loadModulesBtn) els.loadModulesBtn.textContent = "↻ Load forms from Creator";
+    restoreCreatorSpecInputs();
+    renderCreatorFields();
+  }
+  // If we restored cases, unlock tabs and render
+  if (state.cases.length) {
+    setTabState("cases",   { locked: false, done: true });
+    setTabState("execute", { locked: false, done: state.executed });
+    setTabState("push",    { locked: false, done: state.pushed });
+    state.stepDone.input = !!state.brd;
+    state.stepDone.cases = true;
+    renderCasesList(els.cases, { showExec: false, showPush: false });
+    els.casesMeta.textContent = `${state.cases.length} case(s) — restored from last session`;
+    els.toExecute.disabled  = false;
+    els.download.disabled   = false;
+    if (els.exportCsvBtn) els.exportCsvBtn.disabled = false;
+    if (state.brd) setTabState("input", { done: true });
+    if (els.fileMeta && state.fileName && !els.fileMeta.textContent) {
+      els.fileMeta.textContent = "✓ " + state.fileName + " — restored";
+    }
+    refreshGenerateAvailability();
+  }
 
   // Auth
   initAuth();

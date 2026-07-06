@@ -20,6 +20,9 @@ public class CrmAuthServlet extends HttpServlet {
             "ZohoCRM.modules.ALL,ZohoCRM.settings.ALL," +
             "ZohoProjects.portals.READ,ZohoProjects.projects.ALL," +
             "ZohoProjects.tasks.ALL,ZohoProjects.bugs.ALL," +
+            "ZohoCreator.meta.READ,ZohoCreator.report.READ," +
+            "ZohoCreator.report.CREATE,ZohoCreator.report.UPDATE," +
+            "ZohoCreator.report.DELETE," +
             "AaaServer.profile.READ";
 
     @Override

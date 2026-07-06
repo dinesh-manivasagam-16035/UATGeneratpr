@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * POST /generate
@@ -33,7 +35,9 @@ public class GenerateServlet extends HttpServlet {
 
     private static final Logger LOG = Logger.getLogger(GenerateServlet.class.getName());
     private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(JsonParser.Feature.ALLOW_COMMENTS, true);
+            .configure(JsonParser.Feature.ALLOW_COMMENTS, true)
+            .configure(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES, true)
+            .configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
     private static final int MAX_MODULES = 3;
 
     @Override
@@ -53,6 +57,10 @@ public class GenerateServlet extends HttpServlet {
             JsonNode body = MAPPER.readTree(req.getInputStream());
             String brd = textOf(body, "brd");
             String projectKey = textOf(body, "project_key");
+            String platform     = textOf(body, "platform");
+            if (platform.isEmpty()) platform = "crm";
+            String creatorOwner = textOf(body, "creator_owner");
+            String creatorApp   = textOf(body, "creator_app");
             brdLength = brd.length();
 
             // Accept both `modules: [...]` and legacy `module: "Leads"`
@@ -85,6 +93,8 @@ public class GenerateServlet extends HttpServlet {
                     llmResponse = MockLlmClient.generate(brd, module, moduleSchema);
                 } else if ("zia".equalsIgnoreCase(llmProvider)) {
                     llmResponse = ZiaClient.generate(brd, module, moduleSchema);
+                } else if ("creator".equalsIgnoreCase(platform)) {
+                    llmResponse = ClaudeClient.generateForCreator(brd, module, creatorOwner, creatorApp);
                 } else {
                     llmResponse = ClaudeClient.generate(brd, module, moduleSchema);
                 }
@@ -146,11 +156,78 @@ public class GenerateServlet extends HttpServlet {
         int end = Math.max(lastBrace, lastBracket);
         if (end >= 0 && end < trimmed.length() - 1) trimmed = trimmed.substring(0, end + 1);
 
-        JsonNode parsed = MAPPER.readTree(trimmed);
-        if (parsed.isArray()) return parsed;
-        if (parsed.has("cases")) return parsed.get("cases");
-        if (parsed.has("test_cases")) return parsed.get("test_cases");
-        return parsed;
+        // Fix common LLM JSON quirks before parsing:
+        // 0. Expand JS .repeat(N) calls: "A".repeat(255) → "AAA..." (capped at 500 chars)
+        trimmed = expandRepeatCalls(trimmed);
+        // 1. Remove sentence-ending dot outside closing quote: "value". → "value"
+        trimmed = trimmed.replaceAll("\"\\.(\\s*[,}\\]\"\\n\\r])", "\"$1");
+        // 2. Remove JS spread operators: ...identifier or bare ...
+        trimmed = trimmed.replaceAll(",?\\s*\\.{3}\\w*\\s*,?", "");
+        // 3. Collapse JS string concatenation: "a" + var + "b" → "ab" (run until stable)
+        String prev;
+        do {
+            prev = trimmed;
+            // "str" + identifier (variable, dot-path, array index)
+            trimmed = trimmed.replaceAll("\"(\\s*\\+\\s*[a-zA-Z_$][\\w$\\.\\[\\]]*)", "\"");
+            // "str1" + "str2" → "str1str2" (drop the closing/opening quotes around the +)
+            trimmed = trimmed.replaceAll("\"(\\s*\\+\\s*)\"", "");
+        } while (!trimmed.equals(prev));
+        // 4. Quote unquoted dot-path values starting with a letter: ": data[0].foo.bar"
+        trimmed = trimmed.replaceAll(
+            ":\\s*(?!\")([a-zA-Z_][a-zA-Z0-9_]*(?:\\[[^\\]]*])?(?:\\.[a-zA-Z_][a-zA-Z0-9_]*(?:\\[[^\\]]*])?)+)([,}\\]\\s])",
+            ": \"$1\"$2");
+        // 5. Quote dot-starting values: ": .data[0].id" → ": \".data[0].id\""
+        trimmed = trimmed.replaceAll(
+            ":\\s*(?!\")(\\.(?:[a-zA-Z_$][\\w$]*(?:\\[[^\\]]*])?(?:\\.(?:[a-zA-Z_$][\\w$]*(?:\\[[^\\]]*])?))*))([,}\\]\\s\\n\\r])",
+            ": \"$1\"$2");
+        // 6. Remove trailing commas before } or ]
+        trimmed = trimmed.replaceAll(",\\s*([}\\]])", "$1");
+        // 7. Quote bare identifier followed by a trailing dot: ": step1." → ": \"step1.\""
+        trimmed = trimmed.replaceAll(
+            ":\\s*(?!\")([a-zA-Z_$][\\w$]*)\\.(\\s*[,}\\]\\n\\r])",
+            ": \"$1.\"$2");
+
+        try {
+            JsonNode parsed = MAPPER.readTree(trimmed);
+            if (parsed.isArray()) return parsed;
+            if (parsed.has("cases")) return parsed.get("cases");
+            if (parsed.has("test_cases")) return parsed.get("test_cases");
+            return parsed;
+        } catch (com.fasterxml.jackson.core.JsonParseException jpe) {
+            throw new IOException(buildParseErrorContext(jpe, trimmed), jpe);
+        }
+    }
+
+    private static String buildParseErrorContext(com.fasterxml.jackson.core.JsonParseException jpe, String json) {
+        com.fasterxml.jackson.core.JsonLocation loc = jpe.getLocation();
+        int lineNum = (int) loc.getLineNr();
+        int colNum  = (int) loc.getColumnNr();
+        String[] lines = json.split("\n", -1);
+        StringBuilder sb = new StringBuilder();
+        sb.append("JSON parse error at line ").append(lineNum).append(", col ").append(colNum).append(". ");
+        if (lineNum > 0 && lineNum <= lines.length) {
+            String badLine = lines[lineNum - 1];
+            String snippet = badLine.length() > 120 ? badLine.substring(0, 120) + "…" : badLine;
+            sb.append("Offending line: [").append(snippet.trim()).append("]. ");
+        }
+        sb.append("Original: ").append(jpe.getOriginalMessage());
+        return sb.toString();
+    }
+
+    private static final Pattern REPEAT_CALL =
+            Pattern.compile("\"([^\"]{0,50})\"\\.repeat\\s*\\(\\s*(\\d+)\\s*\\)");
+
+    private static String expandRepeatCalls(String text) {
+        Matcher m = REPEAT_CALL.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String unit  = m.group(1);
+            int    count = Math.min(Integer.parseInt(m.group(2)), 500);
+            String expanded = unit.isEmpty() ? "" : unit.repeat(count);
+            m.appendReplacement(sb, Matcher.quoteReplacement("\"" + expanded + "\""));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     private static void writeError(HttpServletResponse resp, int status, String message) throws IOException {

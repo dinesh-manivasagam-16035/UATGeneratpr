@@ -37,11 +37,29 @@ public final class ClaudeClient {
 
         ObjectNode payload = MAPPER.createObjectNode();
         payload.put("model", model);
-        payload.put("max_tokens", 16000);
+        payload.put("max_tokens", 4096);
 
         ArrayNode messages = payload.putArray("messages");
         messages.addObject().put("role", "system").put("content", systemPrompt());
-        messages.addObject().put("role", "user").put("content", buildUserPrompt(brd, module, moduleSchema));
+        messages.addObject().put("role", "user").put("content", buildUserPrompt(safeBrd(brd), module, moduleSchema));
+
+        return callOpenAICompat(token, endpoint, payload);
+    }
+
+    public static String generateForCreator(String brd, String formName,
+                                            String owner, String app) throws Exception {
+        String token    = requireToken();
+        String model    = model();
+        String endpoint = endpoint();
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("model", model);
+        payload.put("max_tokens", 4096);
+
+        ArrayNode messages = payload.putArray("messages");
+        messages.addObject().put("role", "system").put("content", creatorSystemPrompt(owner, app));
+        messages.addObject().put("role", "user").put("content",
+                buildCreatorUserPrompt(safeBrd(brd), formName, owner, app));
 
         return callOpenAICompat(token, endpoint, payload);
     }
@@ -88,9 +106,17 @@ public final class ClaudeClient {
 
     private static String model() {
         String m = System.getenv("COPILOT_MODEL");
-        // Ignore legacy Claude model names — this endpoint is GitHub Models (GPT).
+        // Ignore legacy Claude model names — this endpoint uses GPT models.
         if (m == null || m.isEmpty() || m.toLowerCase().startsWith("claude")) return DEFAULT_MODEL;
         return m;
+    }
+
+    // gpt-4o has a 128k token context window — allow a generous BRD so the model
+    // can do deep analysis. System prompt ~400 + schema ~300 + instructions ~300
+    // + BRD ~3000 tokens (12 000 chars) + 4096 output ≈ 8100 tokens — well within limits.
+    private static String safeBrd(String brd) {
+        int limit = 12000; // ~3000 tokens
+        return brd.length() > limit ? brd.substring(0, limit) + "\n...[truncated]" : brd;
     }
 
     private static String endpoint() {
@@ -119,85 +145,149 @@ public final class ClaudeClient {
     }
 
     private static String systemPrompt() {
-        return "You are a senior QA engineer at Zoho. You receive a UAT specification "
-            + "document written by the developer (it contains the feature description, "
-            + "the list of fields the feature touches, validation rules, and the explicit "
-            + "use cases the developer expects to work). Your job is to:\n"
-            + " 1. Parse the document for fields (name, type, required/optional, "
-            + "    constraints, picklist values, default values) and for stated use cases.\n"
-            + " 2. Generate UAT test cases that exercise EXACTLY those fields and "
-            + "    use cases — do NOT invent unrelated fields or scenarios.\n"
-            + " 3. Add edge-case coverage AROUND each stated use case (boundary values, "
-            + "    invalid inputs, missing required fields, permission combos) using the "
-            + "    field rules the document declares.\n"
-            + " 4. For each case, produce a machine-executable plan against the Zoho CRM "
-            + "    v3 REST API (https://www.zohoapis.com/crm/v3 or zohoapis.in for "
-            + "    India DC) — use the field names from the spec verbatim.\n\n"
-            + "Output ONLY a JSON array. Each element has: title (short), priority "
-            + "(P0|P1|P2), tags (array of strings — include the use case name from the spec "
-            + "when applicable), gherkin (Given/When/Then), steps (array of "
-            + "{action, expected}), acceptance (string referencing the spec line where "
-            + "possible), category (one of 'crud'|'validation'|'permission'|'workflow'|"
-            + "'search'|'bulk'|'integration'|'data-quality'|'security'|'performance'|'ui'|"
-            + "'api'), spec_ref (string — the use case name or section header from the "
-            + "spec that this case traces back to), and execution_plan (array of API steps).\n\n"
-            + "execution_plan step shape:\n"
-            + "  { \"description\": \"...\",\n"
-            + "    \"method\": \"GET|POST|PUT|PATCH|DELETE\",\n"
-            + "    \"path\": \"/crm/v3/{Module}\"  (relative; executor prepends base URL),\n"
-            + "    \"body\": { ... } (JSON, optional; use field api_names from the spec),\n"
-            + "    \"capture\": { \"record_id\": \"data[0].details.id\" }  (optional),\n"
-            + "    \"assertions\": [ { \"path\": \"data[0].code\", \"equals\": \"SUCCESS\" } ] }\n"
-            + "Reference captured values in later steps as {{var_name}}.\n\n"
-            + "CASE COUNT: produce AT LEAST one positive + 2 negative cases for EACH "
-            + "use case in the spec, plus AT LEAST one boundary case per declared field. "
-            + "Minimum 30 cases per module. Do not stop early.\n\n"
-            + "PRIORITY: P0 = explicit acceptance criteria from spec. P1 = stated "
-            + "edge case in spec. P2 = inferred edge case we added.\n\n"
-            + "EDGE-CASE COVERAGE — touch every category below where the spec applies:\n"
-            + "1.  CRUD: create with all required, with all optional, edit each field type, "
-            + "    soft delete, hard delete, restore from recycle bin, read by id, list with "
-            + "    pagination/sorting.\n"
-            + "2.  Validation: required-missing, max-length, min-length, unicode/emoji in "
-            + "    text, invalid email/phone/url format, date out-of-range, picklist invalid "
-            + "    value, numeric overflow, duplicate detection, lookup-target nonexistent.\n"
-            + "3.  Permission: standard user, admin, read-only profile, custom profile with "
-            + "    field-level permission denied, sharing-rule restricted record, territory "
-            + "    access denied.\n"
-            + "4.  Workflow & blueprint: stage transition allowed, transition blocked by "
-            + "    criteria, mandatory-field-on-transition missing, approval-process pending, "
-            + "    automation-rule trigger, scoring rule.\n"
-            + "5.  Search: list-view filter, custom-view criteria, free-text search, COQL "
-            + "    query, related-list filter.\n"
-            + "6.  Bulk: mass update, mass delete, mass transfer, import CSV, bulk-write job, "
-            + "    bulk-read job, mass convert.\n"
-            + "7.  Integration: webhook delivery, related module update propagation, "
-            + "    Marketplace extension hook, ZIA prediction.\n"
-            + "8.  Data quality: duplicate-record merge, data-import dedup, mass-fix.\n"
-            + "9.  Security: XSS in description, SQL-injection-like input in search, "
-            + "    rate-limit on burst, OAuth scope mismatch, expired token, CSRF behavior.\n"
-            + "10. Performance: max-records-per-page boundary, payload-size limit, "
-            + "    concurrent-update conflict.\n"
-            + "11. UI/UX: form load with conditional fields, autosave, related-list lazy "
-            + "    load, mandatory-on-transition prompt.\n"
-            + "12. API: malformed JSON, wrong content-type, unsupported HTTP method.\n\n"
-            + "RULES:\n"
-            + " - End every create-flow case with a DELETE step using the captured id, so "
-            + "   the suite is idempotent.\n"
-            + " - Use realistic sample data (UAT-Smoke-* prefixes for created records).\n"
-            + " - Mix priorities: ~20% P0, ~50% P1, ~30% P2.\n"
-            + " - No prose, no markdown fencing — JSON array only.";
+        return "You are a senior QA engineer at Zoho specializing in UAT for Zoho CRM implementations. "
+            + "Your job is to produce test cases that are DEEPLY SPECIFIC to the provided specification — "
+            + "not generic CRM tests that could apply to any org.\n\n"
+            + "PHASE 1 — ANALYZE THE BRD (internalize before writing any test case):\n"
+            + "a) Identify every module referenced. Note which are standard Zoho CRM modules "
+            + "(Leads, Contacts, Deals, Accounts, etc.) and which are CUSTOM modules.\n"
+            + "b) List every field mentioned per module. Note which fields exist in the standard schema "
+            + "and which are CUSTOM fields unique to this implementation.\n"
+            + "c) Extract every USE CASE and business process described — give each a short name "
+            + "that you will reuse as spec_ref.\n"
+            + "d) Extract every VALIDATION RULE: required fields, field formats, allowed picklist values, "
+            + "length limits, and cross-field constraints.\n"
+            + "e) Extract every BUSINESS RULE: conditional logic, automation triggers, role/permission "
+            + "requirements, SLA rules, score thresholds, stage transitions, etc.\n"
+            + "f) Note every integration point, lookup relationship, and data dependency.\n\n"
+            + "PHASE 2 — GENERATE TEST CASES (one test per distinct BRD scenario):\n"
+            + "- For EVERY use case identified in Phase 1, generate its primary success-path test.\n"
+            + "- For EVERY validation rule, generate a test that submits data violating that rule "
+            + "and asserts the correct rejection.\n"
+            + "- For EVERY business rule and conditional branch, generate a test that exercises it.\n"
+            + "- For EVERY custom field or custom module, generate tests that verify its BRD-defined "
+            + "behaviour (not just that it exists).\n"
+            + "- Workflow triggers, automations, and stage transitions each need at least one test.\n\n"
+            + "QUALITY GATE — discard any test case where:\n"
+            + "- It could be written without reading this specific BRD (generic CRUD test)\n"
+            + "- The spec_ref cannot be matched to a named use case, section, or rule in the BRD\n"
+            + "- It tests behaviour the BRD does not mention\n\n"
+            + "OUTPUT FORMAT — each object must have EXACTLY these keys:\n"
+            + "title (string), priority (P0|P1|P2), tags (string[]), "
+            + "gherkin (\"Given ... When ... Then ...\"), "
+            + "steps ([{action,expected}]), acceptance (string), "
+            + "category (crud|validation|permission|workflow|search|bulk|integration|"
+            + "data-quality|security|performance|api), "
+            + "spec_ref (EXACT name of the use case or rule from the BRD — mandatory, must be traceable), "
+            + "execution_plan ([{description,method,path,body?,capture?,assertions?}]).\n\n"
+            + "Priority: P0=core business acceptance criterion from BRD, "
+            + "P1=explicitly stated validation rule or edge case, "
+            + "P2=boundary condition directly derivable from a stated BRD constraint.\n"
+            + "API paths are relative to /crm/v3/{Module}. "
+            + "End every create-flow case with a DELETE step using the captured record id. "
+            + "Use UAT-Smoke-* sample data with domain-realistic values that match what the BRD describes "
+            + "(e.g. if the BRD is about real-estate leads, use realistic property and contact data).\n"
+            + "STRICT JSON: all values must be literal — strings, numbers, booleans, arrays, objects. "
+            + "NEVER use JavaScript: no .repeat(), no + concatenation, no variable references, "
+            + "no spread (...), no method calls, no trailing dots. "
+            + "Write actual literal string values (255 real characters, not \"A\".repeat(255)). "
+            + "capture paths must be quoted strings like \"data[0].id\". "
+            + "Return ONLY a JSON array — no markdown fences, no comments, no prose.";
     }
 
     private static String buildUserPrompt(String brd, String module, String moduleSchema) {
-        return "Module: " + module + "\n\n"
-            + "Module schema (CRM defaults — supplement, but DO NOT override the spec):\n"
+        return "Target module: " + module + "\n\n"
+            + "Standard Zoho CRM field schema for " + module + " "
+            + "(use this to identify which BRD fields are standard vs custom):\n"
             + moduleSchema + "\n\n"
-            + "UAT specification document (authored by the developer — this is your "
-            + "source of truth for fields, validation rules, and use cases):\n"
-            + brd + "\n\n"
-            + "Generate AT LEAST 35 UAT test cases as a single JSON array. Trace every "
-            + "case back to a use case or field from the spec via the spec_ref field. "
-            + "No prose, no markdown fencing.";
+            + "=== BRD / UAT SPECIFICATION ===\n"
+            + brd + "\n"
+            + "=== END OF SPECIFICATION ===\n\n"
+            + "Your task:\n"
+            + "1. Read the entire specification above.\n"
+            + "2. Identify all custom modules, custom fields, use cases, business rules, "
+            + "validations, workflows, and permission requirements it describes.\n"
+            + "3. For each identified item, generate test cases that verify the EXACT behaviour "
+            + "described in the BRD — not generic CRM behaviour.\n"
+            + "4. Generate AT LEAST 35 test cases. Aim for complete feature coverage: every named "
+            + "use case, every validation rule, every business rule from the BRD must have "
+            + "at least one test case.\n"
+            + "5. Every spec_ref must cite the exact use-case name or BRD section it tests — "
+            + "if you cannot point to where in the BRD a test comes from, do not include it.\n"
+            + "6. Each execution_plan must use real Zoho CRM API calls with paths, bodies, and "
+            + "assertions that match the actual BRD-described scenario.\n\n"
+            + "Return a single JSON array only. No markdown fences, no preamble, no trailing prose.";
+    }
+
+    private static String creatorSystemPrompt(String owner, String app) {
+        String pathBase = "/" + (owner.isEmpty() ? "{owner}" : owner)
+                        + "/" + (app.isEmpty()   ? "{app}"   : app);
+        return "You are a senior QA engineer at Zoho specializing in UAT for Zoho Creator applications. "
+            + "Your job is to produce test cases that are DEEPLY SPECIFIC to the provided form spec — "
+            + "not generic form-submission tests.\n\n"
+            + "PHASE 1 — ANALYZE THE BRD (internalize before writing any test case):\n"
+            + "a) List every form field by name, type, and whether it is required.\n"
+            + "b) Note every field-level validation rule: format, allowed values, min/max length, "
+            + "regex patterns, uniqueness constraints.\n"
+            + "c) Extract every USE CASE described for this form — give each a short name to reuse as spec_ref.\n"
+            + "d) Note conditional visibility rules and cross-field dependencies.\n"
+            + "e) Note any post-submit actions: workflow triggers, email notifications, record updates, "
+            + "integrations, approval flows.\n\n"
+            + "PHASE 2 — GENERATE TEST CASES (one test per distinct BRD scenario):\n"
+            + "- For EVERY use case identified, generate the primary success-path submission test.\n"
+            + "- For EVERY required field, generate a test that omits it and asserts the rejection.\n"
+            + "- For EVERY format/type constraint, generate a test with invalid data and assert rejection.\n"
+            + "- For EVERY conditional or cross-field rule, generate a test that triggers it.\n"
+            + "- For EVERY post-submit workflow described, generate a test that verifies the outcome.\n"
+            + "- Do NOT test behaviour the BRD does not describe.\n\n"
+            + "QUALITY GATE — discard any test case where:\n"
+            + "- It could be written without reading this specific BRD\n"
+            + "- spec_ref cannot be traced to a named use case, field, or rule in the spec\n\n"
+            + "OUTPUT FORMAT — each object must have EXACTLY these keys:\n"
+            + "title (string), priority (P0|P1|P2), tags (string[]), "
+            + "gherkin (\"Given ... When ... Then ...\"), "
+            + "steps ([{action,expected}]), acceptance (string), "
+            + "category (crud|validation|permission|workflow|search|integration|"
+            + "data-quality|security|performance|api), "
+            + "spec_ref (EXACT use-case name or field name from the BRD — mandatory), "
+            + "execution_plan ([{description,method,path,body?,capture?,assertions?}]).\n\n"
+            + "Creator API paths:\n"
+            + "- List: GET " + pathBase + "/{form_link_name}\n"
+            + "- Submit/create: POST " + pathBase + "/{form_link_name}\n"
+            + "- Read one: GET " + pathBase + "/{form_link_name}/{record_id}\n"
+            + "- Update: PATCH " + pathBase + "/{form_link_name}/{record_id}\n"
+            + "- Delete: DELETE " + pathBase + "/{form_link_name}/{record_id}\n"
+            + "- Search: GET " + pathBase + "/{form_link_name}?criteria=(FieldName=\"value\")\n\n"
+            + "Creator response: { \"code\": 3000, \"data\": [...] }. "
+            + "Assert success: { \"path\": \"code\", \"equals\": \"3000\" }. "
+            + "Assert error: { \"path\": \"code\", \"equals\": \"3200\" }. "
+            + "Capture ID: { \"record_id\": \"data.ID\" }. "
+            + "End create-flow cases with DELETE using captured record_id.\n"
+            + "Priority: P0=core submission use case, P1=explicitly stated validation rule, "
+            + "P2=boundary condition derivable from a stated constraint.\n"
+            + "STRICT JSON: literal values only. No JS expressions. "
+            + "Return ONLY a JSON array — no markdown, no comments, no prose.";
+    }
+
+    private static String buildCreatorUserPrompt(String brd, String formName,
+                                                  String owner, String app) {
+        return "Platform: Zoho Creator\n"
+            + "Owner: " + owner + "\n"
+            + "App: " + app + "\n"
+            + "Form: " + formName + "\n\n"
+            + "=== BRD / FORM SPECIFICATION ===\n"
+            + brd + "\n"
+            + "=== END OF SPECIFICATION ===\n\n"
+            + "Your task:\n"
+            + "1. Read the entire specification above.\n"
+            + "2. Identify every field (name, type, required, validation rules), every use case, "
+            + "and every business rule or post-submit workflow it describes.\n"
+            + "3. For each identified item, generate test cases that verify the EXACT behaviour "
+            + "described — not generic form tests.\n"
+            + "4. Generate AT LEAST 30 test cases. Every named use case, every required-field "
+            + "validation, and every conditional rule must be covered.\n"
+            + "5. Every spec_ref must cite the exact use-case name or field from the BRD.\n"
+            + "6. Each execution_plan must use real Creator API calls matching the described scenario.\n\n"
+            + "Return a single JSON array only. No markdown, no preamble, no trailing prose.";
     }
 }

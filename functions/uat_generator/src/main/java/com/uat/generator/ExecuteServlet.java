@@ -50,6 +50,8 @@ public class ExecuteServlet extends HttpServlet {
                 return;
             }
 
+            String platform = body.path("platform").asText("crm");
+
             JsonNode crm = body.path("crm");
             CrmClient client = new CrmClient(
                     crm.path("api_base").asText(""),
@@ -64,7 +66,15 @@ public class ExecuteServlet extends HttpServlet {
                 String sid = cookieValue(req, "tp_crm_sid");
                 CrmTokenStore.TokenBundle bundle = CrmTokenStore.get(sid);
                 if (bundle != null && !bundle.isExpired() && bundle.hasOAuthCredentials()) {
-                    client = bundle.toCrmClient();
+                    if ("creator".equalsIgnoreCase(platform)) {
+                        // Use same OAuth token but Creator base URL.
+                        client = new CrmClient(
+                                CreatorModulesServlet.creatorBase(),
+                                bundle.accountsBase,
+                                bundle.clientId, bundle.clientSecret, bundle.refreshToken);
+                    } else {
+                        client = bundle.toCrmClient();
+                    }
                 }
             }
 

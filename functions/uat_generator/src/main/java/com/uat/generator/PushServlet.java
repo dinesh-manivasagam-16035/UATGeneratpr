@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -60,18 +61,30 @@ public class PushServlet extends HttpServlet {
                 return;
             }
 
-            // Use server-side credentials (Catalyst Connection or env-var refresh token).
+            // Resolve credentials: session token → env/Catalyst Connection → mock
             ProjectsClient projects = null;
             BugsClient bugs = null;
 
-            boolean haveEnvCreds =
-                    CatalystConnectionAuth.configuredConnectionName() != null
-                    || System.getenv("ZOHO_REFRESH_TOKEN") != null;
-            if (haveEnvCreds) {
-                projects = ProjectsClient.fromEnv();
-                bugs     = BugsClient.fromEnv();
+            String sid = cookieVal(req, "tp_crm_sid");
+            CrmTokenStore.TokenBundle bundle = CrmTokenStore.get(sid);
+            if (bundle != null && !bundle.isExpired() && bundle.hasOAuthCredentials()) {
+                // Use the OAuth token the user connected with in the browser session.
+                String projApiBase = System.getenv().getOrDefault(
+                        "ZOHO_PROJECTS_API_BASE", "https://projectsapi.zoho.in");
+                projects = new ProjectsClient(projApiBase, bundle.accountsBase,
+                        bundle.clientId, bundle.clientSecret, bundle.refreshToken, null);
+                bugs = new BugsClient(projApiBase, projects);
+            } else {
+                boolean haveEnvCreds =
+                        CatalystConnectionAuth.configuredConnectionName() != null
+                        || System.getenv("ZOHO_REFRESH_TOKEN") != null;
+                if (haveEnvCreds) {
+                    projects = ProjectsClient.fromEnv();
+                    bugs     = BugsClient.fromEnv();
+                }
             }
 
+            String portalSlug = portalId; // preserve original slug for project web URL
             if (projects != null) {
                 try {
                     portalId = projects.resolvePortalId(portalId);
@@ -167,6 +180,10 @@ public class PushServlet extends HttpServlet {
                 out.put("project_id", createdProjectId);
                 out.put("project_name", createdProjectName);
             }
+            String rawApiBase = System.getenv().getOrDefault(
+                    "ZOHO_PROJECTS_API_BASE", "https://projectsapi.zoho.in");
+            String webBase = rawApiBase.replace("projectsapi.", "projects.");
+            out.put("project_url", webBase + "/" + portalSlug + "/index.do/projects/" + projectId + "/");
             out.set("results", results);
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.getWriter().write(MAPPER.writeValueAsString(out));
@@ -266,6 +283,15 @@ public class PushServlet extends HttpServlet {
         String v = n == null || n.isNull() ? "" : n.asText("").trim();
         if (!v.isEmpty()) return v;
         return fallback == null || fallback.isEmpty() ? null : fallback;
+    }
+
+    private static String cookieVal(HttpServletRequest req, String name) {
+        Cookie[] cookies = req.getCookies();
+        if (cookies == null) return null;
+        for (Cookie c : cookies) {
+            if (name.equals(c.getName())) return c.getValue();
+        }
+        return null;
     }
 
     private static String firstNonEmpty(String... vals) {

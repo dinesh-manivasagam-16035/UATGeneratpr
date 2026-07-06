@@ -28,21 +28,34 @@
         <svg class="liftoff-svg" viewBox="0 0 44 44" width="36" height="36" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="liftoff-bg-g" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#4F8EF7"/>
-              <stop offset="100%" stop-color="#1A3DAF"/>
+              <stop offset="0%" stop-color="#6366F1"/>
+              <stop offset="55%" stop-color="#7C3AED"/>
+              <stop offset="100%" stop-color="#A855F7"/>
+            </linearGradient>
+            <linearGradient id="liftoff-flame-g" x1="22" y1="26" x2="22" y2="38" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#FDE68A"/>
+              <stop offset="55%" stop-color="#F97316"/>
+              <stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
             </linearGradient>
           </defs>
-          <rect width="44" height="44" rx="11" fill="url(#liftoff-bg-g)"/>
-          <rect x="1" y="1" width="42" height="19" rx="10" fill="rgba(255,255,255,0.08)"/>
-          <g transform="translate(32,32) scale(0.55) translate(-12,-12)">
-            <g class="li-gear-g">
-              <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98L2.46 14.63a.49.49 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.22.08.49 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" fill="rgba(255,255,255,0.60)"/>
-            </g>
-          </g>
-          <g transform="translate(20,20)">
-            <g class="li-shield-g">
-              <path d="M0-10 8-5.5 8 2Q8 9 0 13Q-8 9-8 2L-8-5.5Z" fill="rgba(255,255,255,0.92)"/>
-              <polyline points="-3.5,0.5 -0.5,4 5,-3.5" fill="none" stroke="#1D4ED8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect width="44" height="44" rx="12" fill="url(#liftoff-bg-g)"/>
+          <rect x="0" y="0" width="44" height="18" rx="12" fill="rgba(255,255,255,0.07)"/>
+          <!-- Stars -->
+          <circle cx="9" cy="9" r="1.2" fill="rgba(255,255,255,0.6)"/>
+          <circle cx="35" cy="8" r="0.85" fill="rgba(255,255,255,0.45)"/>
+          <circle cx="37" cy="20" r="1.0" fill="rgba(255,255,255,0.35)"/>
+          <circle cx="7" cy="29" r="0.7" fill="rgba(255,255,255,0.3)"/>
+          <!-- Rocket -->
+          <g class="li-rocket-g">
+            <path d="M22 7C18.5 12.5 17 18.5 17 24H27C27 18.5 25.5 12.5 22 7Z" fill="white"/>
+            <circle cx="22" cy="18.5" r="2.8" fill="#5B21B6" opacity="0.7"/>
+            <circle cx="22" cy="18.5" r="1.5" fill="rgba(255,255,255,0.55)"/>
+            <path d="M17 24L12.5 30.5L18.5 27Z" fill="rgba(255,255,255,0.8)"/>
+            <path d="M27 24L31.5 30.5L25.5 27Z" fill="rgba(255,255,255,0.8)"/>
+            <rect x="19.5" y="24" width="5" height="2.5" rx="1.25" fill="rgba(255,255,255,0.6)"/>
+            <g class="li-flame-g">
+              <path d="M20 26.5Q22 37 24 26.5" fill="url(#liftoff-flame-g)"/>
+              <path d="M20.8 26.5Q22 32 23.2 26.5" fill="rgba(255,230,90,0.6)"/>
             </g>
           </g>
         </svg>
@@ -64,18 +77,17 @@
             <span class="theme-swatch swatch-light"></span> Light
           </div>
           <div class="theme-option" data-theme-pick="dark">
-            <span class="theme-swatch swatch-dark"></span> Dark
-          </div>
-          <div class="theme-option" data-theme-pick="ocean">
-            <span class="theme-swatch swatch-ocean"></span> Azure
-          </div>
-          <div class="theme-option" data-theme-pick="sunset">
-            <span class="theme-swatch swatch-sunset"></span> Ember
-          </div>
-          <div class="theme-option" data-theme-pick="forest">
-            <span class="theme-swatch swatch-forest"></span> Sage
+            <span class="theme-swatch swatch-dark"></span> Night
           </div>
         </div>
+      </div>
+      <div id="header-user-chip" class="header-user-chip" hidden>
+        <span class="huc-avatar" id="huc-avatar">Z</span>
+        <div class="huc-info">
+          <span class="huc-org" id="huc-org"></span>
+          <span class="huc-email" id="huc-email"></span>
+        </div>
+        <span class="huc-dot" id="huc-dot" aria-label="Connected"></span>
       </div>
       <span class="live-pill">Live</span>
     </div>
@@ -88,21 +100,34 @@
         <svg class="liftoff-svg liftoff-svg-lg" viewBox="0 0 44 44" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="liftoff-login-bg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#4F8EF7"/>
-              <stop offset="100%" stop-color="#1A3DAF"/>
+              <stop offset="0%" stop-color="#6366F1"/>
+              <stop offset="55%" stop-color="#7C3AED"/>
+              <stop offset="100%" stop-color="#A855F7"/>
+            </linearGradient>
+            <linearGradient id="liftoff-login-flame" x1="22" y1="26" x2="22" y2="38" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#FDE68A"/>
+              <stop offset="55%" stop-color="#F97316"/>
+              <stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
             </linearGradient>
           </defs>
-          <rect width="44" height="44" rx="11" fill="url(#liftoff-login-bg)"/>
-          <rect x="1" y="1" width="42" height="19" rx="10" fill="rgba(255,255,255,0.08)"/>
-          <g transform="translate(32,32) scale(0.55) translate(-12,-12)">
-            <g class="li-gear-g">
-              <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98L2.46 14.63a.49.49 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.22.08.49 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" fill="rgba(255,255,255,0.60)"/>
-            </g>
-          </g>
-          <g transform="translate(20,20)">
-            <g class="li-shield-g">
-              <path d="M0-10 8-5.5 8 2Q8 9 0 13Q-8 9-8 2L-8-5.5Z" fill="rgba(255,255,255,0.92)"/>
-              <polyline points="-3.5,0.5 -0.5,4 5,-3.5" fill="none" stroke="#1D4ED8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect width="44" height="44" rx="12" fill="url(#liftoff-login-bg)"/>
+          <rect x="0" y="0" width="44" height="18" rx="12" fill="rgba(255,255,255,0.07)"/>
+          <!-- Stars -->
+          <circle cx="9" cy="9" r="1.2" fill="rgba(255,255,255,0.6)"/>
+          <circle cx="35" cy="8" r="0.85" fill="rgba(255,255,255,0.45)"/>
+          <circle cx="37" cy="20" r="1.0" fill="rgba(255,255,255,0.35)"/>
+          <circle cx="7" cy="29" r="0.7" fill="rgba(255,255,255,0.3)"/>
+          <!-- Rocket -->
+          <g class="li-rocket-g">
+            <path d="M22 7C18.5 12.5 17 18.5 17 24H27C27 18.5 25.5 12.5 22 7Z" fill="white"/>
+            <circle cx="22" cy="18.5" r="2.8" fill="#5B21B6" opacity="0.7"/>
+            <circle cx="22" cy="18.5" r="1.5" fill="rgba(255,255,255,0.55)"/>
+            <path d="M17 24L12.5 30.5L18.5 27Z" fill="rgba(255,255,255,0.8)"/>
+            <path d="M27 24L31.5 30.5L25.5 27Z" fill="rgba(255,255,255,0.8)"/>
+            <rect x="19.5" y="24" width="5" height="2.5" rx="1.25" fill="rgba(255,255,255,0.6)"/>
+            <g class="li-flame-g">
+              <path d="M20 26.5Q22 37 24 26.5" fill="url(#liftoff-login-flame)"/>
+              <path d="M20.8 26.5Q22 32 23.2 26.5" fill="rgba(255,230,90,0.6)"/>
             </g>
           </g>
         </svg>
@@ -162,9 +187,6 @@
     <button class="tab locked" data-tab="push" data-step="4" id="tab-push" role="tab" aria-selected="false" aria-controls="panel-push">
       <span class="tab-num">4</span><span class="tab-label">Land</span><span class="tab-state"></span>
     </button>
-    <button class="tab tab-utility" data-tab="inspect" data-step="5" id="tab-inspect" role="tab" aria-selected="false" aria-controls="panel-inspect" title="Health-check CRM functions">
-      <span class="tab-num">🔧</span><span class="tab-label">Inspect</span><span class="tab-state"></span>
-    </button>
   </nav>
 
   <main hidden>
@@ -211,7 +233,7 @@
                 </svg>
               </span>
               <div class="crm-connect-text">
-                <strong>Zoho CRM</strong>
+                <strong id="auth-platform-label">Zoho CRM</strong>
                 <span>Connect to load live modules and push test cases</span>
               </div>
               <button id="auth-login-btn" class="primary small">Connect &rarr;</button>
@@ -241,9 +263,32 @@
           </div>
 
         </div>
+
+        <!-- Platform selector -->
+        <div class="platform-selector" id="platform-selector" role="group" aria-label="Select platform">
+          <button class="platform-btn active" data-platform="crm" id="platform-crm-btn" type="button">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" aria-hidden="true">
+              <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M2 8h16" stroke="currentColor" stroke-width="1.4"/>
+              <circle cx="6" cy="12" r="1.2" fill="currentColor"/>
+              <path d="M9 11.5h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              <path d="M9 13h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            Zoho CRM
+          </button>
+          <button class="platform-btn" data-platform="creator" id="platform-creator-btn" type="button">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" aria-hidden="true">
+              <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+              <rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+              <rect x="3" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+              <rect x="11" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+            Zoho Creator
+          </button>
+        </div>
         <iframe id="sso-frame" src="" hidden style="display:none"></iframe>
 
-        <label>Target modules <span class="muted">(pick up to 5 — we auto-suggest from the spec)</span></label>
+        <label id="module-picker-label">Target modules <span class="muted">(pick up to 5 — we auto-suggest from the spec)</span></label>
         <div class="module-picker" id="module-picker">
           <p class="muted" id="module-picker-empty">Modules will load automatically when CRM is connected, or use the default list:</p>
           <div id="analysis-summary" class="analysis-summary" hidden></div>
@@ -251,6 +296,47 @@
           <div class="module-selected" id="module-selected" hidden>
             <span class="muted">Selected:</span>
             <span id="module-selected-list"></span>
+          </div>
+        </div>
+
+        <!-- Creator Form Spec — replaces module picker for Zoho Creator -->
+        <div id="creator-spec-section" class="creator-spec-section" hidden>
+          <label class="creator-section-label">Target Form</label>
+          <div class="creator-spec-grid">
+            <div>
+              <label class="small-label">App Name</label>
+              <input id="creator-app-display-name" type="text" placeholder="e.g. HR Management" autocomplete="off" />
+            </div>
+            <div>
+              <label class="small-label">App Link Name</label>
+              <input id="creator-app-link-name" type="text" placeholder="e.g. hr_management" autocomplete="off" />
+            </div>
+            <div>
+              <label class="small-label">Form Name <span style="color:var(--err)">*</span></label>
+              <input id="creator-form-display-name" type="text" placeholder="e.g. Leave Request" autocomplete="off" />
+            </div>
+            <div>
+              <label class="small-label">Form Link Name</label>
+              <input id="creator-form-link-name" type="text" placeholder="e.g. Leave_Request (auto-filled)" autocomplete="off" />
+            </div>
+          </div>
+          <div class="creator-fields-section">
+            <div class="creator-fields-hdr">
+              <span>Form Fields</span>
+              <span class="creator-fields-sub">Optional — helps the AI generate boundary tests, picklist checks and validation cases</span>
+              <button type="button" id="creator-add-field-btn" class="ghost small">+ Add field</button>
+            </div>
+            <div class="creator-fields-table" id="creator-fields-table-wrap" hidden>
+              <div class="creator-fields-thead">
+                <span>Field Name</span>
+                <span>Type</span>
+                <span>Required</span>
+                <span>Validation / Notes</span>
+                <span></span>
+              </div>
+              <div id="creator-fields-tbody"></div>
+            </div>
+            <p id="creator-fields-empty" class="creator-fields-empty muted">No fields yet — click <strong>+ Add field</strong> to describe your form structure.</p>
           </div>
         </div>
 
@@ -273,9 +359,43 @@
 
     <!-- Tab 2: Cases -->
     <section class="tab-panel" data-panel="cases" id="panel-cases" role="tabpanel" aria-labelledby="tab-cases" hidden>
-      <div class="loader" hidden>
-        <div class="spinner"></div>
-        <div class="loader-text">Generating UAT cases via LLM... (10–30s)</div>
+      <div class="loader gen-loader" hidden>
+        <div class="gen-rocket-wrap" aria-hidden="true">
+          <svg viewBox="0 0 44 44" width="64" height="64" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="gen-bg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#6366F1"/>
+                <stop offset="55%" stop-color="#7C3AED"/>
+                <stop offset="100%" stop-color="#A855F7"/>
+              </linearGradient>
+              <linearGradient id="gen-flame" x1="22" y1="26" x2="22" y2="38" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#FDE68A"/>
+                <stop offset="55%" stop-color="#F97316"/>
+                <stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <rect width="44" height="44" rx="12" fill="url(#gen-bg)"/>
+            <rect x="0" y="0" width="44" height="18" rx="12" fill="rgba(255,255,255,0.07)"/>
+            <circle cx="9" cy="9" r="1.2" fill="rgba(255,255,255,0.6)"/>
+            <circle cx="35" cy="8" r="0.85" fill="rgba(255,255,255,0.45)"/>
+            <circle cx="37" cy="20" r="1.0" fill="rgba(255,255,255,0.35)"/>
+            <g class="li-rocket-g">
+              <path d="M22 7C18.5 12.5 17 18.5 17 24H27C27 18.5 25.5 12.5 22 7Z" fill="white"/>
+              <circle cx="22" cy="18.5" r="2.8" fill="#5B21B6" opacity="0.7"/>
+              <circle cx="22" cy="18.5" r="1.5" fill="rgba(255,255,255,0.55)"/>
+              <path d="M17 24L12.5 30.5L18.5 27Z" fill="rgba(255,255,255,0.8)"/>
+              <path d="M27 24L31.5 30.5L25.5 27Z" fill="rgba(255,255,255,0.8)"/>
+              <rect x="19.5" y="24" width="5" height="2.5" rx="1.25" fill="rgba(255,255,255,0.6)"/>
+              <g class="li-flame-g">
+                <path d="M20 26.5Q22 37 24 26.5" fill="url(#gen-flame)"/>
+                <path d="M20.8 26.5Q22 32 23.2 26.5" fill="rgba(255,230,90,0.6)"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <div class="gen-message" id="gen-message">Analyzing your spec…</div>
+        <div class="gen-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="gen-bar" aria-hidden="true"><div class="gen-bar-fill" id="gen-bar-fill"></div></div>
       </div>
       <div class="panel-body">
         <div class="panel-header">
@@ -310,6 +430,7 @@
         <div class="actions">
           <button id="back-to-input" class="ghost">&larr; Back</button>
           <button id="to-execute-btn" class="primary" disabled>Execute in Zoho CRM &rarr;</button>
+          <button id="export-csv-btn" class="ghost" disabled>Export CSV</button>
           <button id="download-btn" class="ghost" disabled>Download JSON</button>
         </div>
         <p id="status-cases" class="status" aria-live="polite"></p>
@@ -318,9 +439,39 @@
 
     <!-- Tab 3: Execute -->
     <section class="tab-panel" data-panel="execute" id="panel-execute" role="tabpanel" aria-labelledby="tab-execute" hidden>
-      <div class="loader" hidden>
-        <div class="spinner"></div>
-        <div class="loader-text" id="execute-loader-text">Executing test cases in Zoho CRM...</div>
+      <div class="loader gen-loader" hidden>
+        <div class="gen-rocket-wrap" aria-hidden="true">
+          <svg viewBox="0 0 44 44" width="64" height="64" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="exec-bg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#0052CC"/><stop offset="55%" stop-color="#0066FF"/><stop offset="100%" stop-color="#4C9AFF"/>
+              </linearGradient>
+              <linearGradient id="exec-flame" x1="22" y1="26" x2="22" y2="38" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#FDE68A"/><stop offset="55%" stop-color="#F97316"/><stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <rect width="44" height="44" rx="12" fill="url(#exec-bg)"/>
+            <rect x="0" y="0" width="44" height="18" rx="12" fill="rgba(255,255,255,0.07)"/>
+            <circle cx="9" cy="9" r="1.2" fill="rgba(255,255,255,0.6)"/>
+            <circle cx="35" cy="8" r="0.85" fill="rgba(255,255,255,0.45)"/>
+            <circle cx="37" cy="20" r="1.0" fill="rgba(255,255,255,0.35)"/>
+            <g class="li-rocket-g">
+              <path d="M22 7C18.5 12.5 17 18.5 17 24H27C27 18.5 25.5 12.5 22 7Z" fill="white"/>
+              <circle cx="22" cy="18.5" r="2.8" fill="#003380" opacity="0.7"/>
+              <circle cx="22" cy="18.5" r="1.5" fill="rgba(255,255,255,0.55)"/>
+              <path d="M17 24L12.5 30.5L18.5 27Z" fill="rgba(255,255,255,0.8)"/>
+              <path d="M27 24L31.5 30.5L25.5 27Z" fill="rgba(255,255,255,0.8)"/>
+              <rect x="19.5" y="24" width="5" height="2.5" rx="1.25" fill="rgba(255,255,255,0.6)"/>
+              <g class="li-flame-g">
+                <path d="M20 26.5Q22 37 24 26.5" fill="url(#exec-flame)"/>
+                <path d="M20.8 26.5Q22 32 23.2 26.5" fill="rgba(255,230,90,0.6)"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <div class="gen-message" id="exec-gen-message">Connecting to Zoho CRM…</div>
+        <div class="gen-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="gen-bar" aria-hidden="true"><div class="gen-bar-fill" id="exec-bar-fill"></div></div>
       </div>
       <div class="panel-body">
         <h2>Cleared for takeoff 🚀</h2>
@@ -345,6 +496,7 @@
         </div>
 
         <div id="exec-summary" class="exec-summary"></div>
+        <p id="exec-quote" class="exec-quote" hidden></p>
         <div id="exec-results"></div>
 
         <div class="actions">
@@ -358,9 +510,39 @@
 
     <!-- Tab 4: Push -->
     <section class="tab-panel" data-panel="push" id="panel-push" role="tabpanel" aria-labelledby="tab-push" hidden>
-      <div class="loader" hidden>
-        <div class="spinner"></div>
-        <div class="loader-text" id="push-loader-text">Pushing to Zoho Projects...</div>
+      <div class="loader gen-loader" hidden>
+        <div class="gen-rocket-wrap" aria-hidden="true">
+          <svg viewBox="0 0 44 44" width="64" height="64" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="push-bg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#00875A"/><stop offset="55%" stop-color="#00A36B"/><stop offset="100%" stop-color="#2ECC9A"/>
+              </linearGradient>
+              <linearGradient id="push-flame" x1="22" y1="26" x2="22" y2="38" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#FDE68A"/><stop offset="55%" stop-color="#F97316"/><stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <rect width="44" height="44" rx="12" fill="url(#push-bg)"/>
+            <rect x="0" y="0" width="44" height="18" rx="12" fill="rgba(255,255,255,0.07)"/>
+            <circle cx="9" cy="9" r="1.2" fill="rgba(255,255,255,0.6)"/>
+            <circle cx="35" cy="8" r="0.85" fill="rgba(255,255,255,0.45)"/>
+            <circle cx="37" cy="20" r="1.0" fill="rgba(255,255,255,0.35)"/>
+            <g class="li-rocket-g">
+              <path d="M22 7C18.5 12.5 17 18.5 17 24H27C27 18.5 25.5 12.5 22 7Z" fill="white"/>
+              <circle cx="22" cy="18.5" r="2.8" fill="#004D33" opacity="0.7"/>
+              <circle cx="22" cy="18.5" r="1.5" fill="rgba(255,255,255,0.55)"/>
+              <path d="M17 24L12.5 30.5L18.5 27Z" fill="rgba(255,255,255,0.8)"/>
+              <path d="M27 24L31.5 30.5L25.5 27Z" fill="rgba(255,255,255,0.8)"/>
+              <rect x="19.5" y="24" width="5" height="2.5" rx="1.25" fill="rgba(255,255,255,0.6)"/>
+              <g class="li-flame-g">
+                <path d="M20 26.5Q22 37 24 26.5" fill="url(#push-flame)"/>
+                <path d="M20.8 26.5Q22 32 23.2 26.5" fill="rgba(255,230,90,0.6)"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <div class="gen-message" id="push-gen-message">Creating tasks in Zoho Projects…</div>
+        <div class="gen-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="gen-bar" aria-hidden="true"><div class="gen-bar-fill" id="push-bar-fill"></div></div>
       </div>
       <div class="panel-body">
         <h2>Touchdown 🛬</h2>
@@ -391,6 +573,7 @@
         <p class="hint">If a project with this name already exists in your portal, we'll reuse it — otherwise we'll create it.</p>
 
         <div id="push-summary" class="exec-summary"></div>
+        <div id="push-link" hidden></div>
         <div id="push-results"></div>
 
         <div class="actions">
@@ -403,34 +586,37 @@
       </div>
     </section>
 
-    <!-- Tab 5: Inspect (utility) -->
-    <section class="tab-panel" data-panel="inspect" id="panel-inspect" role="tabpanel" aria-labelledby="tab-inspect" hidden>
-      <div class="loader" hidden>
-        <div class="spinner"></div>
-        <div class="loader-text" id="inspect-loader-text">Loading CRM functions...</div>
-      </div>
-      <div class="panel-body">
-        <h2>Inspect CRM functions 🔧</h2>
-        <p class="hint">Health-check the standalone functions in your Zoho CRM org. Click <strong>Load functions</strong>, then <strong>Run</strong> on any function to invoke it via the v3 API and see the result or error inline. Uses the CRM credentials from the <strong>Brief</strong> tab.</p>
-
-        <div class="actions inline spaced">
-          <button id="load-functions-btn" class="primary">Load functions from CRM</button>
-          <button id="run-all-functions-btn" class="ghost" disabled>Run all</button>
-          <span id="functions-status" class="status" aria-live="polite"></span>
-        </div>
-
-        <div id="functions-list" class="functions-list"></div>
-      </div>
-    </section>
-
   </main>
 
-  <footer hidden>
-    <small>Catalyst Java function <code>/server/uat_generator/</code></small>
-    <span class="footer-badge" id="footer-badge" aria-label="Data center and version">IN&nbsp;DC · v1</span>
-  </footer>
-
   <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- CRM required modal — shown when user tries to execute without connecting CRM -->
+  <div id="crm-req-overlay" class="modal-overlay" hidden>
+    <div class="modal-card crm-req-card" role="dialog" aria-modal="true" aria-labelledby="crm-req-title">
+      <div class="crm-req-icon-wrap" aria-hidden="true">
+        <svg viewBox="0 0 44 44" width="56" height="56" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="crm-req-bg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#6366F1"/><stop offset="100%" stop-color="#A855F7"/>
+            </linearGradient>
+          </defs>
+          <rect width="44" height="44" rx="12" fill="url(#crm-req-bg)"/>
+          <path d="M22 11a4 4 0 0 0-4 4v3h-2a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-2v-3a4 4 0 0 0-4-4zm-2 7v-3a2 2 0 1 1 4 0v3h-4zm2 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z" fill="white"/>
+        </svg>
+      </div>
+      <h3 id="crm-req-title">Sign in to Zoho CRM</h3>
+      <p class="crm-req-body">Executing test cases and pushing results to <strong>Zoho Projects</strong> requires a connected Zoho CRM account. Sign in to unlock this step.</p>
+      <ul class="crm-req-list">
+        <li><span class="crm-req-check">✓</span> Live API execution against your CRM org</li>
+        <li><span class="crm-req-check">✓</span> Automatic task &amp; bug creation in Zoho Projects</li>
+        <li><span class="crm-req-check">✓</span> Real-time pass / fail results per test case</li>
+      </ul>
+      <div class="modal-actions">
+        <button id="crm-req-connect" class="primary">Connect Zoho CRM →</button>
+        <button id="crm-req-cancel" class="ghost">Not now</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Org picker modal — shown after SSO login to let the user select a CRM org -->
   <div id="org-modal-overlay" class="modal-overlay" hidden>
@@ -485,7 +671,7 @@
           <h4 class="brd-sec-title">Project Info</h4>
           <div class="brd-grid brd-grid-3">
             <div class="brd-field">
-              <label>Project Name</label>
+              <label>Project Name <span class="brd-req">*</span></label>
               <input id="brd-project-name" type="text" placeholder="e.g. CRM Lead Routing v2" />
             </div>
             <div class="brd-field">
@@ -511,15 +697,35 @@
 
         <!-- Entity -->
         <div class="brd-section">
-          <h4 class="brd-sec-title">Entity</h4>
-          <div class="brd-grid brd-grid-2">
+          <h4 class="brd-sec-title" id="brd-entity-title">Entity</h4>
+          <!-- CRM fields -->
+          <div class="brd-grid brd-grid-2 brd-crm-only">
             <div class="brd-field">
-              <label>Entity / Module Name</label>
+              <label>Entity / Module Name <span class="brd-req">*</span></label>
               <input id="brd-entity-name" type="text" placeholder="e.g. Contacts, Leads, Deals" />
             </div>
             <div class="brd-field">
-              <label>Module API Name</label>
+              <label>Module API Name <span class="brd-req">*</span></label>
               <input id="brd-module-api" type="text" placeholder="e.g. Contacts, Custom_Module_1" />
+            </div>
+          </div>
+          <!-- Creator fields -->
+          <div class="brd-grid brd-grid-2 brd-creator-only" style="display:none">
+            <div class="brd-field">
+              <label>App Name <span class="brd-req">*</span></label>
+              <input id="brd-creator-app-name" type="text" placeholder="e.g. My CRM App" />
+            </div>
+            <div class="brd-field">
+              <label>App Link Name <span class="brd-req">*</span></label>
+              <input id="brd-creator-app" type="text" placeholder="e.g. my_crm_app" />
+            </div>
+            <div class="brd-field">
+              <label>Form Name <span class="brd-req">*</span></label>
+              <input id="brd-creator-form-name" type="text" placeholder="e.g. Contacts" />
+            </div>
+            <div class="brd-field">
+              <label>Form Link Name <span class="brd-req">*</span></label>
+              <input id="brd-creator-form" type="text" placeholder="e.g. Contacts" />
             </div>
           </div>
         </div>
@@ -528,7 +734,11 @@
         <div class="brd-section">
           <div class="brd-sec-header">
             <h4 class="brd-sec-title">Fields</h4>
-            <button class="ghost small" id="brd-add-field">+ Add Field</button>
+            <div class="brd-sec-actions">
+              <button class="ghost small" id="brd-import-fields">↑ Import CSV</button>
+              <input type="file" id="brd-import-fields-file" accept=".csv" style="display:none" />
+              <button class="ghost small" id="brd-add-field">+ Add Field</button>
+            </div>
           </div>
           <p class="brd-hint">Types: String | Number | Boolean | Date | DateTime | Email | Phone | Picklist | Lookup | MultiSelect | Currency | Textarea</p>
           <div class="brd-table-wrap">
@@ -564,7 +774,7 @@
           </div>
           <div class="brd-table-wrap">
             <table class="brd-table">
-              <thead><tr><th>Field Name</th><th>Filter Type</th><th></th></tr></thead>
+              <thead><tr><th>Field Name</th><th>Filter Type</th><th>Value</th><th></th></tr></thead>
               <tbody id="brd-filters-body"></tbody>
             </table>
           </div>
@@ -623,6 +833,8 @@
       </div><!-- /brd-body -->
 
       <div class="modal-actions brd-modal-footer">
+        <button class="ghost brd-reset-btn" id="brd-reset">↺ Reset</button>
+        <span class="brd-footer-spacer"></span>
         <button class="ghost" id="brd-modal-cancel">Cancel</button>
         <button class="ghost" id="brd-download-md">&#8595; Download .md</button>
         <button class="primary" id="brd-use-template">Use Template &rarr;</button>
@@ -633,18 +845,17 @@
 
   <script src="app.js"></script>
 
-  <!-- ConvoKraft Bot Widget -->
+  <!-- ConvoKraft Bot Widget — hidden by default, toggle via FAB -->
   <script src="https://console.catalyst.zoho.in/convokraft/assets/js/convokraft-chat-sdk.js"></script>
-  <style>
-  div.anchor_convokraft_toBottom {
-    width: 330px;
-    height: 450px;
-    position: fixed;
-    bottom: 0;
-    right: 0;
-  }
-  </style>
-  <div class="anchor_convokraft_toBottom">
+  <button id="chatbot-fab" class="chatbot-fab" title="LiftOff Assistant" aria-label="Open chat assistant">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4l4 4 4-4h4a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z" fill="white"/>
+      <circle cx="8" cy="10" r="1.2" fill="#7C3AED"/>
+      <circle cx="12" cy="10" r="1.2" fill="#7C3AED"/>
+      <circle cx="16" cy="10" r="1.2" fill="#7C3AED"/>
+    </svg>
+  </button>
+  <div id="chatbot-container" style="display:none;width:330px;height:450px;position:fixed;bottom:0;right:0;z-index:9998">
     <convokraft-chat-bot bot-name="nairuken" project-id="41726000000048001" org-id="60071738809"></convokraft-chat-bot>
   </div>
 </body>
