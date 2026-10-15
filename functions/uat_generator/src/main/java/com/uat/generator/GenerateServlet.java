@@ -11,11 +11,19 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * POST /generate
@@ -24,102 +32,218 @@ import java.util.regex.Pattern;
  *   "brd":     "Full BRD text...",
  *   "modules": ["Leads", "Deals"],   // 1..3 module api_names
  *   "module":  "Leads",              // legacy single-module form (still accepted)
+ *   "platform": "crm" | "creator",
+ *   "creator_owner": "...", "creator_app": "...",   // creator only
  *   "project_key": "ACME-UAT"        // optional, embedded into projects_payload
  * }
  *
- * For each module the LLM is called once and the resulting cases are
- * concatenated (each case tagged with its source module). The aim is
- * 30+ cases per module so a 3-module request yields ~90-100 cases total.
+ * How generation works:
+ *   1. The BRD is split into section-aligned chunks (BrdChunker), so nothing is
+ *      silently truncated.
+ *   2. Each (module, chunk) pair gets 1–3 LLM calls, each with a different focus
+ *      (success paths / validations / permissions and edge cases) and a small
+ *      case budget, so responses fit the provider's output limit.
+ *   3. Calls run in parallel up to GEN_CONCURRENCY, inside an overall deadline.
+ *   4. Each response is parsed and validated (CaseParser). A cut-off response
+ *      keeps its complete cases; an unusable one is retried once with fewer cases.
+ *   5. Cases are de-duplicated per module by title.
+ * Anything skipped or failed is listed in "warnings" instead of being dropped silently.
+ *
+ * Tunables (env vars): GEN_CHUNK_CHARS (9000), GEN_MAX_CHUNKS (6), MAX_LLM_CALLS (8),
+ * CASES_PER_CALL (8), TARGET_CASES_PER_MODULE (30), GEN_CONCURRENCY (2),
+ * GEN_DEADLINE_SEC (140), LLM_MAX_TOKENS (4000, in ClaudeClient).
  */
 public class GenerateServlet extends HttpServlet {
 
     private static final Logger LOG = Logger.getLogger(GenerateServlet.class.getName());
     private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(JsonParser.Feature.ALLOW_COMMENTS, true)
-            .configure(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES, true)
-            .configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
+            .configure(JsonParser.Feature.ALLOW_COMMENTS, true);
     private static final int MAX_MODULES = 3;
+    private static final long MIN_TIME_FOR_RETRY_MS = 45_000;
+
+    private static final String FOCUS_ALL =
+            "all scenario types for this part — use cases, workflows, validations, permissions "
+          + "and edge cases — most important (P0) first";
+    private static final String[][] FOCUS_BY_PASSES = {
+        { FOCUS_ALL },
+        { "success paths, use cases, workflows, automations and stage transitions",
+          "validation rules, required fields, negative cases, permissions and boundary conditions" },
+        { "success paths, use cases, workflows, automations and stage transitions",
+          "validation rules, required fields, formats and negative cases",
+          "roles and permissions, cross-field rules, boundary conditions and edge cases" },
+    };
+
+    /** One planned LLM call. */
+    private static final class Task {
+        final int order;
+        final String module;
+        final BrdChunker.Chunk chunk;
+        final String focus;
+        final int wanted;
+        Task(int order, String module, BrdChunker.Chunk chunk, String focus, int wanted) {
+            this.order = order; this.module = module; this.chunk = chunk;
+            this.focus = focus; this.wanted = wanted;
+        }
+    }
+
+    private static final class Outcome {
+        final List<ObjectNode> cases = new ArrayList<>();
+        final List<String> notes = new ArrayList<>();
+        String error;
+    }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json");
         CorsSupport.apply(req, resp);
 
-        String llmProvider = System.getenv().getOrDefault("LLM_PROVIDER", "claude");
+        String llmProvider = System.getenv().getOrDefault("LLM_PROVIDER", "github");
         String model = System.getenv().getOrDefault("COPILOT_MODEL", "gpt-4o");
-        String provider = "mock".equalsIgnoreCase(llmProvider) ? "mock"
-                        : "zia".equalsIgnoreCase(llmProvider)  ? "zia"
-                        : "GitHub Models (" + model + ")";
+        boolean mock = "mock".equalsIgnoreCase(llmProvider);
+        boolean zia = "zia".equalsIgnoreCase(llmProvider);
+        String provider = mock ? "mock" : zia ? "zia" : "GitHub Models (" + model + ")";
         int brdLength = 0;
         List<String> modules = new ArrayList<>();
+        ExecutorService pool = null;
 
         try {
             JsonNode body = MAPPER.readTree(req.getInputStream());
             String brd = textOf(body, "brd");
             String projectKey = textOf(body, "project_key");
-            String platform     = textOf(body, "platform");
+            String platform = textOf(body, "platform");
             if (platform.isEmpty()) platform = "crm";
             String creatorOwner = textOf(body, "creator_owner");
-            String creatorApp   = textOf(body, "creator_app");
+            String creatorApp = textOf(body, "creator_app");
             brdLength = brd.length();
 
-            // Accept both `modules: [...]` and legacy `module: "Leads"`
             JsonNode mArr = body.get("modules");
             if (mArr != null && mArr.isArray()) {
                 for (JsonNode m : mArr) {
                     String v = m.asText("").trim();
                     if (!v.isEmpty() && !modules.contains(v)) modules.add(v);
-                    if (modules.size() >= MAX_MODULES) break;
                 }
             }
             if (modules.isEmpty()) {
                 String legacy = textOf(body, "module");
                 if (!legacy.isEmpty()) modules.add(legacy);
             }
-
             if (brd.isEmpty() || modules.isEmpty()) {
                 writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
                         "Fields 'brd' and 'modules' (array of up to 3) are required.");
                 return;
             }
 
+            List<String> warnings = new ArrayList<>();
+            if (modules.size() > MAX_MODULES) {
+                warnings.add("Only the first " + MAX_MODULES + " modules were used: "
+                        + String.join(", ", modules.subList(MAX_MODULES, modules.size()))
+                        + " skipped.");
+                modules = new ArrayList<>(modules.subList(0, MAX_MODULES));
+            }
+
+            // ---- 1. Chunk the BRD (mock mode uses the whole BRD in one go) ----
+            BrdChunker.Result split = mock
+                    ? BrdChunker.chunk(brd, Integer.MAX_VALUE / 2, 1)
+                    : BrdChunker.chunk(brd, envInt("GEN_CHUNK_CHARS", 9000), envInt("GEN_MAX_CHUNKS", 6));
+            List<BrdChunker.Chunk> chunks = split.chunks;
+            if (split.truncated()) {
+                warnings.add("The BRD is longer than this run can cover. Sections not used: "
+                        + summarize(split.droppedHeadings)
+                        + ". Generate those sections separately, or raise GEN_MAX_CHUNKS.");
+            }
+
+            // ---- 2. Plan the calls ----
+            List<Task> tasks = plan(modules, chunks, mock || zia, warnings);
+
+            // ---- 3. Run them in parallel inside a deadline ----
+            final String fPlatform = platform;
+            final String outline = split.outline;
+            long deadline = System.currentTimeMillis() + envInt("GEN_DEADLINE_SEC", 140) * 1000L;
+            int concurrency = Math.max(1, Math.min(envInt("GEN_CONCURRENCY", 2), tasks.size()));
+            pool = Executors.newFixedThreadPool(concurrency);
+
+            List<Future<Outcome>> futures = new ArrayList<>();
+            for (Task t : tasks) {
+                futures.add(pool.submit(() -> runTask(t, chunks.size(), outline, fPlatform,
+                        creatorOwner, creatorApp, brd, llmProvider, deadline)));
+            }
+
+            Outcome[] outcomes = new Outcome[tasks.size()];
+            for (int i = 0; i < futures.size(); i++) {
+                Task t = tasks.get(i);
+                long remaining = deadline - System.currentTimeMillis();
+                try {
+                    outcomes[i] = futures.get(i).get(Math.max(1, remaining), TimeUnit.MILLISECONDS);
+                } catch (TimeoutException te) {
+                    futures.get(i).cancel(true);
+                    Outcome o = new Outcome();
+                    o.error = "ran out of time";
+                    outcomes[i] = o;
+                } catch (Exception e) {
+                    Outcome o = new Outcome();
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    o.error = cause.getMessage();
+                    outcomes[i] = o;
+                }
+            }
+
+            // ---- 4. Merge, de-duplicate, report ----
             ArrayNode allCases = MAPPER.createArrayNode();
-            ObjectNode perModule = MAPPER.createObjectNode();
+            Map<String, Integer> perModuleCount = new LinkedHashMap<>();
+            Map<String, List<String>> perModuleErrors = new LinkedHashMap<>();
+            for (String m : modules) {
+                perModuleCount.put(m, 0);
+                perModuleErrors.put(m, new ArrayList<>());
+            }
+            Set<String> seen = new HashSet<>();
+            int duplicates = 0;
+            String firstError = null;
 
-            for (String module : modules) {
-                String moduleSchema = ModuleSchemas.forModule(module);
-                String llmResponse;
-                if ("mock".equalsIgnoreCase(llmProvider)) {
-                    llmResponse = MockLlmClient.generate(brd, module, moduleSchema);
-                } else if ("zia".equalsIgnoreCase(llmProvider)) {
-                    llmResponse = ZiaClient.generate(brd, module, moduleSchema);
-                } else if ("creator".equalsIgnoreCase(platform)) {
-                    llmResponse = ClaudeClient.generateForCreator(brd, module, creatorOwner, creatorApp);
-                } else {
-                    llmResponse = ClaudeClient.generate(brd, module, moduleSchema);
+            for (int i = 0; i < tasks.size(); i++) {
+                Task t = tasks.get(i);
+                Outcome o = outcomes[i];
+                String where = t.module + " / " + t.chunk.label();
+                for (String note : o.notes) warnings.add(where + ": " + note);
+                if (o.error != null) {
+                    warnings.add(where + " (" + shortFocus(t.focus) + ") failed: " + o.error);
+                    perModuleErrors.get(t.module).add(o.error);
+                    if (firstError == null) firstError = o.error;
                 }
+                for (ObjectNode c : o.cases) {
+                    String key = t.module + "|" + c.path("title").asText("")
+                            .toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
+                    if (!seen.add(key)) { duplicates++; continue; }
+                    c.put("module", t.module);
+                    allCases.add(c);
+                    perModuleCount.merge(t.module, 1, Integer::sum);
+                }
+            }
+            if (duplicates > 0) warnings.add(duplicates + " duplicate case(s) removed.");
 
-                JsonNode cases = extractCasesArray(llmResponse);
-                int count = 0;
-                if (cases.isArray()) {
-                    for (JsonNode tc : cases) {
-                        if (!tc.isObject()) continue;
-                        ObjectNode copy = ((ObjectNode) tc).deepCopy();
-                        copy.put("module", module);
-                        allCases.add(copy);
-                        count++;
-                    }
-                }
-                perModule.put(module, count);
-                RunLogger.logGenerate(req, module, provider, brdLength, count, "generated", null);
+            for (String m : modules) {
+                int n = perModuleCount.get(m);
+                List<String> errs = perModuleErrors.get(m);
+                String status = n == 0 ? "failed" : errs.isEmpty() ? "generated" : "partial";
+                RunLogger.logGenerate(req, m, provider, brdLength, n, status,
+                        errs.isEmpty() ? null : String.join(" | ", errs));
+            }
+
+            if (allCases.size() == 0 && firstError != null) {
+                writeError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, firstError);
+                return;
             }
 
             ObjectNode out = MAPPER.createObjectNode();
             ArrayNode modulesOut = out.putArray("modules");
             modules.forEach(modulesOut::add);
             out.put("provider", provider);
-            out.set("counts", perModule);
+            ObjectNode counts = out.putObject("counts");
+            perModuleCount.forEach(counts::put);
             out.put("total", allCases.size());
+            out.put("chunks", chunks.size());
+            out.put("llm_calls", tasks.size());
+            ArrayNode warnOut = out.putArray("warnings");
+            warnings.forEach(warnOut::add);
             out.set("cases", allCases);
             out.set("projects_payload", ProjectsPayloadBuilder.build(allCases, projectKey));
 
@@ -131,7 +255,116 @@ public class GenerateServlet extends HttpServlet {
                 RunLogger.logGenerate(req, m, provider, brdLength, 0, "failed", e.getMessage());
             }
             writeError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, e.getMessage());
+        } finally {
+            if (pool != null) pool.shutdownNow();
         }
+    }
+
+    /**
+     * Decides how many calls each (module, chunk) pair gets. Every pair gets at
+     * least one call when the budget allows; spare budget becomes extra focused
+     * passes. Pairs that don't fit the budget are reported, chunk by chunk, so
+     * every module covers the start of the BRD first.
+     */
+    private static List<Task> plan(List<String> modules, List<BrdChunker.Chunk> chunks,
+                                   boolean singlePass, List<String> warnings) {
+        int maxCalls = Math.max(1, envInt("MAX_LLM_CALLS", 8));
+        int perCall = Math.max(3, envInt("CASES_PER_CALL", 8));
+        int target = Math.max(perCall, envInt("TARGET_CASES_PER_MODULE", 30));
+        int units = modules.size() * chunks.size();
+
+        int passes = 1;
+        if (!singlePass && units < maxCalls) {
+            int wantedPerUnit = (int) Math.ceil((double) target / chunks.size());
+            int needed = (int) Math.ceil((double) wantedPerUnit / perCall);
+            passes = Math.max(1, Math.min(3, Math.min(maxCalls / units, needed)));
+        }
+        int wanted = passes == 1 ? perCall
+                : Math.max(4, Math.min(perCall,
+                    (int) Math.ceil((double) target / chunks.size() / passes)));
+        String[] focuses = FOCUS_BY_PASSES[passes - 1];
+
+        List<Task> tasks = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
+        int order = 0;
+        for (BrdChunker.Chunk c : chunks) {
+            for (String m : modules) {
+                for (String f : focuses) {
+                    if (tasks.size() < maxCalls) tasks.add(new Task(order++, m, c, f, wanted));
+                    else if (!skipped.contains(m + " / " + c.label())) skipped.add(m + " / " + c.label());
+                }
+            }
+        }
+        if (!skipped.isEmpty()) {
+            warnings.add("Call budget (MAX_LLM_CALLS=" + maxCalls + ") reached; not generated for: "
+                    + summarize(skipped) + ". Pick fewer modules or raise MAX_LLM_CALLS.");
+        }
+        return tasks;
+    }
+
+    private static Outcome runTask(Task t, int totalParts, String outline, String platform,
+                                   String creatorOwner, String creatorApp, String fullBrd,
+                                   String llmProvider, long deadline) {
+        Outcome o = new Outcome();
+        GenerationRequest r = new GenerationRequest();
+        r.platform = platform;
+        r.module = t.module;
+        r.moduleSchema = "creator".equalsIgnoreCase(platform) ? "" : ModuleSchemas.forModule(t.module);
+        r.creatorOwner = creatorOwner;
+        r.creatorApp = creatorApp;
+        r.outline = outline;
+        r.chunkText = t.chunk.text;
+        r.part = t.chunk.index + 1;
+        r.totalParts = totalParts;
+        r.focus = t.focus;
+        r.wantedCases = t.wanted;
+
+        try {
+            LlmResult res = call(r, llmProvider, fullBrd);
+            CaseParser.Parsed p = CaseParser.parse(res.content);
+            if (p.ok() && !p.cases.isEmpty()) {
+                o.cases.addAll(p.cases);
+                if (res.truncated() || p.salvaged) {
+                    o.notes.add("response was cut off; kept " + p.cases.size() + " complete case(s)");
+                }
+                if (p.dropped > 0) o.notes.add(p.dropped + " malformed case(s) dropped");
+                return o;
+            }
+
+            if (deadline - System.currentTimeMillis() < MIN_TIME_FOR_RETRY_MS) {
+                o.error = p.ok() ? "no usable cases returned" : p.error;
+                return o;
+            }
+
+            // One retry with a smaller budget and an explanation.
+            r.wantedCases = Math.max(3, t.wanted / 2);
+            r.retryNote = res.truncated()
+                    ? "Your previous answer was cut off by the output limit. Return at most "
+                      + r.wantedCases + " cases with short descriptions and compact execution plans."
+                    : "Your previous answer could not be used (" + trim(p.ok() ? "no valid cases" : p.error, 200)
+                      + "). Return valid JSON exactly in the requested shape, at most " + r.wantedCases + " cases.";
+            LlmResult res2 = call(r, llmProvider, fullBrd);
+            CaseParser.Parsed p2 = CaseParser.parse(res2.content);
+            if (p2.ok() && !p2.cases.isEmpty()) {
+                o.cases.addAll(p2.cases);
+                o.notes.add("needed a retry; kept " + p2.cases.size() + " case(s)");
+                return o;
+            }
+            o.error = p2.ok() ? "no usable cases returned" : p2.error;
+        } catch (Exception e) {
+            o.error = e.getMessage();
+        }
+        return o;
+    }
+
+    private static LlmResult call(GenerationRequest r, String llmProvider, String fullBrd) throws Exception {
+        if ("mock".equalsIgnoreCase(llmProvider)) {
+            return new LlmResult(MockLlmClient.generate(fullBrd, r.module, r.moduleSchema), "stop");
+        }
+        if ("zia".equalsIgnoreCase(llmProvider)) {
+            return new LlmResult(ZiaClient.generate(r.chunkText, r.module, r.moduleSchema), null);
+        }
+        return ClaudeClient.generateChunk(r);
     }
 
     @Override
@@ -139,95 +372,30 @@ public class GenerateServlet extends HttpServlet {
         CorsSupport.applyOptions(req, resp);
     }
 
+    private static int envInt(String name, int def) {
+        String v = System.getenv(name);
+        if (v == null || v.trim().isEmpty()) return def;
+        try { return Integer.parseInt(v.trim()); } catch (NumberFormatException e) { return def; }
+    }
+
+    private static String summarize(List<String> items) {
+        if (items.size() <= 5) return String.join(", ", items);
+        return String.join(", ", items.subList(0, 5)) + " and " + (items.size() - 5) + " more";
+    }
+
+    private static String shortFocus(String focus) {
+        int comma = focus.indexOf(',');
+        return comma > 0 ? focus.substring(0, comma) : focus;
+    }
+
+    private static String trim(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "…" : s;
+    }
+
     private static String textOf(JsonNode body, String field) {
         JsonNode n = body.get(field);
         return n == null || n.isNull() ? "" : n.asText("").trim();
-    }
-
-    private static JsonNode extractCasesArray(String llmResponse) throws IOException {
-        String trimmed = llmResponse.trim();
-        int firstBrace = trimmed.indexOf('{');
-        int firstBracket = trimmed.indexOf('[');
-        int start = firstBrace == -1 ? firstBracket
-                : (firstBracket == -1 ? firstBrace : Math.min(firstBrace, firstBracket));
-        if (start > 0) trimmed = trimmed.substring(start);
-        int lastBrace = trimmed.lastIndexOf('}');
-        int lastBracket = trimmed.lastIndexOf(']');
-        int end = Math.max(lastBrace, lastBracket);
-        if (end >= 0 && end < trimmed.length() - 1) trimmed = trimmed.substring(0, end + 1);
-
-        // Fix common LLM JSON quirks before parsing:
-        // 0. Expand JS .repeat(N) calls: "A".repeat(255) → "AAA..." (capped at 500 chars)
-        trimmed = expandRepeatCalls(trimmed);
-        // 1. Remove sentence-ending dot outside closing quote: "value". → "value"
-        trimmed = trimmed.replaceAll("\"\\.(\\s*[,}\\]\"\\n\\r])", "\"$1");
-        // 2. Remove JS spread operators: ...identifier or bare ...
-        trimmed = trimmed.replaceAll(",?\\s*\\.{3}\\w*\\s*,?", "");
-        // 3. Collapse JS string concatenation: "a" + var + "b" → "ab" (run until stable)
-        String prev;
-        do {
-            prev = trimmed;
-            // "str" + identifier (variable, dot-path, array index)
-            trimmed = trimmed.replaceAll("\"(\\s*\\+\\s*[a-zA-Z_$][\\w$\\.\\[\\]]*)", "\"");
-            // "str1" + "str2" → "str1str2" (drop the closing/opening quotes around the +)
-            trimmed = trimmed.replaceAll("\"(\\s*\\+\\s*)\"", "");
-        } while (!trimmed.equals(prev));
-        // 4. Quote unquoted dot-path values starting with a letter: ": data[0].foo.bar"
-        trimmed = trimmed.replaceAll(
-            ":\\s*(?!\")([a-zA-Z_][a-zA-Z0-9_]*(?:\\[[^\\]]*])?(?:\\.[a-zA-Z_][a-zA-Z0-9_]*(?:\\[[^\\]]*])?)+)([,}\\]\\s])",
-            ": \"$1\"$2");
-        // 5. Quote dot-starting values: ": .data[0].id" → ": \".data[0].id\""
-        trimmed = trimmed.replaceAll(
-            ":\\s*(?!\")(\\.(?:[a-zA-Z_$][\\w$]*(?:\\[[^\\]]*])?(?:\\.(?:[a-zA-Z_$][\\w$]*(?:\\[[^\\]]*])?))*))([,}\\]\\s\\n\\r])",
-            ": \"$1\"$2");
-        // 6. Remove trailing commas before } or ]
-        trimmed = trimmed.replaceAll(",\\s*([}\\]])", "$1");
-        // 7. Quote bare identifier followed by a trailing dot: ": step1." → ": \"step1.\""
-        trimmed = trimmed.replaceAll(
-            ":\\s*(?!\")([a-zA-Z_$][\\w$]*)\\.(\\s*[,}\\]\\n\\r])",
-            ": \"$1.\"$2");
-
-        try {
-            JsonNode parsed = MAPPER.readTree(trimmed);
-            if (parsed.isArray()) return parsed;
-            if (parsed.has("cases")) return parsed.get("cases");
-            if (parsed.has("test_cases")) return parsed.get("test_cases");
-            return parsed;
-        } catch (com.fasterxml.jackson.core.JsonParseException jpe) {
-            throw new IOException(buildParseErrorContext(jpe, trimmed), jpe);
-        }
-    }
-
-    private static String buildParseErrorContext(com.fasterxml.jackson.core.JsonParseException jpe, String json) {
-        com.fasterxml.jackson.core.JsonLocation loc = jpe.getLocation();
-        int lineNum = (int) loc.getLineNr();
-        int colNum  = (int) loc.getColumnNr();
-        String[] lines = json.split("\n", -1);
-        StringBuilder sb = new StringBuilder();
-        sb.append("JSON parse error at line ").append(lineNum).append(", col ").append(colNum).append(". ");
-        if (lineNum > 0 && lineNum <= lines.length) {
-            String badLine = lines[lineNum - 1];
-            String snippet = badLine.length() > 120 ? badLine.substring(0, 120) + "…" : badLine;
-            sb.append("Offending line: [").append(snippet.trim()).append("]. ");
-        }
-        sb.append("Original: ").append(jpe.getOriginalMessage());
-        return sb.toString();
-    }
-
-    private static final Pattern REPEAT_CALL =
-            Pattern.compile("\"([^\"]{0,50})\"\\.repeat\\s*\\(\\s*(\\d+)\\s*\\)");
-
-    private static String expandRepeatCalls(String text) {
-        Matcher m = REPEAT_CALL.matcher(text);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String unit  = m.group(1);
-            int    count = Math.min(Integer.parseInt(m.group(2)), 500);
-            String expanded = unit.isEmpty() ? "" : unit.repeat(count);
-            m.appendReplacement(sb, Matcher.quoteReplacement("\"" + expanded + "\""));
-        }
-        m.appendTail(sb);
-        return sb.toString();
     }
 
     private static void writeError(HttpServletResponse resp, int status, String message) throws IOException {

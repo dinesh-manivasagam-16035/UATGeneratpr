@@ -30,38 +30,19 @@ public final class ClaudeClient {
 
     private ClaudeClient() {}
 
-    public static String generate(String brd, String module, String moduleSchema) throws Exception {
-        String token    = requireToken();
-        String model    = model();
-        String endpoint = endpoint();
-
+    /** Generates cases for one BRD chunk. The response is a JSON object {"cases":[...]}. */
+    public static LlmResult generateChunk(GenerationRequest r) throws Exception {
+        boolean creator = "creator".equalsIgnoreCase(r.platform);
         ObjectNode payload = MAPPER.createObjectNode();
-        payload.put("model", model);
-        payload.put("max_tokens", 4096);
+        payload.put("model", model());
+        payload.put("max_tokens", maxTokens());
 
         ArrayNode messages = payload.putArray("messages");
-        messages.addObject().put("role", "system").put("content", systemPrompt());
-        messages.addObject().put("role", "user").put("content", buildUserPrompt(safeBrd(brd), module, moduleSchema));
+        messages.addObject().put("role", "system").put("content",
+                creator ? creatorSystemPrompt(r.creatorOwner, r.creatorApp) : systemPrompt());
+        messages.addObject().put("role", "user").put("content", buildChunkPrompt(r, creator));
 
-        return callOpenAICompat(token, endpoint, payload);
-    }
-
-    public static String generateForCreator(String brd, String formName,
-                                            String owner, String app) throws Exception {
-        String token    = requireToken();
-        String model    = model();
-        String endpoint = endpoint();
-
-        ObjectNode payload = MAPPER.createObjectNode();
-        payload.put("model", model);
-        payload.put("max_tokens", 4096);
-
-        ArrayNode messages = payload.putArray("messages");
-        messages.addObject().put("role", "system").put("content", creatorSystemPrompt(owner, app));
-        messages.addObject().put("role", "user").put("content",
-                buildCreatorUserPrompt(safeBrd(brd), formName, owner, app));
-
-        return callOpenAICompat(token, endpoint, payload);
+        return callOpenAICompat(requireToken(), endpoint(), payload);
     }
 
     public static String analyze(String brd, String moduleNames) throws Exception {
@@ -80,7 +61,8 @@ public final class ClaudeClient {
 
         String userPrompt =
             "Available modules: " + moduleNames + "\n\n"
-            + "UAT spec document:\n" + brd + "\n\n"
+            + "Document outline:\n" + BrdChunker.chunk(brd, 12000, 1).outline + "\n\n"
+            + "UAT spec document:\n" + safeBrd(brd) + "\n\n"
             + "Return JSON only: {\"suggested_modules\":[...],\"analysis\":\"...\"}";
 
         ObjectNode payload = MAPPER.createObjectNode();
@@ -90,7 +72,7 @@ public final class ClaudeClient {
         messages.addObject().put("role", "system").put("content", sysPrompt);
         messages.addObject().put("role", "user").put("content", userPrompt);
 
-        return callOpenAICompat(token, endpoint, payload);
+        return callOpenAICompat(token, endpoint, payload).content;
     }
 
     // ---- Helpers ----
@@ -111,9 +93,21 @@ public final class ClaudeClient {
         return m;
     }
 
-    // gpt-4o has a 128k token context window — allow a generous BRD so the model
-    // can do deep analysis. System prompt ~400 + schema ~300 + instructions ~300
-    // + BRD ~3000 tokens (12 000 chars) + 4096 output ≈ 8100 tokens — well within limits.
+    /**
+     * Output-token budget per call. GitHub Models caps tokens per request on most
+     * plans (about 4k output), which is why generation is split into small batches.
+     */
+    private static int maxTokens() {
+        try {
+            String v = System.getenv("LLM_MAX_TOKENS");
+            return v == null || v.isEmpty() ? 4000 : Math.max(500, Integer.parseInt(v.trim()));
+        } catch (NumberFormatException e) {
+            return 4000;
+        }
+    }
+
+    // Used by analyze() only: module suggestion needs the gist, not every requirement.
+    // Generation no longer truncates; it splits the BRD with BrdChunker instead.
     private static String safeBrd(String brd) {
         int limit = 12000; // ~3000 tokens
         return brd.length() > limit ? brd.substring(0, limit) + "\n...[truncated]" : brd;
@@ -124,23 +118,71 @@ public final class ClaudeClient {
         return (e != null && !e.isEmpty()) ? e : DEFAULT_ENDPOINT;
     }
 
-    private static String callOpenAICompat(String token, String endpoint, ObjectNode payload) throws Exception {
+    // Flipped off for the rest of this instance's life if the endpoint rejects JSON mode.
+    private static volatile boolean jsonModeSupported = true;
+
+    private static LlmResult callOpenAICompat(String token, String endpoint, ObjectNode payload) throws Exception {
+        if (jsonModeSupported) {
+            payload.putObject("response_format").put("type", "json_object");
+        }
+        try {
+            return post(token, endpoint, payload, true);
+        } catch (HttpError e) {
+            if (e.code == 400 && payload.has("response_format")
+                    && e.body.toLowerCase().contains("response_format")) {
+                jsonModeSupported = false;
+                payload.remove("response_format");
+                return post(token, endpoint, payload, true);
+            }
+            throw new RuntimeException("GitHub Models API error " + e.code + ": " + e.body);
+        }
+    }
+
+    private static LlmResult post(String token, String endpoint, ObjectNode payload,
+                                  boolean retryOn429) throws Exception {
         try (CloseableHttpClient http = HttpClients.createDefault()) {
             HttpPost post = new HttpPost(endpoint);
             post.setHeader("Authorization", "Bearer " + token);
             post.setHeader("Content-Type", "application/json");
             post.setEntity(new StringEntity(MAPPER.writeValueAsString(payload), ContentType.APPLICATION_JSON));
 
-            return http.execute(post, response -> {
+            Object out = http.execute(post, response -> {
                 String body = EntityUtils.toString(response.getEntity());
                 int code = response.getCode();
-                if (code >= 400) {
-                    throw new RuntimeException("GitHub Models API error " + code + ": " + body);
+                if (code == 429) {
+                    org.apache.hc.core5.http.Header h = response.getFirstHeader("Retry-After");
+                    long wait = 10;
+                    try { if (h != null) wait = Long.parseLong(h.getValue().trim()); } catch (NumberFormatException ignored) {}
+                    return Long.valueOf(wait);
                 }
+                if (code >= 400) return new HttpError(code, body);
                 JsonNode root = MAPPER.readTree(body);
-                JsonNode content = root.path("choices").path(0).path("message").path("content");
-                return content.isMissingNode() ? body : content.asText();
+                JsonNode choice = root.path("choices").path(0);
+                JsonNode content = choice.path("message").path("content");
+                String finish = choice.path("finish_reason").isMissingNode()
+                        ? null : choice.path("finish_reason").asText(null);
+                return new LlmResult(content.isMissingNode() ? body : content.asText(), finish);
             });
+
+            if (out instanceof LlmResult) return (LlmResult) out;
+            if (out instanceof HttpError) throw (HttpError) out;
+            long wait = (Long) out;
+            if (retryOn429 && wait <= 20) {
+                Thread.sleep(wait * 1000);
+                return post(token, endpoint, payload, false);
+            }
+            throw new RuntimeException("GitHub Models rate limit hit (retry after " + wait + "s). "
+                    + "Try again shortly, or lower MAX_LLM_CALLS / GEN_CONCURRENCY.");
+        }
+    }
+
+    private static final class HttpError extends Exception {
+        final int code;
+        final String body;
+        HttpError(int code, String body) {
+            super("HTTP " + code);
+            this.code = code;
+            this.body = body == null ? "" : body;
         }
     }
 
@@ -192,31 +234,7 @@ public final class ClaudeClient {
             + "no spread (...), no method calls, no trailing dots. "
             + "Write actual literal string values (255 real characters, not \"A\".repeat(255)). "
             + "capture paths must be quoted strings like \"data[0].id\". "
-            + "Return ONLY a JSON array — no markdown fences, no comments, no prose.";
-    }
-
-    private static String buildUserPrompt(String brd, String module, String moduleSchema) {
-        return "Target module: " + module + "\n\n"
-            + "Standard Zoho CRM field schema for " + module + " "
-            + "(use this to identify which BRD fields are standard vs custom):\n"
-            + moduleSchema + "\n\n"
-            + "=== BRD / UAT SPECIFICATION ===\n"
-            + brd + "\n"
-            + "=== END OF SPECIFICATION ===\n\n"
-            + "Your task:\n"
-            + "1. Read the entire specification above.\n"
-            + "2. Identify all custom modules, custom fields, use cases, business rules, "
-            + "validations, workflows, and permission requirements it describes.\n"
-            + "3. For each identified item, generate test cases that verify the EXACT behaviour "
-            + "described in the BRD — not generic CRM behaviour.\n"
-            + "4. Generate AT LEAST 35 test cases. Aim for complete feature coverage: every named "
-            + "use case, every validation rule, every business rule from the BRD must have "
-            + "at least one test case.\n"
-            + "5. Every spec_ref must cite the exact use-case name or BRD section it tests — "
-            + "if you cannot point to where in the BRD a test comes from, do not include it.\n"
-            + "6. Each execution_plan must use real Zoho CRM API calls with paths, bodies, and "
-            + "assertions that match the actual BRD-described scenario.\n\n"
-            + "Return a single JSON array only. No markdown fences, no preamble, no trailing prose.";
+            + "Return ONLY a JSON object of the form {\"cases\": [ ... ]} — no markdown fences, no comments, no prose.";
     }
 
     private static String creatorSystemPrompt(String owner, String app) {
@@ -266,28 +284,44 @@ public final class ClaudeClient {
             + "Priority: P0=core submission use case, P1=explicitly stated validation rule, "
             + "P2=boundary condition derivable from a stated constraint.\n"
             + "STRICT JSON: literal values only. No JS expressions. "
-            + "Return ONLY a JSON array — no markdown, no comments, no prose.";
+            + "Return ONLY a JSON object of the form {\"cases\": [ ... ]} — no markdown, no comments, no prose.";
     }
 
-    private static String buildCreatorUserPrompt(String brd, String formName,
-                                                  String owner, String app) {
-        return "Platform: Zoho Creator\n"
-            + "Owner: " + owner + "\n"
-            + "App: " + app + "\n"
-            + "Form: " + formName + "\n\n"
-            + "=== BRD / FORM SPECIFICATION ===\n"
-            + brd + "\n"
-            + "=== END OF SPECIFICATION ===\n\n"
-            + "Your task:\n"
-            + "1. Read the entire specification above.\n"
-            + "2. Identify every field (name, type, required, validation rules), every use case, "
-            + "and every business rule or post-submit workflow it describes.\n"
-            + "3. For each identified item, generate test cases that verify the EXACT behaviour "
-            + "described — not generic form tests.\n"
-            + "4. Generate AT LEAST 30 test cases. Every named use case, every required-field "
-            + "validation, and every conditional rule must be covered.\n"
-            + "5. Every spec_ref must cite the exact use-case name or field from the BRD.\n"
-            + "6. Each execution_plan must use real Creator API calls matching the described scenario.\n\n"
-            + "Return a single JSON array only. No markdown, no preamble, no trailing prose.";
+    private static String buildChunkPrompt(GenerationRequest r, boolean creator) {
+        StringBuilder sb = new StringBuilder();
+        if (creator) {
+            sb.append("Platform: Zoho Creator\n")
+              .append("Owner: ").append(r.creatorOwner).append("\n")
+              .append("App: ").append(r.creatorApp).append("\n")
+              .append("Form: ").append(r.module).append("\n\n");
+        } else {
+            sb.append("Target module: ").append(r.module).append("\n\n")
+              .append("Standard Zoho CRM field schema for ").append(r.module)
+              .append(" (use this to identify which BRD fields are standard vs custom):\n")
+              .append(r.moduleSchema).append("\n\n");
+        }
+        if (r.totalParts > 1 && !r.outline.isEmpty()) {
+            sb.append("Outline of the whole specification (context only):\n")
+              .append(r.outline).append("\n\n")
+              .append("This request covers PART ").append(r.part).append(" of ").append(r.totalParts)
+              .append(". Write cases only for requirements in this part; the other parts are ")
+              .append("handled in separate requests.\n\n");
+        }
+        sb.append("=== SPECIFICATION")
+          .append(r.totalParts > 1 ? " — PART " + r.part + "/" + r.totalParts : "")
+          .append(" ===\n")
+          .append(r.chunkText).append("\n")
+          .append("=== END ===\n\n")
+          .append("Focus for this request: ").append(r.focus).append("\n")
+          .append("Write up to ").append(r.wantedCases).append(" test cases. Write fewer if this part ")
+          .append("has fewer distinct scenarios for this focus — never pad with generic tests.\n")
+          .append("Keep each execution_plan compact: only the API steps the scenario needs.\n")
+          .append("Every spec_ref must cite the exact use-case name or section it tests; if you ")
+          .append("cannot point to where a test comes from, leave it out.\n");
+        if (!r.retryNote.isEmpty()) {
+            sb.append("\nIMPORTANT: ").append(r.retryNote).append("\n");
+        }
+        sb.append("\nReturn a JSON object {\"cases\": [...]} and nothing else.");
+        return sb.toString();
     }
 }

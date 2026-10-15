@@ -107,7 +107,7 @@
     creatorFields: [],
   };
 
-  const MAX_MODULES = 5;
+  const MAX_MODULES = 3; // must match MAX_MODULES in GenerateServlet
 
   // ---- Timeout-aware fetch ----
   // ms: abort after this many milliseconds; label used in error message
@@ -1401,7 +1401,7 @@
         FUNCTION_BASE + "/generate",
         { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body) },
-        150_000, "Case generation"
+        180_000, "Case generation" // server stops at GEN_DEADLINE_SEC (140s) and returns partial results
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
@@ -1429,8 +1429,16 @@
       els.download.disabled = !have;
       if (els.exportCsvBtn) els.exportCsvBtn.disabled = !have;
       if (have) markStepDone("cases");
-      setStatus("cases", have ? "Review the cases, then click Execute." : "No cases were returned.",
-                have ? "ok" : "warn");
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      if (warnings.length) {
+        console.warn("Generation warnings:", warnings);
+        const shown = warnings.slice(0, 3).join(" • ");
+        const more  = warnings.length > 3 ? ` (+${warnings.length - 3} more in the console)` : "";
+        setStatus("cases", (have ? "Generated with notes: " : "No cases were returned: ") + shown + more, "warn");
+      } else {
+        setStatus("cases", have ? "Review the cases, then click Execute." : "No cases were returned.",
+                  have ? "ok" : "warn");
+      }
     } catch (e) {
       const msg = e.message || "Unknown error";
       const isJsonErr = msg.includes("JSON parse error") || msg.includes("Unexpected character");

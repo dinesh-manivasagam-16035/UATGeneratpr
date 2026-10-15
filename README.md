@@ -71,6 +71,23 @@ Never commit any of these values to the repo.
 | `ZOHO_PROJECTS_PORTAL_ID`, `ZOHO_PROJECTS_PROJECT_ID` | optional | Fallbacks when the client doesn't send them |
 | `CATALYST_RUNS_TABLE` | optional | Datastore table for run logs (default `uat_runs`) |
 
+### Generation tuning (all optional)
+
+Generation splits the BRD into section-aligned chunks and makes several small LLM
+calls instead of one large one, so responses fit the provider's output limit and
+nothing is silently truncated. Anything skipped is returned in `warnings`.
+
+| Variable | Default | What it controls |
+|---|---|---|
+| `GEN_CHUNK_CHARS` | `9000` | Max characters of BRD per call |
+| `GEN_MAX_CHUNKS` | `6` | Max chunks per run; extra sections are reported, not dropped silently |
+| `MAX_LLM_CALLS` | `8` | Call budget per `/generate` request |
+| `CASES_PER_CALL` | `8` | Case budget per call |
+| `TARGET_CASES_PER_MODULE` | `30` | Used to decide how many focused passes each chunk gets |
+| `GEN_CONCURRENCY` | `2` | Parallel LLM calls (GitHub Models allows ~2 concurrent on most plans) |
+| `GEN_DEADLINE_SEC` | `140` | Stop and return partial results after this long (client waits 180s) |
+| `LLM_MAX_TOKENS` | `4000` | Output tokens per call |
+
 ## Catalyst Datastore: `uat_runs` table
 
 Each `/generate` call appends a row to a Datastore table for analytics. Create
@@ -85,7 +102,7 @@ with the following columns:
 | `provider` | Varchar (32) | `claude` or `zia` |
 | `brd_length` | Int | Char count of the BRD |
 | `case_count` | Int | 0 on failures |
-| `status` | Varchar (16) | `generated` \| `failed` |
+| `status` | Varchar (16) | `generated` \| `partial` \| `failed` |
 | `error` | Text | nullable; first 2KB of the exception message |
 
 The `RunLogger` writes asynchronously and swallows logging errors — a Datastore
@@ -138,12 +155,17 @@ locally and in production.
 }
 ```
 
-Response:
+Response (abridged):
 
 ```json
 {
-  "module": "crm.lead",
-  "provider": "claude",
+  "modules": ["Leads"],
+  "provider": "GitHub Models (gpt-4o)",
+  "counts": { "Leads": 24 },
+  "total": 24,
+  "chunks": 1,
+  "llm_calls": 3,
+  "warnings": [],
   "cases": [
     {
       "title": "Create lead with required fields",
