@@ -57,7 +57,7 @@ Never commit any of these values to the repo.
 
 | Variable | Required for | Notes |
 |---|---|---|
-| `LLM_PROVIDER` | optional | `github` (default), `zia`, or `mock` |
+| `LLM_PROVIDER` | optional | `zia` or `mock`; any other value (or unset) uses GitHub Models |
 | `GITHUB_TOKEN` | default provider | Token for GitHub Models |
 | `COPILOT_MODEL` | optional | GitHub Models model ID, default `gpt-4o` |
 | `COPILOT_ENDPOINT` | optional | Override the inference endpoint |
