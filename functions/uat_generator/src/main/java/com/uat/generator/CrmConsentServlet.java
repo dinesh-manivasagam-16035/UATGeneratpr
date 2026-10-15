@@ -27,23 +27,21 @@ public class CrmConsentServlet extends HttpServlet {
         boolean oauthAvailable = notEmpty(System.getenv("ZOHO_CLIENT_ID"));
         out.put("oauth_available", oauthAvailable);
 
-        // Check server-side credentials first.
+        // Server-side credentials (ZOHO_REFRESH_TOKEN / Catalyst Connection) are for
+        // Zoho Projects push. They used to be reported as "authorized" here, which
+        // unlocked Execute without any CRM credentials and silently produced
+        // simulated results. They are now reported separately.
         String envRefresh = System.getenv("ZOHO_REFRESH_TOKEN");
         String connName   = CatalystConnectionAuth.configuredConnectionName();
-        if (notEmpty(envRefresh) || notEmpty(connName)) {
-            out.put("authorized", true);
-            out.put("source", "server");
-            out.putNull("email");
-            resp.getWriter().write(MAPPER.writeValueAsString(out));
-            return;
-        }
+        out.put("projects_server", notEmpty(envRefresh) || notEmpty(connName));
+        out.put("persistent_sessions", CrmTokenStore.persistent());
 
-        // Check user-specific CRM session cookie.
-        String sid = cookieValue(req, "tp_crm_sid");
+        // CRM is authorized only by a signed-in user session that can call CRM.
+        String sid = cookieValue(req, CrmTokenStore.COOKIE);
         CrmTokenStore.TokenBundle bundle = CrmTokenStore.get(sid);
-        if (bundle != null && !bundle.isExpired()) {
+        if (bundle != null && !bundle.isExpired() && bundle.hasOAuthCredentials()) {
             out.put("authorized", true);
-            out.put("source", bundle.hasOAuthCredentials() ? "user_credentials" : "user");
+            out.put("source", "user_credentials");
             out.put("email", bundle.email != null ? bundle.email : "");
             resp.getWriter().write(MAPPER.writeValueAsString(out));
             return;

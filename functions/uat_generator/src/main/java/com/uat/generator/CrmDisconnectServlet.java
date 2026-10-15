@@ -13,7 +13,7 @@ import java.io.IOException;
  * POST /crm/disconnect
  *
  * Clears the CRM session token without affecting the Catalyst app login.
- * The caller's tp_crm_sid cookie is expired and the in-memory token removed.
+ * The caller's tp_crm_sid cookie is cleared (and any in-memory session removed).
  */
 public class CrmDisconnectServlet extends HttpServlet {
 
@@ -27,11 +27,7 @@ public class CrmDisconnectServlet extends HttpServlet {
         String sid = cookieValue(req, "tp_crm_sid");
         CrmTokenStore.remove(sid);
 
-        Cookie expire = new Cookie("tp_crm_sid", "");
-        expire.setPath("/");
-        expire.setHttpOnly(true);
-        expire.setMaxAge(0);
-        resp.addCookie(expire);
+        CrmTokenStore.setCookie(req, resp, "", 0);
 
         ObjectNode out = MAPPER.createObjectNode();
         out.put("success", true);

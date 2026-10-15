@@ -11,7 +11,6 @@ import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.http.message.BasicNameValuePair;
 
-import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -103,11 +102,7 @@ public class CrmConnectServlet extends HttpServlet {
             String sid = CrmTokenStore.create(accessToken, expiresAt, refreshToken, email,
                     clientId, clientSecret, accountsBase, apiBase);
 
-            Cookie sidCookie = new Cookie("tp_crm_sid", sid);
-            sidCookie.setPath("/");
-            sidCookie.setHttpOnly(true);
-            sidCookie.setMaxAge(60 * 60 * 24 * 30); // 30 days
-            resp.addCookie(sidCookie);
+            CrmTokenStore.setCookie(req, resp, sid, CrmTokenStore.SESSION_DAYS * 24 * 60 * 60);
 
             out.put("authorized", true);
             out.put("email", email != null ? email : "");

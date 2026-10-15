@@ -707,9 +707,12 @@
   function renderExecBadge(exec) {
     if (!exec) return "";
     const status = exec.status || "";
-    const sim = exec.simulated ? " (sim)" : "";
+    if (status === "dry_run") {
+      const label = exec.plan_ok ? "DRY RUN · PLAN OK" : `DRY RUN · ${exec.issue_count || 0} ISSUE(S)`;
+      return `<span class="exec-badge ${exec.plan_ok ? "skip" : "fail"}" title="Not executed against CRM">${escapeHtml(label)}</span>`;
+    }
     const cls = status === "pass" ? "pass" : status === "fail" ? "fail" : "skip";
-    return `<span class="exec-badge ${cls}">${escapeHtml(status.toUpperCase() + sim)}</span>`;
+    return `<span class="exec-badge ${cls}">${escapeHtml(status.toUpperCase())}</span>`;
   }
 
   function renderPlanSummary(plan) {
@@ -733,6 +736,21 @@
     }
     const rows = exec.trace
       .map((step) => {
+        if (step.executed === false) {
+          const issues = (step.issues || []).map((t) => `<li class="assertion fail">${escapeHtml(t)}</li>`).join("");
+          const notes  = (step.notes  || []).map((t) => `<li class="assertion">${escapeHtml(t)}</li>`).join("");
+          const cls = step.ok ? "ok" : "fail";
+          return `
+          <li class="trace-step ${cls}">
+            <div class="trace-head">
+              <span class="trace-method">${escapeHtml(step.method || "?")}</span>
+              <code>${escapeHtml(step.path || "")}</code>
+              <span class="trace-pill ${cls}">${step.ok ? "NOT RUN" : "PLAN ISSUE"}</span>
+            </div>
+            <div class="trace-desc">${escapeHtml(step.description || "")}</div>
+            ${issues || notes ? `<ul class="assertions">${issues}${notes}</ul>` : ""}
+          </li>`;
+        }
         const ok = step.ok ? "ok" : "fail";
         const assertions = Array.isArray(step.assertions)
           ? step.assertions
@@ -766,7 +784,9 @@
         `;
       })
       .join("");
-    return `<details class="trace" ${exec.status === "fail" ? "open" : ""}><summary>Execution trace</summary><ol class="trace-list">${rows}</ol></details>`;
+    const open = exec.status === "fail" || (exec.status === "dry_run" && !exec.plan_ok);
+    const title = exec.status === "dry_run" ? "Plan check (dry run — not executed)" : "Execution trace";
+    return `<details class="trace" ${open ? "open" : ""}><summary>${title}</summary><ol class="trace-list">${rows}</ol></details>`;
   }
 
   function renderPushInfo(tc) {
@@ -2266,23 +2286,51 @@
     setStatus("execute", "");
 
     try {
-      const execBody = { cases: state.cases, platform: state.platform };
+      // Without a CRM session (local dev), ask for a dry run explicitly: the server
+      // checks the plans and sends nothing to CRM. It no longer fakes results.
+      const dryRun = !state.crmAuthorized;
+      const execBody = { cases: state.cases, platform: state.platform, dry_run: dryRun };
       if (state.platform === "creator") {
         execBody.creator_owner = state.creatorOwner;
         execBody.creator_app   = state.creatorApp;
       }
-      const res = await fetchWithTimeout(
+      const callExecute = (body) => fetchWithTimeout(
         FUNCTION_BASE + "/execute",
         { method: "POST", headers: { "Content-Type": "application/json" },
-          credentials: "include", body: JSON.stringify(execBody) },
+          credentials: "include", body: JSON.stringify(body) },
         180_000, "Execution"
       );
+      let res = await callExecute(execBody);
+      if (res.status === 409 && isLocal && !execBody.dry_run) {
+        // Local mode pretends to be signed in; with no real CRM session, dry-run instead.
+        execBody.dry_run = true;
+        res = await callExecute(execBody);
+      }
       const data = await res.json();
+      if (res.status === 409 && data.needs_auth) {
+        state.crmAuthorized = false;
+        showCrmRequiredModal();
+        setStatus("execute", data.error, "warn");
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Execute failed");
 
       state.cases = Array.isArray(data.cases) ? data.cases : state.cases;
       state.executed = true;
+      saveStateToStorage();
       renderCasesList(els.execResults, { showExec: true, showPush: false });
+
+      if (data.dry_run) {
+        const bad = data.plans_with_issues || 0;
+        els.execSummary.textContent =
+          `Dry run — nothing was sent to Zoho CRM. ${data.plans_ok || 0} plan(s) look runnable, ` +
+          `${bad} need fixes, ${data.skipped} have no plan. Connect CRM to run them for real.`;
+        els.execSummary.className = "exec-summary warn";
+        els.toPush.disabled = false;
+        setStatus("execute", bad ? "Fix the flagged plans, or connect CRM and run for real."
+                                 : "Plans look runnable. Connect CRM to execute them.", "warn");
+        return;
+      }
 
       const mode = data.simulated ? "simulated" : "live";
       const kind = data.failed ? "warn" : "ok";

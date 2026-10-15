@@ -79,8 +79,19 @@ public class ExecuteServlet extends HttpServlet {
             }
 
             boolean simulated = !client.hasCredentials();
+            if (simulated && !body.path("dry_run").asBoolean(false)) {
+                // Never fall back silently: without CRM credentials the caller has to ask
+                // for a dry run explicitly, and the results say so.
+                resp.setStatus(409);
+                ObjectNode err = MAPPER.createObjectNode();
+                err.put("error", "Not connected to Zoho CRM, so nothing can be executed. "
+                        + "Connect CRM, or run a dry run to check the execution plans.");
+                err.put("needs_auth", true);
+                resp.getWriter().write(MAPPER.writeValueAsString(err));
+                return;
+            }
             ArrayNode out = MAPPER.createArrayNode();
-            int passed = 0, failed = 0, skipped = 0;
+            int passed = 0, failed = 0, skipped = 0, plansOk = 0, plansWithIssues = 0;
 
             for (JsonNode tc : cases) {
                 ObjectNode caseCopy = tc.deepCopy();
@@ -91,6 +102,9 @@ public class ExecuteServlet extends HttpServlet {
                 switch (status) {
                     case "pass":    passed++;  break;
                     case "fail":    failed++;  break;
+                    case "dry_run":
+                        if (result.path("plan_ok").asBoolean(false)) plansOk++; else plansWithIssues++;
+                        break;
                     default:        skipped++; break;
                 }
             }
@@ -101,6 +115,11 @@ public class ExecuteServlet extends HttpServlet {
             resBody.put("passed", passed);
             resBody.put("failed", failed);
             resBody.put("skipped", skipped);
+            resBody.put("dry_run", simulated);
+            if (simulated) {
+                resBody.put("plans_ok", plansOk);
+                resBody.put("plans_with_issues", plansWithIssues);
+            }
 
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.getWriter().write(MAPPER.writeValueAsString(resBody));

@@ -23,9 +23,11 @@ import java.util.regex.Pattern;
  *  - path is a dotted/indexed path into the response. The synthetic key
  *    "status_code" returns the HTTP status. Otherwise it walks the JSON body.
  *
- * If no real credentials are provided, the executor simulates each step and
- * returns deterministic pass/fail based on whether the case looks negative
- * (tag "negative") or positive.
+ * If no real credentials are provided, nothing is sent anywhere: the case gets
+ * a dry run instead (status "dry_run"), which checks that the plan could run:
+ * known HTTP methods, paths, bodies for writes, variables captured before use,
+ * and assertions with conditions. Earlier versions invented pass/fail results
+ * here, which looked like real test outcomes.
  */
 public final class CrmExecutor {
 
@@ -46,8 +48,9 @@ public final class CrmExecutor {
             return result;
         }
 
+        if (simulate) return dryRun(plan, result, trace);
+
         Map<String, String> captured = new HashMap<>();
-        boolean negativeCase = looksNegative(testCase);
         boolean overallPass = true;
         String firstFailure = null;
 
@@ -71,25 +74,16 @@ public final class CrmExecutor {
             String responseBodyText;
             String execError = null;
 
-            if (simulate) {
-                ObjectNode sim = simulateStep(step, negativeCase, i, captured);
-                statusCode = sim.path("__status").asInt(200);
-                responseJson = sim.deepCopy();
-                ((ObjectNode) responseJson).remove("__status");
-                responseBodyText = responseJson.toString();
-                stepResult.put("simulated", true);
-            } else {
-                try {
-                    CrmClient.Response resp = client.call(method, path, body);
-                    statusCode = resp.statusCode;
-                    responseJson = resp.json;
-                    responseBodyText = resp.rawBody;
-                } catch (Exception ex) {
-                    statusCode = 0;
-                    responseJson = null;
-                    responseBodyText = "";
-                    execError = ex.getMessage();
-                }
+            try {
+                CrmClient.Response resp = client.call(method, path, body);
+                statusCode = resp.statusCode;
+                responseJson = resp.json;
+                responseBodyText = resp.rawBody;
+            } catch (Exception ex) {
+                statusCode = 0;
+                responseJson = null;
+                responseBodyText = "";
+                execError = ex.getMessage();
             }
 
             stepResult.put("status_code", statusCode);
@@ -158,22 +152,8 @@ public final class CrmExecutor {
         }
 
         result.put("status", overallPass ? "pass" : "fail");
-        if (simulate) result.put("simulated", true);
         if (firstFailure != null) result.put("first_failure", firstFailure);
         return result;
-    }
-
-    private static boolean looksNegative(JsonNode tc) {
-        JsonNode tags = tc.path("tags");
-        if (tags.isArray()) {
-            for (JsonNode t : tags) {
-                String s = t.asText("").toLowerCase();
-                if (s.equals("negative") || s.equals("validation") || s.equals("error")) return true;
-            }
-        }
-        String title = tc.path("title").asText("").toLowerCase();
-        return title.contains("reject") || title.contains("denied") || title.contains("invalid")
-                || title.contains("missing required");
     }
 
     private static String substitute(String s, Map<String, String> vars) {
@@ -220,57 +200,88 @@ public final class CrmExecutor {
         return cur.isValueNode() ? cur.asText() : cur.toString();
     }
 
-    /** Synthesizes a plausible API response, including HTTP code under "__status". */
-    private static ObjectNode simulateStep(JsonNode step, boolean negativeCase, int index,
-                                           Map<String, String> captured) {
-        ObjectNode out = MAPPER.createObjectNode();
-        String method = step.path("method").asText("GET").toUpperCase();
-        JsonNode assertions = step.path("assertions");
-        boolean expectsError = negativeCase;
+    private static final java.util.Set<String> METHODS =
+            new java.util.HashSet<>(java.util.Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE"));
 
-        if (assertions.isArray()) {
-            for (JsonNode a : assertions) {
-                String p = a.path("path").asText("");
-                String eq = a.path("equals").asText("");
-                if (p.equals("data[0].code") && "MANDATORY_NOT_FOUND".equals(eq)) expectsError = true;
+    /**
+     * Checks a plan without calling anything. "issues" would stop the plan from
+     * running correctly; "notes" are weaknesses (e.g. a step with no assertions).
+     */
+    private static ObjectNode dryRun(JsonNode plan, ObjectNode result, ArrayNode trace) {
+        java.util.Set<String> captured = new java.util.HashSet<>();
+        int issueCount = 0;
+        String firstIssue = null;
+
+        for (int i = 0; i < plan.size(); i++) {
+            JsonNode step = plan.get(i);
+            ObjectNode sr = MAPPER.createObjectNode();
+            String description = step.path("description").asText("step " + (i + 1));
+            String method = step.path("method").asText("").toUpperCase();
+            String path = step.path("path").asText("");
+            JsonNode body = step.get("body");
+            sr.put("description", description);
+            sr.put("method", method.isEmpty() ? "?" : method);
+            sr.put("path", path);
+            sr.put("executed", false);
+            ArrayNode issues = sr.putArray("issues");
+            ArrayNode notes = sr.putArray("notes");
+
+            if (!METHODS.contains(method)) issues.add("Unknown HTTP method \"" + method + "\"");
+            if (path.isEmpty()) issues.add("Missing path");
+            else if (!path.startsWith("/")) issues.add("Path should start with /");
+            boolean write = method.equals("POST") || method.equals("PUT") || method.equals("PATCH");
+            if (write && (body == null || body.isNull() || (body.isObject() && body.size() == 0))) {
+                issues.add("No request body for " + method);
             }
+
+            String varText = path + (body == null ? "" : body.toString());
+            Matcher m = VAR.matcher(varText);
+            java.util.Set<String> missing = new java.util.LinkedHashSet<>();
+            while (m.find()) if (!captured.contains(m.group(1))) missing.add(m.group(1));
+            for (String v : missing) issues.add("Uses {{" + v + "}} before any step captures it");
+
+            JsonNode capture = step.get("capture");
+            if (capture != null && !capture.isNull()) {
+                if (!capture.isObject()) {
+                    issues.add("capture must be an object of name → response path");
+                } else {
+                    java.util.Iterator<Map.Entry<String, JsonNode>> it = capture.fields();
+                    while (it.hasNext()) {
+                        Map.Entry<String, JsonNode> e = it.next();
+                        if (!e.getValue().isTextual() || e.getValue().asText().trim().isEmpty()) {
+                            issues.add("capture \"" + e.getKey() + "\" has no response path");
+                        }
+                        captured.add(e.getKey());
+                    }
+                }
+            }
+
+            JsonNode assertions = step.get("assertions");
+            if (assertions == null || !assertions.isArray() || assertions.size() == 0) {
+                notes.add("No assertions: this step can't fail on a wrong response");
+            } else {
+                for (JsonNode a : assertions) {
+                    if (a.path("path").asText("").isEmpty()) issues.add("Assertion without a path");
+                    else if (!a.has("equals") && !a.has("in") && !a.has("exists")) {
+                        notes.add("Assertion on " + a.path("path").asText() + " has no condition");
+                    }
+                }
+            }
+
+            sr.put("ok", issues.size() == 0);
+            if (issues.size() > 0) {
+                issueCount += issues.size();
+                if (firstIssue == null) firstIssue = description + ": " + issues.get(0).asText();
+            }
+            trace.add(sr);
         }
 
-        if (expectsError) {
-            out.put("__status", 400);
-            ArrayNode data = out.putArray("data");
-            ObjectNode row = data.addObject();
-            row.put("code", "MANDATORY_NOT_FOUND");
-            row.put("status", "error");
-            row.put("message", "required field missing");
-            return out;
-        }
-
-        if (method.equals("POST")) {
-            out.put("__status", 201);
-            ArrayNode data = out.putArray("data");
-            ObjectNode row = data.addObject();
-            row.put("code", "SUCCESS");
-            row.put("status", "success");
-            row.put("message", "record added");
-            ObjectNode details = row.putObject("details");
-            String id = "MOCK-" + System.currentTimeMillis() + "-" + index;
-            details.put("id", id);
-            return out;
-        }
-
-        if (method.equals("GET") || method.equals("PATCH") || method.equals("PUT")
-                || method.equals("DELETE")) {
-            out.put("__status", 200);
-            ArrayNode data = out.putArray("data");
-            ObjectNode row = data.addObject();
-            String rid = captured.getOrDefault("record_id", "MOCK-RECORD");
-            row.put("id", rid);
-            row.put("code", "SUCCESS");
-            row.put("status", "success");
-            return out;
-        }
-        out.put("__status", 200);
-        return out;
+        result.put("status", "dry_run");
+        result.put("dry_run", true);
+        result.put("simulated", true);   // kept for older clients
+        result.put("plan_ok", issueCount == 0);
+        result.put("issue_count", issueCount);
+        if (firstIssue != null) result.put("first_issue", firstIssue);
+        return result;
     }
 }

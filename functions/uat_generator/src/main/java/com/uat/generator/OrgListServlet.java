@@ -85,20 +85,11 @@ public class OrgListServlet extends HttpServlet {
     private ArrayNode fetchOrgList(CrmTokenStore.TokenBundle bundle) {
         ArrayNode arr = MAPPER.createArrayNode();
         try {
-            // Refresh the access token if needed so we can make the accounts call.
-            String accessToken = bundle.accessToken;
-            if (bundle.isExpired() && bundle.hasOAuthCredentials()) {
-                // Attempt a silent refresh; fall back to current token on error.
-                try {
-                    CrmClient tmp = bundle.toCrmClient();
-                    // getAccessToken() is package-private; call a no-op GET that
-                    // triggers the internal refresh logic instead.
-                    tmp.call("GET", "/crm/v3/org", null);
-                    accessToken = bundle.accessToken; // refreshed in-place by CrmTokenStore.refresh()
-                } catch (Exception ignored) {
-                    // Use cached token even if potentially expired.
-                }
-            }
+            // CrmClient returns a cached token or refreshes it as needed.
+            String accessToken = bundle.hasOAuthCredentials()
+                    ? bundle.toCrmClient().accessToken()
+                    : bundle.accessToken;
+            if (accessToken == null || accessToken.isEmpty()) throw new IllegalStateException("no token");
 
             try (CloseableHttpClient http = HttpClients.createDefault()) {
                 HttpGet get = new HttpGet(bundle.accountsBase + "/accounts/v2/orgs");

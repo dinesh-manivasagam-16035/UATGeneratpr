@@ -57,6 +57,7 @@ Never commit any of these values to the repo.
 
 | Variable | Required for | Notes |
 |---|---|---|
+| `SESSION_SECRET` | recommended | Long random string (e.g. `openssl rand -base64 48`). Encrypts CRM sign-in sessions into the cookie so they survive restarts and scaling. Without it, sessions are kept in memory and lost on restart. Changing it signs everyone out |
 | `LLM_PROVIDER` | optional | `zia` or `mock`; any other value (or unset) uses GitHub Models |
 | `GITHUB_TOKEN` | default provider | Token for GitHub Models |
 | `COPILOT_MODEL` | optional | GitHub Models model ID, default `gpt-4o` |
@@ -196,6 +197,22 @@ Response (abridged):
 ```
 
 Creates one Projects task per case. Returns per-case results.
+
+## Sessions and execution
+
+- **Sessions.** A CRM sign-in is an AES-256-GCM sealed cookie (`tp_crm_sid`,
+  HttpOnly, SameSite=Lax, Secure outside localhost) holding the refresh token and
+  connection details, valid for 30 days. Nothing is stored server-side. With OAuth
+  sign-in, the server's own client secret is not put in the cookie. Access tokens are
+  cached per instance and refreshed about once an hour.
+- **Status.** `/crm/status` reports `authorized` only for a CRM user session.
+  Server-side Projects credentials appear separately as `projects_server`, and
+  `persistent_sessions` says whether `SESSION_SECRET` is set.
+- **Execution is never faked.** Without CRM credentials, `/execute` returns 409
+  unless the request asks for `"dry_run": true`. A dry run sends nothing to CRM and
+  checks each plan instead (HTTP methods, paths, request bodies, variables
+  captured before use, assertions). Those cases get status `dry_run` with
+  `plan_ok` and a list of issues, never pass/fail.
 
 ## Grounding and traceability
 
