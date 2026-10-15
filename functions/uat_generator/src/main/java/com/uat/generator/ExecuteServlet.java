@@ -61,6 +61,12 @@ public class ExecuteServlet extends HttpServlet {
                     crm.path("refresh_token").asText("")
             );
 
+            // A Zia Agent call brings its own CRM token (see AgentAuth).
+            Object agentClient = req.getAttribute(AgentAuth.ATTR);
+            if (agentClient instanceof CrmClient && !"creator".equalsIgnoreCase(platform)) {
+                client = (CrmClient) agentClient;
+            }
+
             // Fall back to session-stored credentials if body has none.
             if (!client.hasCredentials()) {
                 String sid = cookieValue(req, "tp_crm_sid");
@@ -78,6 +84,10 @@ public class ExecuteServlet extends HttpServlet {
                 }
             }
 
+            // An explicit dry run never touches CRM, even when credentials are available.
+            if (body.path("dry_run").asBoolean(false)) {
+                client = new CrmClient("", "", "", "", "");
+            }
             boolean simulated = !client.hasCredentials();
             if (simulated && !body.path("dry_run").asBoolean(false)) {
                 // Never fall back silently: without CRM credentials the caller has to ask
@@ -93,9 +103,18 @@ public class ExecuteServlet extends HttpServlet {
             ArrayNode out = MAPPER.createArrayNode();
             int passed = 0, failed = 0, skipped = 0, plansOk = 0, plansWithIssues = 0;
 
+            // Optional absolute deadline (epoch ms): remaining cases are skipped, not dropped.
+            long deadlineMs = body.path("deadline_ms").asLong(0);
             for (JsonNode tc : cases) {
                 ObjectNode caseCopy = tc.deepCopy();
-                ObjectNode result = CrmExecutor.execute(tc, client);
+                ObjectNode result;
+                if (deadlineMs > 0 && System.currentTimeMillis() > deadlineMs) {
+                    result = MAPPER.createObjectNode();
+                    result.put("status", "skipped");
+                    result.put("reason", "Time budget used up before this case ran.");
+                } else {
+                    result = CrmExecutor.execute(tc, client);
+                }
                 caseCopy.set("execution_result", result);
                 out.add(caseCopy);
                 String status = result.path("status").asText("");

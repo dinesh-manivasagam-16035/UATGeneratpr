@@ -33,6 +33,15 @@ public class CrmClient {
 
     private String cachedAccessToken;
     private long tokenExpiresAt;
+    /** Set when the caller already holds an access token (Zia Agents connection). */
+    private String staticAccessToken;
+
+    /** A client that uses a ready-made access token and never refreshes. */
+    public static CrmClient withAccessToken(String apiBase, String accessToken) {
+        CrmClient c = new CrmClient(apiBase, "", "", "", "");
+        c.staticAccessToken = accessToken;
+        return c;
+    }
 
     public CrmClient(String apiBase, String accountsBase, String clientId,
                      String clientSecret, String refreshToken) {
@@ -45,6 +54,7 @@ public class CrmClient {
     }
 
     public boolean hasCredentials() {
+        if (notEmpty(staticAccessToken)) return true;
         return notEmpty(clientId) && notEmpty(clientSecret) && notEmpty(refreshToken);
     }
 
@@ -118,6 +128,7 @@ public class CrmClient {
     }
 
     private synchronized String getAccessToken() throws Exception {
+        if (notEmpty(staticAccessToken)) return staticAccessToken;
         long now = System.currentTimeMillis();
         if (cachedAccessToken != null && now < tokenExpiresAt - 60_000) {
             return cachedAccessToken;

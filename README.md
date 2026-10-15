@@ -58,6 +58,7 @@ Never commit any of these values to the repo.
 | Variable | Required for | Notes |
 |---|---|---|
 | `SESSION_SECRET` | recommended | Long random string (e.g. `openssl rand -base64 48`). Encrypts CRM sign-in sessions into the cookie so they survive restarts and scaling. Without it, sessions are kept in memory and lost on restart. Changing it signs everyone out |
+| `LIFTOFF_AGENT_ORG_IDS` | Zia Agent | CRM org IDs allowed to call `/agent/run`. Unset = agent access off |
 | `LLM_PROVIDER` | optional | `zia` or `mock`; any other value (or unset) uses GitHub Models |
 | `GITHUB_TOKEN` | default provider | Token for GitHub Models |
 | `COPILOT_MODEL` | optional | GitHub Models model ID, default `gpt-4o` |
@@ -213,6 +214,14 @@ Creates one Projects task per case. Returns per-case results.
   checks each plan instead (HTTP methods, paths, request bodies, variables
   captured before use, assertions). Those cases get status `dry_run` with
   `plan_ok` and a list of issues, never pass/fail.
+
+## Zia Agent
+
+`POST /agent/run` lets a Zia Agent run UAT end to end: generate cases, dry-run or
+execute them, and get back a compact summary (coverage per requirement, failures,
+plan issues). It authenticates with the agent connection's Zoho CRM token, accepts
+only orgs listed in `LIFTOFF_AGENT_ORG_IDS`, and is off until that is set. Setup,
+the tool definition and the agent instructions are in [`agent/`](agent/README.md).
 
 ## Grounding and traceability
 

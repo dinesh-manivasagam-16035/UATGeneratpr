@@ -193,12 +193,20 @@ public class GenerateServlet extends HttpServlet {
             }
 
             // ---- 2. Plan the calls ----
-            List<Task> tasks = plan(modules, chunks, mock || zia, warnings);
+            // Callers (the agent API) may ask for a smaller budget than the server default.
+            int maxCalls = Math.max(1, envInt("MAX_LLM_CALLS", 8));
+            int bodyCalls = body.path("max_llm_calls").asInt(0);
+            if (bodyCalls > 0) maxCalls = Math.min(maxCalls, bodyCalls);
+            int deadlineSec = envInt("GEN_DEADLINE_SEC", 140);
+            int bodyDeadline = body.path("deadline_sec").asInt(0);
+            if (bodyDeadline > 0) deadlineSec = Math.min(deadlineSec, bodyDeadline);
+
+            List<Task> tasks = plan(modules, chunks, mock || zia, warnings, maxCalls);
 
             // ---- 3. Run them in parallel inside a deadline ----
             final String fPlatform = platform;
             final String outline = split.outline;
-            long deadline = System.currentTimeMillis() + envInt("GEN_DEADLINE_SEC", 140) * 1000L;
+            long deadline = System.currentTimeMillis() + deadlineSec * 1000L;
             int concurrency = Math.max(1, Math.min(envInt("GEN_CONCURRENCY", 2), tasks.size()));
             pool = Executors.newFixedThreadPool(concurrency);
 
@@ -362,8 +370,7 @@ public class GenerateServlet extends HttpServlet {
      * every module covers the start of the BRD first.
      */
     private static List<Task> plan(List<String> modules, List<BrdChunker.Chunk> chunks,
-                                   boolean singlePass, List<String> warnings) {
-        int maxCalls = Math.max(1, envInt("MAX_LLM_CALLS", 8));
+                                   boolean singlePass, List<String> warnings, int maxCalls) {
         int perCall = Math.max(3, envInt("CASES_PER_CALL", 8));
         int target = Math.max(perCall, envInt("TARGET_CASES_PER_MODULE", 30));
         int units = modules.size() * chunks.size();

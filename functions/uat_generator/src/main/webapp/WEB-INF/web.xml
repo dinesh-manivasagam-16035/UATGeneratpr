@@ -152,4 +152,13 @@
     <url-pattern>/creator/forms</url-pattern>
   </servlet-mapping>
 
+  <servlet>
+    <servlet-name>agent-run</servlet-name>
+    <servlet-class>com.uat.generator.AgentRunServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>agent-run</servlet-name>
+    <url-pattern>/agent/run</url-pattern>
+  </servlet-mapping>
+
 </web-app>

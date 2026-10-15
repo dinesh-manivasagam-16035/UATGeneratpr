@@ -1,0 +1,132 @@
+openapi: 3.0.0
+info:
+  title: LiftOff UAT
+  version: 1.0.0
+  description: >
+    Generates UAT test cases from a business requirements document (BRD) for
+    Zoho CRM modules, then checks or runs them, and returns a short summary.
+servers:
+  - url: https://uatgenerator-60071738809.development.catalystserverless.in/server/uat_generator
+    description: LiftOff development environment
+paths:
+  /agent/run:
+    post:
+      operationId: runUat
+      summary: Generate and check UAT test cases from a BRD
+      description: >
+        Turns the BRD text into UAT test cases for up to 3 Zoho CRM modules and
+        returns requirement coverage, totals, failures and next steps. mode
+        "dry_run" (default) sends nothing to CRM and only checks that each test
+        plan could run. mode "execute" runs the tests against the connected CRM
+        org and creates and deletes real records, so use it only on a test org
+        after the user confirms. mode "generate_only" skips checking.
+        Takes up to time_budget_sec seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [brd, modules]
+              properties:
+                brd:
+                  type: string
+                  description: Full text of the business requirements document.
+                modules:
+                  type: array
+                  description: 1 to 3 Zoho CRM module API names, for example ["Leads"].
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 3
+                mode:
+                  type: string
+                  enum: [dry_run, execute, generate_only]
+                  default: dry_run
+                  description: dry_run checks plans only; execute runs them on the connected org.
+                time_budget_sec:
+                  type: integer
+                  minimum: 20
+                  maximum: 280
+                  default: 55
+                  description: Maximum seconds the run may take.
+      responses:
+        '200':
+          description: Run summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode:
+                    type: string
+                  executed:
+                    type: boolean
+                    description: True only when tests really ran against CRM.
+                  totals:
+                    type: object
+                    properties:
+                      cases: {type: integer}
+                      passed: {type: integer}
+                      failed: {type: integer}
+                      skipped: {type: integer}
+                      plans_ok: {type: integer}
+                      plans_with_issues: {type: integer}
+                  requirements:
+                    type: array
+                    description: One row per BRD requirement.
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                        title: {type: string}
+                        cases: {type: integer}
+                        status:
+                          type: string
+                          description: no_cases, not_in_run, failing, plan_issues, passing, partly_passing or not_run
+                  failures:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title: {type: string}
+                        module: {type: string}
+                        req_ids: {type: array, items: {type: string}}
+                        priority: {type: string}
+                        first_failure: {type: string}
+                  plan_issues:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title: {type: string}
+                        first_issue: {type: string}
+                  cases:
+                    type: array
+                    description: Up to 40 cases with their status.
+                    items:
+                      type: object
+                      properties:
+                        title: {type: string}
+                        module: {type: string}
+                        priority: {type: string}
+                        req_ids: {type: array, items: {type: string}}
+                        status: {type: string}
+                  warnings:
+                    type: array
+                    items: {type: string}
+                  next_steps:
+                    type: array
+                    items: {type: string}
+                  duration_ms:
+                    type: integer
+        '400':
+          description: brd or modules missing
+        '401':
+          description: Missing or invalid Zoho token on the connection
+        '403':
+          description: This CRM org is not allowed to use LiftOff
+        '502':
+          description: Test case generation failed
+        '503':
+          description: Agent access is not enabled on the LiftOff server

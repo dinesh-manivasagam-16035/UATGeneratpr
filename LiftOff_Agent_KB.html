@@ -461,9 +461,10 @@
         <li>
           <div>
             <strong>Fly (Execute)</strong><br/>
-            Run test cases against your live CRM org (or simulate without credentials).
-            Each case makes real API calls, captures variables, and evaluates assertions.
-            Results show pass / fail / skip with full HTTP traces.
+            Run test cases against your connected CRM org, or do a dry run without a connection.
+            A live run makes real API calls, captures variables, and evaluates assertions,
+            and results show pass / fail / skip with full HTTP traces. A dry run calls
+            nothing and only checks that each plan could run.
           </div>
         </li>
         <li>
@@ -608,9 +609,11 @@
         <thead><tr><th>Mode</th><th>Credentials Required</th><th>What Happens</th></tr></thead>
         <tbody>
           <tr>
-            <td><strong>Simulated</strong></td>
+            <td><strong>Dry run</strong></td>
             <td>None</td>
-            <td>Validates test structure; returns synthetic pass/fail without real API calls</td>
+            <td>Sends nothing to CRM. Checks each plan (HTTP methods, paths, request bodies,
+            variables captured before use, assertions) and reports plan issues. It never
+            reports pass or fail.</td>
           </tr>
           <tr>
             <td><strong>Live</strong></td>
@@ -633,7 +636,8 @@
       <p>
         <span class="tag green">pass</span> All assertions satisfied<br/>
         <span class="tag red">fail</span> At least one assertion failed or an API error occurred<br/>
-        <span class="tag gray">skip</span> Prerequisites unmet; test was intentionally skipped
+        <span class="tag gray">skip</span> No execution plan, or the run's time budget ran out first<br/>
+        <span class="tag gray">dry_run</span> Not executed. The plan was only checked: "plan OK" or a list of plan issues
       </p>
 
       <div class="card warn">
@@ -803,7 +807,8 @@
           <tr>
             <td>CRM Access</td>
             <td>OAuth 2.0</td>
-            <td>Token stored server-side; session cookie (<code>tp_crm_sid</code>) on client</td>
+            <td>Refresh token sealed (AES-256-GCM encrypted) inside the HttpOnly session cookie
+            (<code>tp_crm_sid</code>), valid 30 days; nothing readable by the browser</td>
           </tr>
           <tr>
             <td>Projects Access</td>
@@ -815,9 +820,9 @@
 
       <div class="card danger">
         <div class="card-title">Security Note</div>
-        OAuth tokens are <strong>never exposed in the browser</strong>. They are stored
-        server-side in the Catalyst function's runtime. The client receives only an
-        opaque session identifier. Never share session cookies or tokens with anyone.
+        OAuth tokens are <strong>never readable in the browser</strong>. The session cookie is
+        encrypted with a server-side key and is HttpOnly, so page scripts can't read it and
+        any tampering invalidates it. Never share session cookies or tokens with anyone.
       </div>
     </section>
 
@@ -828,8 +833,11 @@
       <details>
         <summary>How many test cases will the AI generate?</summary>
         <div class="faq-body">
-          The AI generates a minimum of <strong>35 test cases per CRM module</strong> selected.
-          With 3 modules selected, expect 90–120 total cases depending on BRD complexity.
+          Usually <strong>20–30 test cases per CRM module</strong>, depending on how much
+          testable behaviour the BRD describes. LiftOff never pads with generic tests. With
+          several modules or a long BRD, the per-run call budget is shared, so each module gets
+          fewer cases; anything not covered is listed in the run's warnings and the
+          requirement coverage table.
           The default includes 3 smoke tests per module (LIST, CREATE+DELETE, bad-auth) plus
           scenario-specific cases derived from the BRD.
         </div>

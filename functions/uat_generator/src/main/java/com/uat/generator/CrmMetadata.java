@@ -27,6 +27,8 @@ public final class CrmMetadata {
 
     /** The CRM client for the signed-in session, or null when not connected. */
     public static CrmClient sessionClient(HttpServletRequest req) {
+        Object agent = req.getAttribute(AgentAuth.ATTR);
+        if (agent instanceof CrmClient) return (CrmClient) agent;
         String sid = null;
         Cookie[] cookies = req.getCookies();
         if (cookies != null) {
