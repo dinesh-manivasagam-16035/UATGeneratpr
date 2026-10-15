@@ -165,6 +165,22 @@ public final class CaseParser {
         }
         c.set("tags", tags);
 
+        ArrayNode reqIds = MAPPER.createArrayNode();
+        JsonNode rawReq = c.has("req_ids") ? c.get("req_ids") : c.get("requirement_ids");
+        List<String> ids = new ArrayList<>();
+        if (rawReq != null && rawReq.isArray()) {
+            for (JsonNode r : rawReq) ids.addAll(Requirements.idsIn(r.asText("")));
+        } else if (rawReq != null && rawReq.isTextual()) {
+            ids.addAll(Requirements.idsIn(rawReq.asText()));
+        }
+        for (String id : ids) {
+            boolean dup = false;
+            for (JsonNode e : reqIds) if (e.asText().equals(id)) { dup = true; break; }
+            if (!dup) reqIds.add(id);
+        }
+        c.remove("requirement_ids");
+        c.set("req_ids", reqIds);
+
         JsonNode plan = c.get("execution_plan");
         if (plan != null) {
             if (!plan.isArray()) {
@@ -176,6 +192,19 @@ public final class CaseParser {
             }
         }
         return c;
+    }
+
+    /** "Requirements: FR-1, FR-2 (Region resolution)" for task/bug descriptions, or "". */
+    public static String traceLine(JsonNode tc) {
+        List<String> ids = new ArrayList<>();
+        JsonNode r = tc.path("req_ids");
+        if (r.isArray()) for (JsonNode id : r) if (!id.asText("").isEmpty()) ids.add(id.asText());
+        String ref = tc.path("spec_ref").asText("").trim();
+        if (ids.isEmpty() && ref.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("Requirements: ");
+        sb.append(ids.isEmpty() ? "(untraced)" : String.join(", ", ids));
+        if (!ref.isEmpty()) sb.append(" — ").append(ref);
+        return sb.toString();
     }
 
     private static String normalizePriority(String p) {

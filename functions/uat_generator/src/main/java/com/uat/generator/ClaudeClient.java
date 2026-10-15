@@ -221,6 +221,7 @@ public final class ClaudeClient {
             + "category (crud|validation|permission|workflow|search|bulk|integration|"
             + "data-quality|security|performance|api), "
             + "spec_ref (EXACT name of the use case or rule from the BRD — mandatory, must be traceable), "
+            + "req_ids (string[] — the requirement IDs this case verifies, from the list given), "
             + "execution_plan ([{description,method,path,body?,capture?,assertions?}]).\n\n"
             + "Priority: P0=core business acceptance criterion from BRD, "
             + "P1=explicitly stated validation rule or edge case, "
@@ -268,6 +269,7 @@ public final class ClaudeClient {
             + "category (crud|validation|permission|workflow|search|integration|"
             + "data-quality|security|performance|api), "
             + "spec_ref (EXACT use-case name or field name from the BRD — mandatory), "
+            + "req_ids (string[] — the requirement IDs this case verifies, from the list given), "
             + "execution_plan ([{description,method,path,body?,capture?,assertions?}]).\n\n"
             + "Creator API paths:\n"
             + "- List: GET " + pathBase + "/{form_link_name}\n"
@@ -296,8 +298,10 @@ public final class ClaudeClient {
               .append("Form: ").append(r.module).append("\n\n");
         } else {
             sb.append("Target module: ").append(r.module).append("\n\n")
-              .append("Standard Zoho CRM field schema for ").append(r.module)
-              .append(" (use this to identify which BRD fields are standard vs custom):\n")
+              .append("Field schema for ").append(r.module)
+              .append(" (use it to tell standard from custom fields and to pick real api names; ")
+              .append("a BRD field missing from a LIVE schema may not be configured yet — test it anyway ")
+              .append("and say so in acceptance):\n")
               .append(r.moduleSchema).append("\n\n");
         }
         if (r.totalParts > 1 && !r.outline.isEmpty()) {
@@ -311,7 +315,13 @@ public final class ClaudeClient {
           .append(r.totalParts > 1 ? " — PART " + r.part + "/" + r.totalParts : "")
           .append(" ===\n")
           .append(r.chunkText).append("\n")
-          .append("=== END ===\n\n")
+          .append("=== END ===\n\n");
+        if (!r.requirements.isEmpty()) {
+            sb.append("Requirements in this part:\n").append(r.requirements).append("\n")
+              .append("Every case must set req_ids to the IDs above that it verifies (at least one), ")
+              .append("and spec_ref to the matching requirement title.\n\n");
+        }
+        sb
           .append("Focus for this request: ").append(r.focus).append("\n")
           .append("Write up to ").append(r.wantedCases).append(" test cases. Write fewer if this part ")
           .append("has fewer distinct scenarios for this focus — never pad with generic tests.\n")

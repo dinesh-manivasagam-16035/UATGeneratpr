@@ -317,6 +317,8 @@ public class ProjectsClient {
 
     private static String buildDescription(JsonNode tc) {
         StringBuilder sb = new StringBuilder();
+        String trace = CaseParser.traceLine(tc);
+        if (!trace.isEmpty()) sb.append(trace).append("\n\n");
         String gherkin = tc.path("gherkin").asText("");
         if (!gherkin.isEmpty()) {
             sb.append("Gherkin:\n").append(gherkin).append("\n\n");

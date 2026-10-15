@@ -79,6 +79,7 @@
     brd: "",
     fileName: "",
     cases: [],
+    requirements: [],   // [{id, title, part, derived, cases, in_run}] from /generate
     payload: null,
     modulesAvailable: [],
     modulesSelected: [],
@@ -134,6 +135,7 @@
     try {
       const toSave = {
         cases:                 state.cases,
+        requirements:          state.requirements,
         modulesSelected:       state.modulesSelected,
         platform:              state.platform,
         creatorOwner:          state.creatorOwner,
@@ -161,6 +163,7 @@
         state.executed = saved.cases.some((c) => c.execution_result);
         state.pushed   = saved.cases.some((c) => c.push_result);
       }
+      if (Array.isArray(saved.requirements)) state.requirements = saved.requirements;
       if (saved.platform) state.platform = saved.platform;
       if (saved.creatorOwner)           state.creatorOwner           = saved.creatorOwner;
       if (saved.creatorApp)             state.creatorApp             = saved.creatorApp;
@@ -675,7 +678,9 @@
 
   function caseCardHtml(tc, idx, { showExec = false, showPush = false } = {}) {
     const priority = (tc.priority || "P1").toLowerCase();
-    const tags = (tc.tags || []).map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join("");
+    const reqChips = (Array.isArray(tc.req_ids) ? tc.req_ids : [])
+      .map((id) => `<span class="tag tag-req" title="Requirement">${escapeHtml(id)}</span>`).join("");
+    const tags = reqChips + (tc.tags || []).map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join("");
     const execBadge = showExec ? renderExecBadge(tc.execution_result) : "";
     const planSummary = renderPlanSummary(tc.execution_plan);
     const execDetails = showExec ? renderExecDetails(tc.execution_result) : "";
@@ -790,6 +795,61 @@
   }
 
   function renderCasesList(container, opts) {
+    renderCasesListInner(container, opts);
+    if (container === els.cases) renderCoverage(document.getElementById("coverage-cases"));
+    if (container === els.execResults) renderCoverage(document.getElementById("coverage-exec"));
+  }
+
+  // Requirement → cases → results matrix. Counts come from state.cases, so it
+  // stays correct after execution or when cases are edited.
+  function renderCoverage(container) {
+    if (!container) return;
+    const reqs = Array.isArray(state.requirements) ? state.requirements : [];
+    if (!reqs.length) { container.innerHTML = ""; return; }
+    const byReq = new Map(reqs.map((r) => [r.id, { total: 0, pass: 0, fail: 0 }]));
+    let untraced = 0;
+    state.cases.forEach((tc) => {
+      const ids = Array.isArray(tc.req_ids) ? tc.req_ids : [];
+      if (!ids.length) {
+        if (tc.spec_ref !== "Default API smoke test") untraced++;
+        return;
+      }
+      const s = tc.execution_result && tc.execution_result.status;
+      ids.forEach((id) => {
+        const b = byReq.get(id);
+        if (!b) return;
+        b.total++;
+        if (s === "pass") b.pass++;
+        else if (s === "fail") b.fail++;
+      });
+    });
+    const covered = reqs.filter((r) => byReq.get(r.id).total > 0).length;
+    const rows = reqs.map((r) => {
+      const b = byReq.get(r.id);
+      let cls, label;
+      if (!b.total)                { cls = r.in_run === false ? "skipped" : "gap";
+                                     label = r.in_run === false ? "Not in this run" : "No cases"; }
+      else if (b.fail)             { cls = "fail";    label = `${b.fail} failing`; }
+      else if (b.pass === b.total) { cls = "pass";    label = "All passing"; }
+      else if (b.pass)             { cls = "partial"; label = `${b.pass}/${b.total} passed`; }
+      else                         { cls = "pending"; label = "Not run"; }
+      return `<tr class="cov-${cls}"><td class="cov-id">${escapeHtml(r.id)}</td>` +
+             `<td>${escapeHtml(r.title || "")}</td><td class="cov-num">${b.total}</td>` +
+             `<td><span class="cov-status">${escapeHtml(label)}</span></td></tr>`;
+    }).join("");
+    const derivedNote = reqs.some((r) => r.derived)
+      ? `<p class="cov-note">This BRD has no requirement IDs, so IDs were derived from its section headings.</p>` : "";
+    container.innerHTML =
+      `<details class="coverage"${covered < reqs.length ? " open" : ""}>` +
+      `<summary>Requirement coverage: <strong>${covered} of ${reqs.length}</strong> covered` +
+      `${untraced ? ` &bull; ${untraced} case(s) untraced` : ""}</summary>` +
+      derivedNote +
+      `<div class="cov-scroll"><table class="cov-table"><thead><tr>` +
+      `<th>ID</th><th>Requirement</th><th>Cases</th><th>Status</th></tr></thead>` +
+      `<tbody>${rows}</tbody></table></div></details>`;
+  }
+
+  function renderCasesListInner(container, opts) {
     const list = state.cases;
     if (!list.length) {
       container.innerHTML = '<div class="empty-state"><div class="empty-icon">\uD83D\uDCCB</div><div class="empty-title">No test cases yet</div><div class="empty-hint">Upload a BRD and click Generate to create cases.</div></div>';
@@ -1409,6 +1469,7 @@
       const aiCases = Array.isArray(data.cases) ? data.cases : [];
       const defaultTests = buildDefaultApiTests(state.modulesSelected);
       state.cases = [...defaultTests, ...aiCases];
+      state.requirements = Array.isArray(data.requirements) ? data.requirements : [];
       state.payload = data.projects_payload || null;
       state.executed = false;
       state.pushed = false;
@@ -2378,7 +2439,7 @@
   function buildTasksCsv(cases) {
     const header = [
       "Task Name", "Description", "Priority", "Status", "Tags",
-      "Module", "Execution Status",
+      "Module", "Requirements", "Execution Status",
     ];
     const rows = [header.map(csvCell).join(",")];
     cases.forEach((tc) => {
@@ -2397,6 +2458,7 @@
         statusForProjects(tc),
         (tc.tags || []).concat(["uat"]).join(";"),
         tc.module || "",
+        (Array.isArray(tc.req_ids) ? tc.req_ids : []).join(";"),
         (tc.execution_result && tc.execution_result.status) || "",
       ];
       rows.push(row.map(csvCell).join(","));

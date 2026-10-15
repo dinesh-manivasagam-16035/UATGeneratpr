@@ -3448,3 +3448,42 @@ footer { display: none; }
 .brd-reset-btn { color: var(--text-secondary); }
 .brd-footer-spacer { flex: 1; }
 
+
+
+/* ---- Requirement coverage ---- */
+.coverage {
+  margin: 12px 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.coverage > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.coverage > summary strong { color: var(--text); }
+.cov-note { margin: 0 14px 8px; font-size: 12px; color: var(--text-muted); }
+.cov-scroll { overflow-x: auto; }
+.cov-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cov-table th, .cov-table td {
+  text-align: left; padding: 7px 14px; border-top: 1px solid var(--divider);
+}
+.cov-table th { color: var(--text-muted); font-weight: 600; font-size: 12px; }
+.cov-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.cov-num { text-align: right; width: 60px; }
+.cov-status {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap;
+}
+.cov-gap .cov-status     { color: var(--err);  background: var(--err-bg);  border-color: var(--err-border); }
+.cov-fail .cov-status    { color: var(--err);  background: var(--err-bg);  border-color: var(--err-border); }
+.cov-partial .cov-status { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-border); }
+.cov-pass .cov-status    { color: var(--ok);   background: var(--ok-bg);   border-color: var(--ok-border); }
+.cov-skipped td          { color: var(--text-muted); }
+.tag.tag-req {
+  background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

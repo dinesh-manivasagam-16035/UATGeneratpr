@@ -55,9 +55,27 @@ public final class ModuleSchemas {
 
     private ModuleSchemas() {}
 
+    /** Maps the api names the UI sends ("Leads", "Tickets") onto the built-in schema keys. */
+    private static final Map<String, String> ALIASES = new HashMap<>();
+    static {
+        ALIASES.put("leads", "crm.lead");       ALIASES.put("lead", "crm.lead");
+        ALIASES.put("deals", "crm.deal");       ALIASES.put("deal", "crm.deal");
+        ALIASES.put("potentials", "crm.deal");
+        ALIASES.put("contacts", "crm.contact"); ALIASES.put("contact", "crm.contact");
+        ALIASES.put("tickets", "desk.ticket");  ALIASES.put("ticket", "desk.ticket");
+    }
+
+    /** True when there is a built-in schema for this module (by key or api name). */
+    public static boolean has(String moduleKey) {
+        if (moduleKey == null) return false;
+        String key = moduleKey.trim().toLowerCase();
+        return SCHEMAS.containsKey(ALIASES.getOrDefault(key, key));
+    }
+
     public static String forModule(String moduleKey) {
         if (moduleKey == null) return "Module schema not provided.";
         String key = moduleKey.trim().toLowerCase();
+        key = ALIASES.getOrDefault(key, key);
         return SCHEMAS.getOrDefault(key,
             "Custom/unknown module '" + moduleKey + "'. Treat as a generic record-based module "
           + "with create/edit/delete/list, owner-based access, status field, and audit log.");

@@ -238,6 +238,8 @@ public class PushServlet extends HttpServlet {
         if (!firstFailure.isEmpty()) {
             sb.append("First failure: ").append(firstFailure).append("\n\n");
         }
+        String trace = CaseParser.traceLine(tc);
+        if (!trace.isEmpty()) sb.append(trace).append("\n\n");
         sb.append("Acceptance:\n").append(tc.path("acceptance").asText("(none)")).append("\n\n");
         JsonNode trace = tc.path("execution_result").path("trace");
         if (trace.isArray() && trace.size() > 0) {

@@ -166,6 +166,11 @@ Response (abridged):
   "chunks": 1,
   "llm_calls": 3,
   "warnings": [],
+  "schema_source": { "Leads": "live" },          // live | builtin | generic
+  "requirements": [
+    { "id": "FR-1", "title": "Region resolution", "part": 1, "derived": false, "cases": 6, "in_run": true }
+  ],
+  "coverage": { "requirements": 4, "covered": 4, "uncovered": [], "not_in_run": [], "untraced_cases": 0 },
   "cases": [
     {
       "title": "Create lead with required fields",
@@ -191,6 +196,21 @@ Response (abridged):
 ```
 
 Creates one Projects task per case. Returns per-case results.
+
+## Grounding and traceability
+
+- **Live field metadata.** When the user has connected Zoho CRM, `/generate` reads
+  each module's fields (`/crm/v3/settings/fields`) and gives the model the real api
+  names, required fields, picklist values and lookups. Without a connection it falls
+  back to the built-in templates in `ModuleSchemas`, and says so in `warnings`.
+  Layout-level required fields and validation rules are not read yet.
+- **Requirement IDs.** Requirements are taken from IDs in the BRD (`FR-1`, `BR-2`,
+  `REQ-3`, `UC-`, `US-`, `AC-`, `NFR-` at the start of a line or heading). If the BRD
+  has none, each substantive section heading becomes `REQ-01`, `REQ-02`, …
+- **Coverage.** Every case carries `req_ids`. The UI shows a coverage table
+  (requirement → cases → pass/fail) on the cases and execution steps, the CSV
+  export has a Requirements column, and Projects tasks and bugs start with a
+  `Requirements:` line.
 
 ## Try it with sample BRDs
 

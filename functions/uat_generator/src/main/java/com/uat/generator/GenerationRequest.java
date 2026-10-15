@@ -9,6 +9,7 @@ public final class GenerationRequest {
     public String creatorApp = "";
     public String outline = "";         // headings of the whole BRD, for context
     public String chunkText = "";
+    public String requirements = "";    // "- FR-1 — title" lines for this part, may be empty
     public int part = 1;                // 1-based
     public int totalParts = 1;
     public String focus = "";

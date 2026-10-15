@@ -47,6 +47,10 @@ import java.util.logging.Logger;
  *   4. Each response is parsed and validated (CaseParser). A cut-off response
  *      keeps its complete cases; an unusable one is retried once with fewer cases.
  *   5. Cases are de-duplicated per module by title.
+ *   6. Grounding: when CRM is connected, each module's real field metadata
+ *      (CrmMetadata) replaces the built-in template in the prompt.
+ *   7. Traceability: requirements are extracted from the BRD (Requirements),
+ *      each case is linked to requirement IDs, and coverage is reported.
  * Anything skipped or failed is listed in "warnings" instead of being dropped silently.
  *
  * Tunables (env vars): GEN_CHUNK_CHARS (9000), GEN_MAX_CHUNKS (6), MAX_LLM_CALLS (8),
@@ -152,6 +156,42 @@ public class GenerateServlet extends HttpServlet {
                         + ". Generate those sections separately, or raise GEN_MAX_CHUNKS.");
             }
 
+            // ---- 1b. Requirements (from the full BRD, including parts this run can't cover) ----
+            int chunkChars = envInt("GEN_CHUNK_CHARS", 9000);
+            List<BrdChunker.Chunk> allChunks = BrdChunker.chunk(brd, chunkChars, 10_000).chunks;
+            List<Requirements.Requirement> reqs = Requirements.extract(allChunks);
+            Map<Integer, String> reqTexts = new LinkedHashMap<>();
+            if (!mock) {
+                for (BrdChunker.Chunk c : chunks) {
+                    reqTexts.put(c.index, Requirements.promptList(reqs, c.index + 1, 1500));
+                }
+            }
+
+            // ---- 1c. Field schema per module: live from CRM when connected ----
+            Map<String, String> schemas = new LinkedHashMap<>();
+            Map<String, String> schemaSource = new LinkedHashMap<>();
+            boolean crmPlatform = !"creator".equalsIgnoreCase(platform);
+            CrmClient crm = (crmPlatform && !mock) ? CrmMetadata.sessionClient(req) : null;
+            for (String m : modules) {
+                if (!crmPlatform) { schemas.put(m, ""); continue; }
+                if (crm != null) {
+                    try {
+                        schemas.put(m, CrmMetadata.describe(crm, m));
+                        schemaSource.put(m, "live");
+                        continue;
+                    } catch (Exception e) {
+                        warnings.add("Couldn't read " + m + " fields from CRM (" + trim(e.getMessage(), 160)
+                                + "); used the built-in template instead.");
+                    }
+                }
+                schemas.put(m, ModuleSchemas.forModule(m));
+                schemaSource.put(m, ModuleSchemas.has(m) ? "builtin" : "generic");
+            }
+            if (crmPlatform && !mock && crm == null) {
+                warnings.add("Not connected to Zoho CRM, so cases use generic field templates. "
+                        + "Connect CRM before generating to ground cases in your org's real fields.");
+            }
+
             // ---- 2. Plan the calls ----
             List<Task> tasks = plan(modules, chunks, mock || zia, warnings);
 
@@ -165,7 +205,8 @@ public class GenerateServlet extends HttpServlet {
             List<Future<Outcome>> futures = new ArrayList<>();
             for (Task t : tasks) {
                 futures.add(pool.submit(() -> runTask(t, chunks.size(), outline, fPlatform,
-                        creatorOwner, creatorApp, brd, llmProvider, deadline)));
+                        creatorOwner, creatorApp, brd, llmProvider, deadline,
+                        schemas.getOrDefault(t.module, ""), reqTexts.getOrDefault(t.chunk.index, ""))));
             }
 
             Outcome[] outcomes = new Outcome[tasks.size()];
@@ -220,6 +261,49 @@ public class GenerateServlet extends HttpServlet {
             }
             if (duplicates > 0) warnings.add(duplicates + " duplicate case(s) removed.");
 
+            // ---- 5. Traceability: link cases to requirements, compute coverage ----
+            Set<String> knownIds = new HashSet<>();
+            for (Requirements.Requirement r : reqs) knownIds.add(r.id);
+            Map<String, Integer> casesPerReq = new LinkedHashMap<>();
+            for (Requirements.Requirement r : reqs) casesPerReq.put(r.id, 0);
+            int untraced = 0;
+            for (JsonNode n : allCases) {
+                ObjectNode c = (ObjectNode) n;
+                List<String> ids = new ArrayList<>();
+                for (JsonNode id : c.path("req_ids")) {
+                    if (knownIds.contains(id.asText()) && !ids.contains(id.asText())) ids.add(id.asText());
+                }
+                if (ids.isEmpty()) ids = Requirements.infer(c.path("spec_ref").asText(""), reqs);
+                ArrayNode idArr = c.putArray("req_ids");
+                for (String id : ids) {
+                    idArr.add(id);
+                    casesPerReq.merge(id, 1, Integer::sum);
+                }
+                if (ids.isEmpty() && !reqs.isEmpty()) untraced++;
+            }
+            List<String> uncovered = new ArrayList<>();
+            List<String> notReached = new ArrayList<>();
+            ArrayNode reqOut = MAPPER.createArrayNode();
+            for (Requirements.Requirement r : reqs) {
+                int n = casesPerReq.get(r.id);
+                boolean inRun = mock || r.part <= chunks.size();
+                ObjectNode o = reqOut.addObject();
+                o.put("id", r.id);
+                o.put("title", r.title);
+                o.put("part", r.part);
+                o.put("derived", r.derived);
+                o.put("cases", n);
+                o.put("in_run", inRun);
+                if (n == 0) { if (inRun) uncovered.add(r.id); else notReached.add(r.id); }
+            }
+            if (!mock && !uncovered.isEmpty()) {
+                warnings.add("No cases for " + uncovered.size() + " requirement(s): " + summarize(uncovered)
+                        + ". Regenerate, or check that the BRD describes testable behaviour for them.");
+            }
+            if (untraced > 0) {
+                warnings.add(untraced + " case(s) couldn't be linked to a requirement.");
+            }
+
             for (String m : modules) {
                 int n = perModuleCount.get(m);
                 List<String> errs = perModuleErrors.get(m);
@@ -242,6 +326,17 @@ public class GenerateServlet extends HttpServlet {
             out.put("total", allCases.size());
             out.put("chunks", chunks.size());
             out.put("llm_calls", tasks.size());
+            ObjectNode src = out.putObject("schema_source");
+            schemaSource.forEach(src::put);
+            out.set("requirements", reqOut);
+            ObjectNode cov = out.putObject("coverage");
+            cov.put("requirements", reqs.size());
+            cov.put("covered", reqs.size() - uncovered.size() - notReached.size());
+            ArrayNode unc = cov.putArray("uncovered");
+            uncovered.forEach(unc::add);
+            ArrayNode nr = cov.putArray("not_in_run");
+            notReached.forEach(nr::add);
+            cov.put("untraced_cases", untraced);
             ArrayNode warnOut = out.putArray("warnings");
             warnings.forEach(warnOut::add);
             out.set("cases", allCases);
@@ -304,12 +399,14 @@ public class GenerateServlet extends HttpServlet {
 
     private static Outcome runTask(Task t, int totalParts, String outline, String platform,
                                    String creatorOwner, String creatorApp, String fullBrd,
-                                   String llmProvider, long deadline) {
+                                   String llmProvider, long deadline,
+                                   String moduleSchema, String requirements) {
         Outcome o = new Outcome();
         GenerationRequest r = new GenerationRequest();
         r.platform = platform;
         r.module = t.module;
-        r.moduleSchema = "creator".equalsIgnoreCase(platform) ? "" : ModuleSchemas.forModule(t.module);
+        r.moduleSchema = moduleSchema;
+        r.requirements = requirements;
         r.creatorOwner = creatorOwner;
         r.creatorApp = creatorApp;
         r.outline = outline;
