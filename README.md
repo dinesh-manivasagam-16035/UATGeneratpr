@@ -10,26 +10,23 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 ├── catalyst.json
 ├── functions/
 │   └── uat_generator/                  # Java AdvancedIO function
-│       ├── catalyst-config.json
+│       ├── catalyst-config.json        # main: GenerateServlet (default package)
+│       ├── GenerateServlet.java        # Catalyst entry point, routes to servlets below
 │       ├── pom.xml
-│       └── src/main/
-│           ├── java/com/uat/generator/
-│           │   ├── GenerateServlet.java     # POST /generate
-│           │   ├── PushServlet.java         # POST /push
-│           │   ├── HealthServlet.java       # GET  /health
-│           │   ├── ClaudeClient.java        # Anthropic call
-│           │   ├── ZiaClient.java           # ZIA call (alt provider)
-│           │   ├── ProjectsClient.java      # Zoho Projects OAuth + tasks API
-│           │   ├── ProjectsPayloadBuilder.java
-│           │   ├── RunLogger.java           # Catalyst Datastore run logging
-│           │   └── ModuleSchemas.java
-│           └── webapp/WEB-INF/web.xml
-├── client/                              # Catalyst Web Client (static)
-│   ├── client-package.json
-│   └── app/
-│       ├── index.html
-│       ├── app.js
-│       └── styles.css
+│       └── src/main/java/com/uat/generator/
+│           ├── AnalyzeServlet.java     # POST /analyze   — suggest modules for a BRD
+│           ├── GenerateServlet.java    # POST /generate  — UAT cases per module
+│           ├── ExecuteServlet.java     # POST /execute   — run execution_plan against CRM
+│           ├── CrmExecutor.java        #   step runner + assertions
+│           ├── PushServlet.java        # POST /push      — cases to Zoho Projects tasks
+│           ├── ReportBugServlet.java   # POST /report-bug — failure to Projects bug
+│           ├── Modules/Functions/Creator servlets   # CRM + Creator metadata
+│           ├── Crm*Servlet.java        # /crm/* OAuth connect, callback, status, orgs
+│           ├── ClaudeClient.java       # LLM client (GitHub Models, OpenAI-compatible)
+│           ├── ZiaClient.java          # Zia LLM client (placeholder contract)
+│           ├── MockLlmClient.java      # offline mock provider
+│           └── ProjectsClient.java, BugsClient.java, RunLogger.java, ...
+├── client/                              # Catalyst Web Client (static): index.html, app.js, styles.css
 └── samples/                             # Demo BRDs + golden output JSON
 ```
 
@@ -38,7 +35,7 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 - Catalyst CLI (`npm i -g zcatalyst-cli`)
 - Java 11 + Maven
 - A Catalyst project (`catalyst init` will populate `catalyst.json`)
-- For Claude: `ANTHROPIC_API_KEY`
+- For the default LLM provider: a GitHub token with access to GitHub Models
 - For Zoho Projects push: a self-client OAuth refresh token with
   `ZohoProjects.tasks.CREATE` scope
 
@@ -55,22 +52,24 @@ catalyst init
 ## Function env vars
 
 Configure these in the Catalyst console under
-**Functions → uat_generator → Configuration → Environment Variables**:
+**Functions → uat_generator → Configuration → Environment Variables**.
+Never commit any of these values to the repo.
 
 | Variable | Required for | Notes |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Claude | Default provider |
-| `CLAUDE_MODEL` | optional | Defaults to `claude-opus-4-7` |
-| `LLM_PROVIDER` | optional | `claude` (default) or `zia` |
-| `ZIA_ENDPOINT`, `ZIA_OAUTH_TOKEN` | ZIA mode | When `LLM_PROVIDER=zia` |
-| `ZOHO_CLIENT_ID` | Projects push | Self-client from api-console.zoho.com |
-| `ZOHO_CLIENT_SECRET` | Projects push | |
+| `LLM_PROVIDER` | optional | `github` (default), `zia`, or `mock` |
+| `GITHUB_TOKEN` | default provider | Token for GitHub Models |
+| `COPILOT_MODEL` | optional | GitHub Models model ID, default `gpt-4o` |
+| `COPILOT_ENDPOINT` | optional | Override the inference endpoint |
+| `ZIA_ENDPOINT`, `ZIA_OAUTH_TOKEN` | Zia mode | When `LLM_PROVIDER=zia` |
+| `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` | CRM connect, Projects push | OAuth client from api-console.zoho.com |
+| `ZOHO_REDIRECT_URI` | CRM connect | Must match the OAuth client's redirect URI |
 | `ZOHO_REFRESH_TOKEN` | Projects push | Scope: `ZohoProjects.tasks.CREATE` |
-| `ZOHO_PROJECTS_API_BASE` | optional | Default `https://projectsapi.zoho.com` (US). Use `.in/.eu/.com.au` for other DCs |
-| `ZOHO_ACCOUNTS_BASE` | optional | Default `https://accounts.zoho.com` |
-| `ZOHO_PROJECTS_PORTAL_ID` | optional | Fallback when client doesn't send it |
-| `ZOHO_PROJECTS_PROJECT_ID` | optional | Fallback when client doesn't send it |
-| `CATALYST_RUNS_TABLE` | optional | Datastore table name for run logs (default `uat_runs`) |
+| `ZOHO_DC` | optional | Data center (e.g. `in`, `com`, `eu`) |
+| `ZOHO_ACCOUNTS_BASE` | optional | Override the accounts host |
+| `ZOHO_CONNECTION_NAME` | optional | Catalyst connection used for auth |
+| `ZOHO_PROJECTS_PORTAL_ID`, `ZOHO_PROJECTS_PROJECT_ID` | optional | Fallbacks when the client doesn't send them |
+| `CATALYST_RUNS_TABLE` | optional | Datastore table for run logs (default `uat_runs`) |
 
 ## Catalyst Datastore: `uat_runs` table
 
@@ -184,9 +183,10 @@ Open the web client, pick the matching module, paste the BRD body, and click
 
 ## Notes / caveats
 
-- Demo uses Anthropic Messages API directly. Swap to ZIA by setting
-  `LLM_PROVIDER=zia` and adjusting `ZiaClient.java` to your actual ZIA endpoint
-  contract (the current call shape is a placeholder).
+- The default LLM provider is GitHub Models (`ClaudeClient.java`, name kept for
+  history). Swap to Zia by setting `LLM_PROVIDER=zia` and adjusting
+  `ZiaClient.java` to the actual Zia endpoint contract (the current call shape
+  is a placeholder).
 - Projects API uses the v3 REST endpoints (`projectsapi.zoho.com`). If you need
   the older `projectsapi.zoho.com/api/v2` shape or DC-specific hosts, change
   `ZOHO_PROJECTS_API_BASE`.
