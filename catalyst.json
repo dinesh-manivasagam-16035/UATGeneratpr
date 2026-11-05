@@ -13,8 +13,14 @@
     }
   },
   "functions": {
-    "targets": ["uat_generator"],
-    "source": "functions"
+    "targets": [
+      "uat_generator",
+      "impl_worker"
+    ],
+    "source": "functions",
+    "ignore": [
+      ".output"
+    ]
   },
   "client": {
     "source": "client"

@@ -1,0 +1,11 @@
+{
+  "deployment": {
+    "name": "impl_worker",
+    "stack": "java11",
+    "type": "job",
+    "env_variables": {}
+  },
+  "execution": {
+    "main": "ImplWorker"
+  }
+}

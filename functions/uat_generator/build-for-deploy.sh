@@ -53,16 +53,20 @@ if [ -z "$found" ]; then
   exit 1
 fi
 
-# The impl_worker job function runs the same classes (com.uat.generator.ImplJob): give it the
-# same jars. Its own function-sdk jar from the CLI template is kept.
+# The impl_worker job function runs the same classes (com.uat.generator.ImplJob): give it
+# exactly the same jars. The CLI template's own jars (older Jackson and SDK versions) are
+# moved aside to .build/impl_worker-template-jars/ (outside the deployed folders), so both
+# functions load identical versions.
 WORKER=../impl_worker
 if [ -d "$WORKER" ]; then
   echo "+  Preparing $WORKER (job function) with the same jars ..."
-  mkdir -p "$WORKER/lib"
-  for j in lib/*.jar; do
-    case "$(basename "$j")" in function-sdk-*) [ -n "$(ls "$WORKER"/lib/function-sdk-*.jar 2>/dev/null)" ] && continue ;; esac
-    cp "$j" "$WORKER/lib/"
+  ASIDE=../../.build/impl_worker-template-jars
+  mkdir -p "$WORKER/lib" "$ASIDE"
+  for j in "$WORKER"/lib/*.jar; do
+    [ -e "$j" ] || continue
+    [ -e "lib/$(basename "$j")" ] || mv "$j" "$ASIDE/"
   done
+  cp lib/*.jar "$WORKER/lib/"
   {
     echo '<?xml version="1.0" encoding="UTF-8"?>'
     echo '<classpath>'

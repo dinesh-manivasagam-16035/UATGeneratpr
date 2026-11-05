@@ -8,7 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  * (blueprint — ImplJob; uat_generate and uat_execute — UatJob). The job's input must already be
  * in JobStore under ImplJob.inputKey(key); the worker reads its "kind" and dispatches.
  *
- * Env: IMPL_JOBPOOL (default "liftoff_jobs"), IMPL_WORKER_FUNCTION (default "impl_worker").
+ * Env: IMPL_JOBPOOL (default "liftoffjobs"), IMPL_WORKER_FUNCTION (default "impl_worker").
  *      LIFTOFF_JOBSTORE=memory runs the job in this process instead (local tests only).
  */
 final class JobQueue {
@@ -36,7 +36,7 @@ final class JobQueue {
             new Thread(() -> ImplJob.run(key, () -> 15 * 60_000L), "impl-worker-local").start();
             return out;
         }
-        String pool = System.getenv().getOrDefault("IMPL_JOBPOOL", "liftoff_jobs");
+        String pool = System.getenv().getOrDefault("IMPL_JOBPOOL", "liftoffjobs");
         String target = System.getenv().getOrDefault("IMPL_WORKER_FUNCTION", "impl_worker");
         try {
             org.json.simple.JSONObject params = new org.json.simple.JSONObject();

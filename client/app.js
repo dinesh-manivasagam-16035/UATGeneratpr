@@ -1542,7 +1542,7 @@
       if (last.state === "failed") throw new Error(last.error || "The background job failed.");
       if (last.state === "queued" && Date.now() - t0 > 3 * 60 * 1000) {
         throw new Error("The background job didn't start within 3 minutes. Check that the impl_worker job function "
-          + "is deployed and the 'liftoff_jobs' job pool exists.");
+          + "is deployed and the 'liftoffjobs' job pool exists.");
       }
       await new Promise((r) => setTimeout(r, 3000));
     }

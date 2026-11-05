@@ -31,3 +31,4 @@ credentials.json
 # Logs
 *.log
 logs/
+.build/
