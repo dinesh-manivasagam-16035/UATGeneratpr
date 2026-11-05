@@ -338,57 +338,17 @@ public class ImplementStageServlet extends HttpServlet {
         if (!body.path("jobs").isArray() || body.path("jobs").size() == 0) return error(400, "Field 'jobs' is required.");
         String key = JobStore.newKey();
         ObjectNode in = MAPPER.createObjectNode();
+        in.put("kind", "blueprint");
         in.put("brd", body.path("brd").asText(""));
         in.set("modules", body.path("modules"));
         in.set("answers", body.path("answers"));
         in.put("org_text", body.path("org_text").asText(""));
         in.set("jobs", body.path("jobs"));
-        try {
-            JobStore.put(ImplJob.inputKey(key), MAPPER.writeValueAsString(in));
-            ImplJob.status(key, "queued", 0, body.path("jobs").size() + 1, null, "Waiting for a worker");
-        } catch (Exception e) {
-            return error(503, "Couldn't save the job to Catalyst Cache (" + ImplementServlet.trim(e.getMessage(), 200)
-                    + "). Background generation needs Cache enabled on the project.");
-        }
-        if ("memory".equalsIgnoreCase(System.getenv("LIFTOFF_JOBSTORE"))) {
-            // Local tests: no Catalyst job scheduler; run the worker in this process.
-            new Thread(() -> ImplJob.run(key, () -> 15 * 60_000L), "impl-worker-local").start();
-            ObjectNode out = MAPPER.createObjectNode();
-            out.put("job_key", key);
-            return out;
-        }
-        String pool = System.getenv().getOrDefault("IMPL_JOBPOOL", "liftoff_jobs");
-        String target = System.getenv().getOrDefault("IMPL_WORKER_FUNCTION", "impl_worker");
-        try {
-            org.json.simple.JSONObject params = new org.json.simple.JSONObject();
-            params.put("job_key", key);
-            com.zc.common.ZCProject.initProject();
-            com.zc.component.jobscheduling.beans.job.ZCJobMetaDetail meta =
-                    com.zc.component.jobscheduling.beans.job.ZCJobBuilder.functionJobBuilder()
-                            .setTargetName(target)
-                            .setParams(params)
-                            .setJobName("blueprint_" + key)
-                            .setJobpoolName(pool)
-                            .build();
-            com.zc.component.jobscheduling.beans.job.ZCJobDetails job =
-                    com.zc.component.jobscheduling.ZCJobScheduling.getInstance().job.submitJob(meta);
-            ObjectNode out = MAPPER.createObjectNode();
-            out.put("job_key", key);
-            if (job != null && job.getJobId() != null) out.put("job_id", String.valueOf(job.getJobId()));
-            return out;
-        } catch (Exception e) {
-            return error(503, "Couldn't queue the background job (" + ImplementServlet.trim(e.getMessage(), 200)
-                    + "). Check that the job function '" + target + "' is deployed and a Function job pool named '"
-                    + pool + "' exists (see agent/ZIA_GENERATOR.md).");
-        }
+        return JobQueue.submit(key, "blueprint", in, body.path("jobs").size() + 1);
     }
 
     private static ObjectNode status(JsonNode body) throws Exception {
-        String key = body.path("job_key").asText("");
-        if (!JobStore.validKey(key)) return error(400, "Invalid job_key.");
-        String s = JobStore.get(ImplJob.statusKey(key));
-        if (s == null) return error(404, "No such generation, or it has expired.");
-        return (ObjectNode) MAPPER.readTree(s);
+        return JobQueue.status(body.path("job_key").asText(""));
     }
 
     static ObjectNode plan(JsonNode body) {

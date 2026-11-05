@@ -16,7 +16,8 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 │       └── src/main/java/com/uat/generator/
 │           ├── AnalyzeServlet.java     # POST /analyze   — suggest modules for a BRD
 │           ├── GenerateServlet.java    # POST /generate  — UAT cases per module (one request)
-│           ├── GenerateStageServlet.java # POST /generate/stage — the same, one LLM call per request
+│           ├── GenerateStageServlet.java # POST /generate/stage — background job, or one LLM call per request
+│           ├── UatJob.java             #   UAT generation/execution jobs on impl_worker (with ImplJob, JobQueue, JobStore)
 │           ├── ImplementServlet.java   # POST /implement — BRD → implementation spec
 │           ├── ImplementApplyServlet.java  # POST /implement/apply  — dry run / create in CRM
 │           ├── ImplementVerifyServlet.java # POST /implement/verify — org vs spec diff
@@ -88,10 +89,12 @@ calls instead of one large one, so responses fit the provider's output limit and
 nothing is silently truncated. Anything skipped is returned in `warnings`.
 
 Catalyst stops an Advanced I/O request at about 30 seconds (`EXECUTION_TIME_EXCEEDED`,
-HTTP 408), and one LLM call takes 10–15 s, so the app never makes a whole run in one
-request: the Cases and Verify tabs drive `POST /generate/stage` (one LLM call per
-request, see [Staged generation and batched execution](#staged-generation-and-batched-execution)).
-`GEN_CONCURRENCY` and `GEN_DEADLINE_SEC` apply only to one-shot `/generate` callers.
+HTTP 408), and one Zia Agent reply can take longer than that, so the app never generates
+in a web request: the Cases and Verify tabs run generation as a background job, falling back
+to `POST /generate/stage` (one LLM call per request) when jobs aren't set up; see
+[Background jobs, staged generation and batched execution](#background-jobs-staged-generation-and-batched-execution).
+`GEN_DEADLINE_SEC` applies only to one-shot `/generate` callers; `GEN_CONCURRENCY` to
+one-shot calls and background jobs.
 
 | Variable | Default | What it controls |
 |---|---|---|
@@ -102,7 +105,7 @@ request, see [Staged generation and batched execution](#staged-generation-and-ba
 | `TARGET_CASES_PER_MODULE` | `30` | Used to decide how many focused passes each chunk gets |
 | `GEN_CONCURRENCY` | `2` | Parallel LLM calls (GitHub Models allows ~2 concurrent on most plans) |
 | `GEN_DEADLINE_SEC` | `140` | One-shot `/generate` only: stop and return partial results after this long |
-| `GEN_CALL_DEADLINE_SEC` | `26` | Staged: time for one part's call (no in-request retry; the browser retries once with fewer cases) |
+| `GEN_CALL_DEADLINE_SEC` | `26` | Fallback only: time for one part's call (no in-request retry; the browser retries once with fewer cases) |
 | `EXEC_BATCH_SEC` | `22` | `/execute` with `"batch": true`: stop starting new cases after this long |
 | `LLM_MAX_TOKENS` | `4000` | Output tokens per call |
 
@@ -203,31 +206,49 @@ Response (abridged):
 }
 ```
 
-### Staged generation and batched execution
+### Background jobs, staged generation and batched execution
 
-`POST /server/uat_generator/generate/stage` is `/generate` in requests that each fit
-Catalyst's ~30 s limit. Every stage is stateless (the BRD is re-chunked the same way each
-time); the browser carries the plan and the part results:
+Generation and execution run as background jobs on the `impl_worker` job function
+(15 minutes per job; setup in [agent/ZIA_GENERATOR.md](agent/ZIA_GENERATOR.md#6-background-generation-one-time-setup)).
+The browser queues a job, polls its status every few seconds, and shows each step: one per
+planned LLM call for generation, one per case for execution. Hovering a step shows what it covers.
+When background jobs aren't set up (no Cache, job pool or worker), the browser falls back to
+short requests and adds a note saying so.
+
+`POST /server/uat_generator/generate/stage`. Every stage is stateless (the BRD is re-chunked the
+same way each time):
 
 | Stage | Body | Returns | LLM calls |
 |---|---|---|---|
 | `start` | `brd`, `modules`, `platform`, `creator_owner`, `creator_app` | `calls: [{module, part, label, focus, wanted}]`, `schemas` (field schema text per module, live from CRM when connected), `requirements` (prompt list per part), `schema_source`, `warnings` | 0 |
-| `part` | `brd`, `module`, `part`, `focus`, `wanted`, `schema`, `requirements`, `retry?` | `{module, part, focus, cases, notes, error?}` (always HTTP 200; a failure is in `error`) | 1 |
-| `finish` | `brd`, `modules`, `results` (the parts), `warnings`, `schema_source`, `project_key` | the `/generate` response: merged and de-duplicated (module + title) cases, `counts`, `requirements`, `coverage`, `projects_payload` | 0 |
+| `submit` | `brd`, `modules`, `platform`…, `calls`, `schemas`, `requirements` | `{job_key}`: a `uat_generate` job, one step per call; 503 when jobs aren't set up | 0 here |
+| `status` | `job_key` | `{state: queued\|running\|done\|failed, done, total, label, error?, steps: [{label, detail, state, seconds, items}]}` | 0 |
+| `finish` | `brd`, `modules`, `job_key` **or** `results` (the parts), `warnings`, `schema_source`, `project_key` | the `/generate` response: merged and de-duplicated (module + title) cases, `counts`, `requirements`, `coverage`, `projects_payload` | 0 |
+| `part` | `brd`, `module`, `part`, `focus`, `wanted`, `schema`, `requirements`, `retry?` | fallback only: `{module, part, focus, cases, notes, error?}` (always HTTP 200; a failure is in `error`) | 1 |
 
-The client runs two parts at a time and sends a failed part once more with `"retry": true`
-(fewer cases); a part that still fails becomes a warning. `finish` re-validates every case
-it gets back. `/generate` itself still runs the whole thing in one request for one-shot
-callers (`/agent/run`, scripts, mock mode).
+In the fallback the client runs two parts at a time and sends a failed part once more with
+`"retry": true` (fewer cases); a part that still fails becomes a warning. `finish` re-validates
+every case it gets back. `/generate` itself still runs the whole thing in one request for
+one-shot callers (`/agent/run`, scripts, mock mode).
 
-`/execute` accepts any subset of cases. With `"batch": true` it stops starting new cases
-after `EXEC_BATCH_SEC` (always running at least one); cases it didn't reach come back with
-`execution_result.not_reached: true`, counted in `not_reached` rather than `skipped`.
-The Fly and Verify tabs send 4 cases per request against CRM (40 for a dry run) and
-resend unreached cases, so a run is never cut off; each case runs on its own, so
-batching gives the same results. A batch that fails marks its cases "not run" and the run
-continues (it stops after two failed batches in a row). Progress ("Writing cases… 3 of
-6 done", "Ran 12 of 40 case(s)…") shows in the loader or the Verify status line.
+`POST /server/uat_generator/execute` takes the same body as before plus a `stage`:
+
+| Stage | Body | Returns |
+|---|---|---|
+| `submit` | `cases`, `platform`, `dry_run` | `{job_key}`: a `uat_execute` job, one step per case; 409 `needs_auth` when not connected and not a dry run |
+| `status` | `job_key` | as above; each step has `result` (`pass`, `fail`, `dry_run`, `skipped`) |
+| `result` | `job_key` | the `/execute` response for the job's cases, in order |
+
+The worker has no session cookie, so `submit` gives the job a CRM access token valid for at least
+20 more minutes (never the refresh token); the worker removes it from the cached input when the
+run ends.
+
+Without a stage, `/execute` runs the cases in the request, as before. With `"batch": true` it stops
+starting new cases after `EXEC_BATCH_SEC` (always running at least one); cases it didn't reach
+come back with `execution_result.not_reached: true`, counted in `not_reached` rather than
+`skipped`. The fallback sends 4 cases per request against CRM (40 for a dry run) and resends
+unreached cases. A batch that fails marks its cases "not run" and the run continues (it stops
+after two failed batches in a row).
 
 ### `POST /server/uat_generator/push`
 
@@ -304,7 +325,7 @@ has: `present`, `mismatch` (type, missing picklist values, lookup target), `miss
 `unverifiable` (validation rules, workflows and functions aren't read back through the APIs used here).
 Missing items and missing picklist values have **Fix in sandbox**; an unverifiable item counts once
 it's ticked in Configure by hand. **UAT cases** are then written from the approved blueprint
-(`/generate/stage`) and run against the sandbox in batches (`/execute`; a dry run when the org isn't a sandbox), and
+(a `uat_generate` job) and run against the sandbox (a `uat_execute` job; a dry run when the org isn't a sandbox), and
 can be pushed to Zoho Projects with their failures.
 
 **Promote to production** unlocks only when every check matches (or is confirmed by hand) and a live

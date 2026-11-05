@@ -989,7 +989,7 @@
     const org = verifyOrg();
     const live = !!(org && org.sandbox);   // UAT creates and deletes records: only ever live on a sandbox
     try {
-      // Short requests (Catalyst stops a call after ~30 s): one LLM call per request, a few cases per run.
+      // Background jobs on impl_worker (short requests when jobs aren't set up); progress shows here.
       L.setStatus("verify", "Writing UAT cases from the blueprint…");
       const gen = await L.generateCasesStaged({ brd: specToBrd(), modules, platform: "crm" },
         (text) => L.setStatus("verify", text));
@@ -998,7 +998,7 @@
       const where = live ? "against the sandbox" : "as a dry run";
       L.setStatus("verify", `Running ${cases.length} case(s) ${where}…`);
       const ex = await L.executeBatched(cases, { platform: "crm", dry_run: !live },
-        (text) => L.setStatus("verify", `${text.replace(/…$/, "")} ${where}…`));
+        (text) => L.setStatus("verify", `${text} (${where})`));
       impl.uat = { cases: ex.cases || cases, live: live && !ex.dry_run, ranAt: new Date().toISOString(), modules };
       save();
       renderVerify();

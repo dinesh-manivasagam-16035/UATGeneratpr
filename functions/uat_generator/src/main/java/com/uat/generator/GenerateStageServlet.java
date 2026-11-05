@@ -31,6 +31,15 @@ import java.util.logging.Logger;
  *       → the /generate response (cases, counts, requirements, coverage, projects_payload)
  *                                                                                   no LLM call
  *
+ * Background mode (an agent reply can take longer than one request allows), preferred by the
+ * browser; the per-request "part" stage is the fallback when background jobs aren't set up:
+ *   {"stage":"submit", brd, modules, platform?, creator_owner?, creator_app?, calls, schemas,
+ *                      requirements}
+ *       → {job_key, job_id?}   queues a "uat_generate" job on impl_worker (UatJob), one step per call
+ *   {"stage":"status", job_key}  → {state: queued|running|done|failed, done, total, label?, error?, steps}
+ *   {"stage":"finish", brd, modules, job_key, schema_source, warnings, project_key?}
+ *       → as above, reading the parts' results from the job
+ *
  * Every stage is stateless: the BRD is re-chunked the same way each time (same env), and the
  * browser carries the schema text and part results between calls. A "part" never retries
  * in-request; the browser sends it again with retry:true, which asks for fewer cases.
@@ -60,11 +69,15 @@ public class GenerateStageServlet extends HttpServlet {
                 case "start":  out = start(req, body); break;
                 case "part":   out = part(body); break;
                 case "finish": out = finish(req, body); break;
+                case "submit": out = submit(body); break;
+                case "status": out = JobQueue.status(body.path("job_key").asText("")); break;
                 default:
-                    GenerateServlet.writeError(resp, 400, "Field 'stage' must be start, part or finish.");
+                    GenerateServlet.writeError(resp, 400, "Field 'stage' must be start, part, submit, status or finish.");
                     return;
             }
-            if (out.has("error") && !"part".equals(stage)) resp.setStatus(out.path("status").asInt(400));
+            // A part's or a job's own failure is data for the caller, not a failed request.
+            boolean reported = "part".equals(stage) || ("status".equals(stage) && out.has("state"));
+            if (out.has("error") && !reported) resp.setStatus(out.path("status").asInt(400));
             else resp.setStatus(200);
             out.remove("status");
             resp.getWriter().write(MAPPER.writeValueAsString(out));
@@ -154,7 +167,56 @@ public class GenerateStageServlet extends HttpServlet {
         return out;
     }
 
-    private static ObjectNode finish(HttpServletRequest req, JsonNode body) {
+    private static ObjectNode submit(JsonNode body) {
+        GenerateServlet.Prep p = GenerateServlet.inputs(body);
+        JsonNode calls = body.path("calls");
+        if (p.brd.isEmpty() || !calls.isArray() || calls.size() == 0) {
+            return error(400, "Fields 'brd' and 'calls' (from the start stage) are required.");
+        }
+        int maxCalls = Math.max(1, GenerateServlet.envInt("MAX_LLM_CALLS", 8));
+        if (!Llm.mock() && calls.size() > maxCalls) {
+            return error(400, "At most " + maxCalls + " calls per run (MAX_LLM_CALLS); got " + calls.size() + ".");
+        }
+        ObjectNode in = MAPPER.createObjectNode();
+        in.put("kind", "uat_generate");
+        in.put("brd", p.brd);
+        in.put("platform", p.platform);
+        in.put("creator_owner", p.creatorOwner);
+        in.put("creator_app", p.creatorApp);
+        ArrayNode cs = in.putArray("calls");
+        for (JsonNode c : calls) {
+            cs.addObject().put("module", c.path("module").asText(""))
+                    .put("part", c.path("part").asInt(1))
+                    .put("label", c.path("label").asText(""))
+                    .put("focus", c.path("focus").asText(""))
+                    .put("wanted", c.path("wanted").asInt(8));
+        }
+        in.set("schemas", body.path("schemas").isObject() ? body.path("schemas") : MAPPER.createObjectNode());
+        in.set("requirements", body.path("requirements").isObject() ? body.path("requirements") : MAPPER.createObjectNode());
+        return JobQueue.submit(JobStore.newKey(), "uat_generate", in, calls.size());
+    }
+
+    /** The parts' results of a finished generation job, in call order; a missing one becomes an error entry. */
+    private static List<JsonNode> jobResults(String key) throws Exception {
+        String raw = JobStore.get(ImplJob.inputKey(key));
+        if (raw == null) throw new IllegalStateException("This generation has expired. Generate again.");
+        JsonNode in = MAPPER.readTree(raw);
+        List<JsonNode> out = new ArrayList<>();
+        int n = 0;
+        for (JsonNode c : in.path("calls")) {
+            String r = JobStore.get(ImplJob.resultKey(key, n++));
+            if (r != null) { out.add(MAPPER.readTree(r)); continue; }
+            ObjectNode miss = MAPPER.createObjectNode();
+            miss.put("module", c.path("module").asText(""));
+            miss.put("part", c.path("part").asInt(1));
+            miss.put("focus", c.path("focus").asText(""));
+            miss.put("error", "the background job didn't finish this part");
+            out.add(miss);
+        }
+        return out;
+    }
+
+    private static ObjectNode finish(HttpServletRequest req, JsonNode body) throws Exception {
         GenerateServlet.Prep p = GenerateServlet.inputs(body);
         if (p.brd.isEmpty() || p.modules.isEmpty()) {
             return error(400, "Fields 'brd' and 'modules' are required.");
@@ -167,7 +229,10 @@ public class GenerateStageServlet extends HttpServlet {
         BrdChunker.Result split = p.split;
         List<GenerateServlet.Done> done = new ArrayList<>();
         int calls = 0;
-        for (JsonNode r : body.path("results")) {
+        String key = body.path("job_key").asText("");
+        if (!key.isEmpty() && !JobStore.validKey(key)) return error(400, "Invalid job_key.");
+        Iterable<JsonNode> results = key.isEmpty() ? body.path("results") : jobResults(key);
+        for (JsonNode r : results) {
             calls++;
             String module = r.path("module").asText("");
             int part = r.path("part").asInt(1);
@@ -178,7 +243,7 @@ public class GenerateStageServlet extends HttpServlet {
             for (JsonNode n : r.path("notes")) o.notes.add(n.asText());
             int dropped = 0;
             for (JsonNode c : r.path("cases")) {
-                // Cases came back from the browser: normalise them again rather than trust them.
+                // Cases came back from the browser or the cache: normalise them again rather than trust them.
                 ObjectNode norm = CaseParser.normalize(c);
                 if (norm != null) o.cases.add(norm); else dropped++;
             }

@@ -3586,3 +3586,6 @@ footer { display: none; }
 .impl-job-steps .js-failed .js-icon { color: var(--err); }
 .impl-job-steps .js-working .js-label { font-weight: 600; }
 .impl-job p { font-size: 12px; margin: 8px 0 0; }
+.uat-job { margin-top: 12px; max-width: 520px; }
+.uat-job .impl-job-steps { max-height: 260px; overflow-y: auto; }
+.uat-job .js-label { overflow-wrap: anywhere; }

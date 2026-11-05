@@ -65,7 +65,7 @@ public class CrmClient {
         if (!hasCredentials()) {
             throw new IllegalStateException("CRM credentials not provided.");
         }
-        String token = getAccessToken();
+        String token = getAccessToken(60_000);
         String url = path.startsWith("http") ? path : apiBase + path;
 
         HttpUriRequestBase req;
@@ -127,18 +127,23 @@ public class CrmClient {
 
     /** A valid access token, refreshing if needed. */
     public String accessToken() throws Exception {
-        return getAccessToken();
+        return getAccessToken(60_000);
     }
 
-    private synchronized String getAccessToken() throws Exception {
+    /** An access token valid for at least minValidMs more (refreshed if not), e.g. to hand to a background job. */
+    public String accessToken(long minValidMs) throws Exception {
+        return getAccessToken(Math.max(60_000, minValidMs));
+    }
+
+    private synchronized String getAccessToken(long minValidMs) throws Exception {
         if (notEmpty(staticAccessToken)) return staticAccessToken;
         long now = System.currentTimeMillis();
-        if (cachedAccessToken != null && now < tokenExpiresAt - 60_000) {
+        if (cachedAccessToken != null && now < tokenExpiresAt - minValidMs) {
             return cachedAccessToken;
         }
         String key = cacheKey(accountsBase, clientId, refreshToken);
         String[] shared = SHARED_TOKENS.get(key);
-        if (shared != null && now < Long.parseLong(shared[1]) - 60_000) {
+        if (shared != null && now < Long.parseLong(shared[1]) - minValidMs) {
             cachedAccessToken = shared[0];
             tokenExpiresAt = Long.parseLong(shared[1]);
             return cachedAccessToken;

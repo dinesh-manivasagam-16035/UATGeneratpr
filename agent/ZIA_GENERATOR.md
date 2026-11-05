@@ -112,9 +112,21 @@ Save. Catalyst applies env vars to new invocations; redeploy the function if you
 
 A Zia Agent reply for a real BRD takes longer than Catalyst allows one web request (about 30
 seconds), so LiftOff generates in a **job function**, `impl_worker`, which may run up to 15
-minutes. The Blueprint tab queues the job, shows each step as it runs (part, what it covers,
-items found, time taken), and fetches the result when it's done. Each user's run is its own job,
-so several people can generate different implementations at the same time.
+minutes. The same worker runs three kinds of job:
+
+| Job kind | Started from | One step per |
+|---|---|---|
+| `blueprint` | Blueprint tab | BRD part × group (data model, automation), then the plan |
+| `uat_generate` | Cases tab, Verify tab | planned call: module × BRD part × focus |
+| `uat_execute` | Fly tab, Verify tab | test case (its result: passed, failed, plan checked, skipped) |
+
+The browser queues the job, shows each step as it runs (hover a step for what it covers), and
+fetches the result when it's done. Each user's run is its own job, so several people can generate
+and run different implementations at the same time.
+
+An execution job can't read the user's CRM session cookie, so `uat_generator` hands it a CRM
+access token valid for at least 20 more minutes (never the refresh token). The worker deletes it
+from the cached job input when the run ends.
 
 1. **Create the job function** (once), from the repo folder:
 
@@ -137,8 +149,9 @@ so several people can generate different implementations at the same time.
    cd ~/UATGeneratpr && functions/uat_generator/build-for-deploy.sh && catalyst deploy --only functions:uat_generator,functions:impl_worker,client
    ```
 
-If the job pool or worker is missing, the Blueprint tab falls back to generating in the browser
-(one request per agent call) and says so in its notes; long replies may then time out.
+If the job pool or worker is missing, each tab falls back to short requests from the browser
+(one agent call per request; a few test cases per request) and says so in its notes; long agent
+replies may then time out.
 
 Names can be changed with `IMPL_JOBPOOL` and `IMPL_WORKER_FUNCTION` on `uat_generator`.
 
@@ -152,7 +165,7 @@ import com.catalyst.job.CatalystJobHandler;
 import com.catalyst.job.JOB_STATUS;
 import com.catalyst.job.JobRequest;
 
-/** Runs one background blueprint generation queued by uat_generator (see ImplJob). */
+/** Runs one background job queued by uat_generator: blueprint, uat_generate or uat_execute (see ImplJob). */
 public class ImplWorker implements CatalystJobHandler {
     @Override
     public JOB_STATUS handleJobExecute(JobRequest request, Context context) throws Exception {
@@ -183,6 +196,6 @@ LiftOff splits a BRD into parts and makes several calls per run (two per part fo
 plus one for the plan). Catalyst stops an Advanced I/O request at about 30 seconds, so the Blueprint
 tab sends **one agent call per request** (`POST /implement/stage`: start → parts, two at a time →
 finish → plan), and UAT case generation does the same (`POST /generate/stage`: start → one call
-per module, part and focus → finish). Each call has to finish within `ZIA_AGENT_TIMEOUT_SEC`; if
-parts time out, lower `IMPL_CHUNK_CHARS` (default 6000) or `CASES_PER_CALL` (default 8) so each call
-is smaller.
+per module, part and focus → finish). That is the fallback when background jobs aren't set up
+(section 6). Each call then has to finish within `ZIA_AGENT_TIMEOUT_SEC`; if parts time out, lower
+`IMPL_CHUNK_CHARS` (default 6000) or `CASES_PER_CALL` (default 8) so each call is smaller.

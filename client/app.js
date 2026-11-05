@@ -287,6 +287,7 @@
   }
 
   function stopGenLoader() {
+    document.getElementById("gen-job-steps")?.remove();
     const loaderEl = document.querySelector('[data-panel="cases"] .loader');
     if (loaderEl) loaderEl.classList.remove("fullscreen");
     clearInterval(_genMsgTimer);
@@ -358,6 +359,7 @@
   }
 
   function stopExecLoader() {
+    document.getElementById("exec-job-steps")?.remove();
     const loaderEl = document.querySelector('[data-panel="execute"] .loader');
     if (loaderEl) loaderEl.classList.remove("fullscreen");
     clearInterval(_execMsgTimer);
@@ -368,7 +370,8 @@
   }
 
   // Real progress replaces the cycling messages and the creeping bar once a staged run reports it.
-  function loaderProgress(kind, text, fraction) {
+  // jobStatus (background jobs) adds the step list; hovering a step shows what it covers.
+  function loaderProgress(kind, text, fraction, jobStatus) {
     const ids = kind === "exec"
       ? { msg: "exec-gen-message", fill: "exec-bar-fill" }
       : { msg: "gen-message", fill: "gen-bar-fill" };
@@ -383,6 +386,50 @@
     if (msgEl) { msgEl.classList.remove("fading"); msgEl.textContent = text; }
     const fillEl = document.getElementById(ids.fill);
     if (fillEl && typeof fraction === "number") fillEl.style.width = Math.min(95, Math.round(fraction * 100)) + "%";
+    renderJobSteps(kind, msgEl, jobStatus);
+  }
+
+  const JOB_ICON = { done: "✓", working: "…", failed: "✕", waiting: "○" };
+  const RESULT_TEXT = { pass: "passed", fail: "failed", dry_run: "plan checked", skipped: "skipped" };
+
+  function renderJobSteps(kind, msgEl, st) {
+    const id = kind + "-job-steps";
+    let box = document.getElementById(id);
+    if (!st || !Array.isArray(st.steps) || !st.steps.length || !msgEl) { if (box) box.remove(); return; }
+    if (!box) {
+      box = document.createElement("div");
+      box.id = id;
+      box.className = "impl-job uat-job";
+      msgEl.insertAdjacentElement("afterend", box);
+    }
+    let steps = st.steps;
+    let summary = "";
+    if (kind === "exec") {
+      // One step per case: show the counts, the case running now and the last few finished.
+      const n = {};
+      steps.forEach((x) => { if (x.result) n[x.result] = (n[x.result] || 0) + 1; });
+      summary = Object.entries(n).map(([k, v]) => `${v} ${RESULT_TEXT[k] || k}`).join(" · ");
+      const working = steps.filter((x) => x.state === "working");
+      const finished = steps.filter((x) => x.state === "done" || x.state === "failed").slice(-4);
+      const waiting = steps.filter((x) => x.state === "waiting").length;
+      steps = finished.concat(working);
+      if (waiting) steps = steps.concat([{ label: `${waiting} more case(s) waiting`, state: "waiting" }]);
+    }
+    const line = (x) => {
+      const note = x.result ? (RESULT_TEXT[x.result] || x.result) + (x.seconds ? ` · ${x.seconds}s` : "")
+        : x.state === "done" ? `${x.items || 0} case(s) · ${x.seconds || 0}s`
+        : x.state === "failed" ? "failed — shown as a note"
+        : x.state === "working" ? "working…" : "";
+      return `<li class="js-${escapeHtml(x.state || "waiting")}" title="${escapeHtml(x.detail || "")}">
+        <span class="js-icon" aria-hidden="true">${JOB_ICON[x.state] || "○"}</span>
+        <span class="js-label">${escapeHtml(x.label || "")}</span>
+        ${note ? `<span class="muted">${escapeHtml(note)}</span>` : ""}</li>`;
+    };
+    box.innerHTML = (summary ? `<p class="muted">${escapeHtml(summary)}</p>` : "")
+      + `<ul class="impl-job-steps">${steps.map(line).join("")}</ul>`
+      + `<p class="muted">${kind === "exec"
+        ? "Runs in the background on Zoho Catalyst; you can keep this tab open or come back to it."
+        : "Each step is one careful pass by the Zia agent over part of the spec; precise output takes a minute or two per step."}</p>`;
   }
 
   // ---- Push animated loader ----
@@ -1460,11 +1507,12 @@
     return tests;
   }
 
-  // ---- UAT generation and execution in short requests ----
-  // Catalyst stops a function call after ~30 s. Generation therefore makes one LLM call per
-  // request (POST /generate/stage: start → parts, two at a time, retried once → finish), and
-  // execution sends a few cases per /execute request (batch: true), resending any case the
-  // server didn't reach before its per-batch time limit.
+  // ---- UAT generation and execution: background jobs, short requests as the fallback ----
+  // Catalyst stops a function request after ~30 s, and one Zia Agent reply can take longer.
+  // Both run as jobs on the impl_worker job function (submit → poll status → finish/result),
+  // like the blueprint. When background jobs aren't set up (submit fails), generation makes one
+  // LLM call per request (/generate/stage "part", two at a time, retried once) and execution
+  // sends a few cases per /execute request (batch: true), resending any case not reached.
 
   // withCredentials mirrors the one-shot calls: /execute sent cookies cross-origin, /generate didn't.
   async function postJson(path, body, ms, label, withCredentials) {
@@ -1476,7 +1524,38 @@
     return { res, data };
   }
 
+  // Polls a background job until it is done; onStatus gets every status ({state, done, total, steps}).
+  async function pollJob(path, key, onStatus) {
+    const t0 = Date.now();
+    const LIMIT_MS = 16 * 60 * 1000;      // a job function may run 15 minutes
+    let last = { state: "queued" };
+    while (Date.now() - t0 < LIMIT_MS) {
+      try {
+        const { res, data } = await postJson(path, { stage: "status", job_key: key }, 30_000, "Status", path === "/execute");
+        if (res.ok) last = data;
+        else if (res.status === 404 || res.status === 400) throw Object.assign(new Error(data.error || "The job was lost."), { fatal: true });
+      } catch (e) {
+        if (e.fatal) throw e;               // a missed poll isn't fatal
+      }
+      onStatus(last, Date.now() - t0);
+      if (last.state === "done") return last;
+      if (last.state === "failed") throw new Error(last.error || "The background job failed.");
+      if (last.state === "queued" && Date.now() - t0 > 3 * 60 * 1000) {
+        throw new Error("The background job didn't start within 3 minutes. Check that the impl_worker job function "
+          + "is deployed and the 'liftoff_jobs' job pool exists.");
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    throw new Error("The background job is taking longer than 16 minutes; it was stopped.");
+  }
+
+  function fmtElapsed(ms) {
+    const s = Math.round(ms / 1000);
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  }
+
   // body: the /generate body. Resolves to the /generate response.
+  // onProgress(text, fraction, jobStatus?): jobStatus is set while a background job runs.
   async function generateCasesStaged(body, onProgress) {
     const progress = onProgress || (() => {});
     const stage = async (b, label) => {
@@ -1490,6 +1569,28 @@
     progress("Reading the spec and your CRM fields…", 0.03);
     const start = await stage({ ...common, modules: body.modules, stage: "start" }, "Case generation start");
     const calls = start.calls || [];
+    const finishBody = { ...common, stage: "finish", modules: body.modules, project_key: body.project_key || "",
+      warnings: start.warnings || [], schema_source: start.schema_source || {} };
+
+    // Background job (impl_worker): the browser only polls.
+    let sub = null, subErr = null;
+    try {
+      sub = await stage({ ...common, stage: "submit", modules: body.modules, calls,
+        schemas: start.schemas || {}, requirements: start.requirements || {} }, "Queue case generation");
+    } catch (e) { subErr = e; }
+    if (sub && sub.job_key) {
+      await pollJob("/generate/stage", sub.job_key, (st, elapsed) => {
+        const head = st.state === "queued" ? "Waiting for a worker to pick up the job"
+          : `Writing cases — ${st.done || 0} of ${st.total || calls.length} step(s) done`;
+        progress(`${head} · ${fmtElapsed(elapsed)}`, 0.05 + 0.85 * (st.done || 0) / Math.max(1, st.total || calls.length), st);
+      });
+      progress("Merging cases and checking coverage…", 0.93);
+      return stage({ ...finishBody, job_key: sub.job_key }, "Case generation finish");
+    }
+    console.warn("Background generation unavailable, running in the browser:", subErr && subErr.message);
+    const fallbackNote = "Ran without a background job (" + (subErr ? subErr.message : "not set up")
+      + "). Long agent replies may time out; see agent/ZIA_GENERATOR.md to enable background jobs.";
+
     const results = new Array(calls.length);
     let next = 0, done = 0;
     const worker = async () => {
@@ -1517,17 +1618,44 @@
     await Promise.all([worker(), worker()]);
 
     progress("Merging cases and checking coverage…", 0.93);
-    return stage({ ...common, stage: "finish", modules: body.modules, project_key: body.project_key || "",
-      results, warnings: start.warnings || [], schema_source: start.schema_source || {} }, "Case generation finish");
+    return stage({ ...finishBody, results, warnings: [fallbackNote].concat(start.warnings || []) }, "Case generation finish");
   }
 
   const EXEC_BATCH_LIVE = 4;     // cases per /execute request against CRM (the server also stops at ~22 s)
   const EXEC_BATCH_DRY = 40;     // a dry run sends nothing to CRM, so batches can be large
 
   // opts: the /execute body without cases. Resolves to the /execute response for all cases.
-  // A 409 (not connected) on the first batch throws an Error with .status and .data.
+  // A 409 (not connected) throws an Error with .status and .data.
+  // onProgress(text, fraction, jobStatus?): jobStatus is set while a background job runs.
   async function executeBatched(cases, opts, onProgress) {
     const progress = onProgress || (() => {});
+
+    // Background job (impl_worker) first; the access token it needs is taken from the session server-side.
+    progress(`Queuing ${cases.length} case(s)…`, 0.02);
+    let sub = null, subErr = null;
+    try {
+      const { res, data } = await postJson("/execute", { ...opts, cases, stage: "submit" }, 60_000, "Queue execution", true);
+      if (res.status === 409) {
+        throw Object.assign(new Error(data.error || "Not connected to Zoho CRM."), { status: 409, data });
+      }
+      if (res.ok && data.job_key) sub = data;
+      else subErr = new Error(data.error || `HTTP ${res.status}`);
+    } catch (e) {
+      if (e.status === 409) throw e;
+      subErr = e;
+    }
+    if (sub) {
+      await pollJob("/execute", sub.job_key, (st, elapsed) => {
+        const head = st.state === "queued" ? "Waiting for a worker to pick up the run"
+          : `Ran ${st.done || 0} of ${st.total || cases.length} case(s)`;
+        progress(`${head} · ${fmtElapsed(elapsed)}`, (st.done || 0) / Math.max(1, st.total || cases.length), st);
+      });
+      const { res, data } = await postJson("/execute", { stage: "result", job_key: sub.job_key }, 60_000, "Execution result", true);
+      if (!res.ok) throw new Error(data.error || `Execution result failed (HTTP ${res.status})`);
+      return data;
+    }
+    console.warn("Background execution unavailable, running in batches:", subErr && subErr.message);
+
     const size = opts.dry_run ? EXEC_BATCH_DRY : EXEC_BATCH_LIVE;
     const out = cases.slice();
     const totals = { passed: 0, failed: 0, skipped: 0, plans_ok: 0, plans_with_issues: 0 };
@@ -1632,7 +1760,7 @@
         const fieldSpec = buildCreatorFieldSpec();
         if (fieldSpec) body.brd = fieldSpec + "\n\n---\n\n" + state.brd;
       }
-      const data = await generateCasesStaged(body, (text, f) => loaderProgress("gen", text, f));
+      const data = await generateCasesStaged(body, (text, f, st) => loaderProgress("gen", text, f, st));
 
       const aiCases = Array.isArray(data.cases) ? data.cases : [];
       const defaultTests = buildDefaultApiTests(state.modulesSelected);
@@ -2500,7 +2628,7 @@
         execBody.creator_owner = state.creatorOwner;
         execBody.creator_app   = state.creatorApp;
       }
-      const run = () => executeBatched(cases, execBody, (text, f) => loaderProgress("exec", text, f));
+      const run = () => executeBatched(cases, execBody, (text, f, st) => loaderProgress("exec", text, f, st));
       let data;
       try {
         try {

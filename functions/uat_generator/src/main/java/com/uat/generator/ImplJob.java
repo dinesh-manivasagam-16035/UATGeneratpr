@@ -19,7 +19,8 @@ import java.util.function.LongSupplier;
  * ImplementStageServlet; inputs, progress and results go through JobStore.
  *
  * Cache entries for job key K:
- *   K + "i"   input   {brd, modules, answers, org_text, jobs:[{part, group}]}
+ *   K + "i"   input   {kind: blueprint (default) | uat_generate | uat_execute, ...}; blueprint:
+ *                     {brd, modules, answers, org_text, jobs:[{part, group}]}. Other kinds go to UatJob.
  *   K + "s"   status  {state: queued|running|done|failed, done, total, error?, label?,
  *                      steps:[{label, state: waiting|working|done|failed, seconds?}]}
  *   K + "r" + n  result of jobs[n] (the "part" stage response)
@@ -40,7 +41,13 @@ public final class ImplJob {
     public static boolean run(String key, LongSupplier remainingMs) {
         try {
             if (!JobStore.validKey(key)) throw new IllegalArgumentException("bad job key");
-            JsonNode in = MAPPER.readTree(JobStore.get(inputKey(key)));
+            String raw = JobStore.get(inputKey(key));
+            if (raw == null) throw new IllegalStateException("The job's input has expired.");
+            JsonNode in = MAPPER.readTree(raw);
+            // One worker for every job kind: UAT generation and execution live in UatJob.
+            String kind = in.path("kind").asText("blueprint");
+            if ("uat_generate".equals(kind)) return UatJob.generate(key, in, remainingMs);
+            if ("uat_execute".equals(kind))  return UatJob.execute(key, in, remainingMs);
             ArrayNode jobs = (ArrayNode) in.path("jobs");
             int total = jobs.size() + 1;                         // + the plan
             Steps steps = new Steps(jobs);
@@ -133,6 +140,12 @@ public final class ImplJob {
         final ArrayNode arr = MAPPER.createArrayNode();
         final long[] started;
 
+        /** Steps from {label, detail} pairs (other job kinds). */
+        Steps(List<String[]> rows) {
+            for (String[] r : rows) arr.addObject().put("label", r[0]).put("detail", r[1]).put("state", "waiting");
+            started = new long[arr.size()];
+        }
+
         Steps(ArrayNode jobs) {
             for (JsonNode j : jobs) {
                 String g = j.path("group").asText();
@@ -149,6 +162,8 @@ public final class ImplJob {
             o.put("seconds", Math.round((System.currentTimeMillis() - started[i]) / 1000.0));
             o.put("items", items);
         }
+        /** Adds a field to step i (e.g. a case's result). */
+        synchronized void set(int i, String field, String value) { ((ObjectNode) arr.get(i)).put(field, value); }
         synchronized String label(int i) { return arr.get(i).path("label").asText(); }
         synchronized ArrayNode copy() { return arr.deepCopy(); }
     }
