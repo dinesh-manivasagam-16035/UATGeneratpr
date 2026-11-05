@@ -34,7 +34,8 @@ import java.util.logging.Logger;
  * only ever writes to a sandbox org: production is read-only here (dry runs still work).
  *
  * What runs where:
- *   api  — custom modules, custom fields, roles: created through the CRM settings REST APIs,
+ *   api / partial — custom modules, custom fields, roles: created through the CRM settings REST APIs
+ *          (partial items also get a "finish by hand" entry in rpa_queue),
  *          in that order (fields can target modules created in the same run).
  *   rpa  — layouts, validation rules, workflows/blueprints/assignment/approvals, Deluge
  *          functions, and field types the field API doesn't create: returned in rpa_queue
@@ -117,12 +118,23 @@ public class ImplementApplyServlet extends HttpServlet {
                         r.put("detail", "Already in the org.");
                         continue;
                     }
-                    if ("api".equals(item.path("executor").asText())) {
+                    String executor = item.path("executor").asText();
+                    if ("api".equals(executor) || "partial".equals(executor)) {
                         try {
                             run.apply(section, item, r);
                         } catch (Exception e) {
                             r.put("result", "failed");
                             r.put("detail", ImplementServlet.trim(e.getMessage(), 400));
+                        }
+                        if ("partial".equals(executor)) {
+                            ObjectNode q = rpaQueue.addObject();
+                            q.put("id", id);
+                            q.put("section", section);
+                            q.put("label", "Finish " + ImplPlan.describe(section, item));
+                            q.put("partial", true);
+                            ArrayNode steps = q.putArray("steps");
+                            ImplRpa.followUp(section, item).forEach(steps::add);
+                            q.set("item", item);
                         }
                     } else if ("rpa".equals(item.path("executor").asText())) {
                         r.put("result", "queued_for_rpa");

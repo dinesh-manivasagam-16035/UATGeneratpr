@@ -72,6 +72,23 @@ public final class ImplRpa {
         return s;
     }
 
+    /** What a person still does after the API created a "partial" item. */
+    public static List<String> followUp(String section, JsonNode o) {
+        List<String> s = new ArrayList<>();
+        if ("fields".equals(section)) {
+            s.add("Setup → Customization → Modules and Fields → " + o.path("module").asText() + " → Standard layout.");
+            s.add("Open \"" + o.path("label").asText() + "\" → Mark as required. Save the layout.");
+        } else if ("roles".equals(section)) {
+            s.add("Setup → Security Control → Profiles → " + (o.path("profile").asText("").isEmpty()
+                    ? "the profile for " + o.path("name").asText() : o.path("profile").asText()) + ".");
+            for (JsonNode p : o.path("permissions")) s.add("Allow: " + p.asText() + ".");
+            s.add("Save, and assign users with role " + o.path("name").asText() + " to that profile.");
+        } else {
+            s.add("Finish as described in the blueprint.");
+        }
+        return s;
+    }
+
     private static String menuFor(String type) {
         switch (type) {
             case "blueprint":  return "Setup → Process Management → Blueprint → Create Blueprint.";

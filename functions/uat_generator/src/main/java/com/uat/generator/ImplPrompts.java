@@ -83,9 +83,14 @@ public final class ImplPrompts {
 
     /** User prompt for one (section group, BRD part) call. */
     public static String partPrompt(String modules, String liftedSchema, String outline, String chunkText,
-                                    int part, int totalParts, String requirements, String retryNote) {
+                                    int part, int totalParts, String requirements, String decisions,
+                                    String retryNote) {
         StringBuilder sb = new StringBuilder();
         sb.append("Modules in scope: ").append(modules).append("\n\n");
+        if (decisions != null && !decisions.isEmpty()) {
+            sb.append("Client decisions (answers to earlier open questions — they override the BRD where they ")
+              .append("conflict; use them and don't ask these questions again):\n").append(decisions).append("\n\n");
+        }
         sb.append(liftedSchema.isEmpty()
                 ? "Live org metadata: not available (CRM not connected). Assume a standard Zoho CRM org.\n\n"
                 : liftedSchema + "\n\n");

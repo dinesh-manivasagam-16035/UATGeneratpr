@@ -29,7 +29,8 @@ import java.util.logging.Logger;
  * Body: {
  *   "brd":     "Full BRD text...",
  *   "modules": ["Leads", "Properties"],   // modules in scope (existing or to be created), up to 5
- *   "max_llm_calls": 6, "deadline_sec": 120   // optional, can only lower the server limits
+ *   "max_llm_calls": 6, "deadline_sec": 120,  // optional, can only lower the server limits
+ *   "answers": [{"question": "...", "answer": "..."}]   // optional: client decisions from review
  * }
  *
  * Returns { spec, org, requirements, coverage, counts, warnings, provider, llm_calls }.
@@ -101,6 +102,15 @@ public class ImplementServlet extends HttpServlet {
                 warnings.add("Only the first " + MAX_MODULES + " modules were used.");
                 modules = new ArrayList<>(modules.subList(0, MAX_MODULES));
             }
+            StringBuilder decisionText = new StringBuilder();
+            for (JsonNode a : body.path("answers")) {
+                String q = a.path("question").asText("").trim();
+                String ans = a.path("answer").asText("").trim();
+                if (!q.isEmpty() && !ans.isEmpty() && decisionText.length() < 3000) {
+                    decisionText.append("- Q: ").append(q).append("\n  A: ").append(ans).append('\n');
+                }
+            }
+            final String decisions = decisionText.toString().trim();
             String moduleList = modules.isEmpty() ? "(none picked — infer them from the BRD)" : String.join(", ", modules);
 
             // ---- 1. Chunks and requirements ----
@@ -169,7 +179,7 @@ public class ImplementServlet extends HttpServlet {
                 List<Future<ImplSpec.Parsed>> futures = new ArrayList<>();
                 for (Task t : tasks) {
                     futures.add(pool.submit(() -> runTask(t, chunks.size(), split.outline, fModules, fOrgText,
-                            Requirements.promptList(reqs, t.chunk.index + 1, 1500), deadline)));
+                            Requirements.promptList(reqs, t.chunk.index + 1, 1500), decisions, deadline)));
                 }
                 for (int i = 0; i < futures.size(); i++) {
                     Task t = tasks.get(i);
@@ -300,9 +310,10 @@ public class ImplementServlet extends HttpServlet {
     }
 
     private static ImplSpec.Parsed runTask(Task t, int totalParts, String outline, String modules,
-                                           String orgText, String requirements, long deadline) throws Exception {
+                                           String orgText, String requirements, String decisions,
+                                           long deadline) throws Exception {
         String user = ImplPrompts.partPrompt(modules, orgText, outline, t.chunk.text,
-                t.chunk.index + 1, totalParts, requirements, "");
+                t.chunk.index + 1, totalParts, requirements, decisions, "");
         LlmResult r = ClaudeClient.chat(t.system(), user, 0);
         ImplSpec.Parsed p = ImplSpec.parse(r.content, t.sections());
         if (p.ok() && (p.size() > 0 || !r.truncated())) {
@@ -316,7 +327,7 @@ public class ImplementServlet extends HttpServlet {
                 : "Your previous answer could not be used (" + trim(p.ok() ? "no items" : p.error, 200)
                   + "). Return valid JSON exactly in the requested shape.";
         LlmResult r2 = ClaudeClient.chat(t.system(), ImplPrompts.partPrompt(modules, orgText, outline,
-                t.chunk.text, t.chunk.index + 1, totalParts, requirements, note), 0);
+                t.chunk.text, t.chunk.index + 1, totalParts, requirements, decisions, note), 0);
         ImplSpec.Parsed p2 = ImplSpec.parse(r2.content, t.sections());
         if (r2.truncated()) p2.salvaged = true;
         return p2;

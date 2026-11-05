@@ -227,7 +227,8 @@ webhook), `roles`, `functions` (Deluge), `open_questions`, `plan`. Every item ca
 | executor | Items | Built by |
 |---|---|---|
 | `api` | custom modules, custom fields (standard types), picklist value additions, roles | `/implement/apply` via `/crm/v8/settings/*` |
-| `rpa` | layouts, validation rules, automation, Deluge functions, formula/autonumber/multi-lookup fields | RPA bot or consultant, from the `rpa_queue` (click paths + values) |
+| `rpa` (Manual) | layouts, validation rules, automation, Deluge functions, formula/autonumber/multi-lookup fields | RPA bot or consultant, from the `rpa_queue` (click paths + values) |
+| `partial` (Partly manual) | required fields (mandatory is a layout setting), roles with module permissions | API creates it; the finishing steps go to the `rpa_queue` |
 | `review` | open questions | consultant, before approval |
 | `projects` | plan tasks | "Push plan to Projects" (`/push`) |
 
@@ -236,6 +237,11 @@ webhook), `roles`, `functions` (Deluge), `open_questions`, `plan`. Every item ca
 **sandbox** orgs; production is read-only (dry runs still work there). Blocking open questions must be answered (or unticked) before the UI
 lets you approve. Items already in the org are skipped. "Required" on a field is a layout setting
 and is returned as a follow-up, not applied.
+
+**Review** shows a summary (included, conflicts, need update, new, already in org, not compared;
+share by API, partly manual, manual), filters (All, Needs attention, New, Already in org) and fields
+grouped by module. Open questions can be copied for an email to the client; their answers are sent
+back with **Apply answers and regenerate** (`answers` on `/implement`) and override the BRD.
 
 **Build** runs the API items as ordered steps (modules, then fields, then roles), one call per
 step (`item_ids`), with live Done / Running / Failed / Waiting counts. A run stops at the first

@@ -25,7 +25,8 @@
     ["functions",        "Deluge functions"],
     ["plan",             "Delivery plan"],
   ];
-  const EXECUTOR_LABEL = { api: "API", rpa: "RPA / manual", review: "Review", projects: "Projects", none: "—" };
+  const EXECUTOR_LABEL = { api: "API", partial: "Partly manual", rpa: "Manual", review: "Review", projects: "Projects", none: "—" };
+  const FILTERS = [["all", "All items"], ["attention", "Needs attention"], ["new", "New"], ["exists", "Already in org"]];
   const STATUS_LABEL = { new: "New", exists: "Already in org", needs_update: "Needs update", conflict: "Conflict",
     not_compared: "Not compared", created: "Created", open: "Open" };
   const API_FIELD_TYPES = ["text", "textarea", "email", "phone", "website", "picklist", "multiselectpicklist",
@@ -38,12 +39,13 @@
     applied: null,   // last real apply response
     verify: null,    // last verify response
     build: null,     // the step-by-step build run (see renderBuild)
+    filter: "all",   // blueprint filter (FILTERS)
   };
   let running = false;   // a build run is in progress
 
   const $ = (id) => document.getElementById(id);
   const els = {
-    meta: $("impl-meta"), org: $("impl-org"), warnings: $("impl-warnings"), spec: $("impl-spec"),
+    meta: $("impl-meta"), org: $("impl-org"), warnings: $("impl-warnings"), spec: $("impl-spec"), toolbar: $("impl-toolbar"),
     reviewBar: $("impl-review-bar"), approve: $("impl-approve"), approveNote: $("impl-approve-note"),
     back: $("impl-back"), dry: $("impl-dry-run"), apply: $("impl-apply"), verify: $("impl-verify"),
     pushPlan: $("impl-push-plan"), toUat: $("impl-to-uat"), download: $("impl-download"),
@@ -144,8 +146,9 @@
 
   function executorFor(section, o) {
     if (section === "modules") return o.kind === "standard" || o.status === "exists" ? "none" : "api";
-    if (section === "fields") return API_FIELD_TYPES.includes(o.data_type) ? "api" : "rpa";
-    if (section === "roles") return "api";
+    if (o.status === "exists") return "none";
+    if (section === "fields") return !API_FIELD_TYPES.includes(o.data_type) ? "rpa" : o.required ? "partial" : "api";
+    if (section === "roles") return (o.permissions || []).length ? "partial" : "api";
     if (section === "open_questions") return "review";
     if (section === "plan") return "projects";
     return "rpa";
@@ -163,7 +166,8 @@
   }
 
   function download(name, data) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    const blob = new Blob([text], { type: typeof data === "string" ? "text/plain" : "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -185,6 +189,8 @@
   function render() {
     if (!impl.spec) {
       els.spec.innerHTML = "";
+      els.toolbar.hidden = true;
+      els.toolbar.innerHTML = "";
       els.reviewBar.hidden = true;
       els.org.hidden = true;
       els.warnings.innerHTML = "";
@@ -220,20 +226,91 @@
     if (impl.spec.summary) wh = `<p class="impl-summary">${esc(impl.spec.summary)}</p>` + wh;
     els.warnings.innerHTML = wh;
 
-    els.spec.innerHTML = SECTIONS.map(([s, label]) => sectionHtml(s, label)).join("");
+    els.toolbar.hidden = false;
+    els.toolbar.innerHTML = toolbarHtml();
+    const html = SECTIONS.map(([s, label]) => sectionHtml(s, label)).join("");
+    els.spec.innerHTML = html || `<p class="muted impl-empty">Nothing matches this filter.</p>`;
     els.reviewBar.hidden = false;
     els.approve.checked = !!impl.spec.approved;
     refreshButtons();
   }
 
+  function needsAttention(section, o) {
+    if (["conflict", "needs_update", "not_compared"].includes(o.status)) return true;
+    if (o.note) return true;
+    if (section === "open_questions") return o.include !== false && !(o.answer || "").trim();
+    const run = impl.dryRun && (impl.dryRun.results || []).find((r) => r.id === o.id);
+    return !!(run && (run.result === "failed" || run.result === "conflict"));
+  }
+
+  function matchesFilter(section, o) {
+    switch (impl.filter) {
+      case "attention": return needsAttention(section, o);
+      case "new":       return o.status === "new";
+      case "exists":    return o.status === "exists";
+      default:          return true;
+    }
+  }
+
   function sectionHtml(section, label) {
     const items = impl.spec[section] || [];
     if (!items.length) return "";
+    const shown = items.filter((o) => matchesFilter(section, o));
+    if (!shown.length) return "";
     const included = items.filter((o) => o.include !== false).length;
+    let body;
+    if (section === "fields") {
+      // Grouped by module, as consultants read a field list.
+      const byModule = {};
+      shown.forEach((o) => { (byModule[o.module] = byModule[o.module] || []).push(o); });
+      body = Object.entries(byModule).map(([m, list]) =>
+        `<div class="impl-group"><h4>${esc(m)}</h4>${list.map((o) => itemHtml(section, o)).join("")}</div>`).join("");
+    } else {
+      body = shown.map((o) => itemHtml(section, o)).join("");
+    }
     return `<details class="impl-section" open data-section="${section}">
       <summary><span>${esc(label)}</span><span class="muted">${included}/${items.length} included</span></summary>
-      ${items.map((o) => itemHtml(section, o)).join("")}
+      ${body}
     </details>`;
+  }
+
+  // Summary line, filters and the review actions above the blueprint.
+  function toolbarHtml() {
+    const all = [];
+    for (const [s] of SECTIONS) if (s !== "plan") (impl.spec[s] || []).forEach((o) => all.push([s, o]));
+    const build = all.filter(([s]) => s !== "open_questions");
+    const count = (f) => build.filter(([, o]) => f(o)).length;
+    const included = build.filter(([, o]) => o.include !== false);
+    const byExec = (e) => included.filter(([, o]) => o.executor === e).length;
+    const doable = byExec("api") + byExec("partial") + byExec("rpa");
+    const pct = doable ? Math.round(100 * byExec("api") / doable) : 0;
+    const openQs = (impl.spec.open_questions || []).filter((q) => q.include !== false);
+    const answered = openQs.filter((q) => (q.answer || "").trim()).length;
+    const stat = (n, label, cls) => n ? `<span class="impl-stat ${cls || ""}">${n} ${label}</span>` : "";
+    return `<div class="impl-stats">
+        <span class="impl-stat strong">${included.length} of ${build.length} items included</span>
+        ${stat(count((o) => o.status === "conflict"), "conflicts", "err")}
+        ${stat(count((o) => o.status === "needs_update"), "need update", "warn")}
+        ${stat(count((o) => o.status === "new"), "new", "new")}
+        ${stat(count((o) => o.status === "exists"), "already in org")}
+        ${stat(count((o) => o.status === "not_compared"), "not compared")}
+      </div>
+      <div class="impl-stats">
+        <span class="impl-stat strong">${pct}% by API</span>
+        ${stat(byExec("partial"), "partly manual", "warn")}
+        ${stat(byExec("rpa"), "manual")}
+        ${openQs.length ? `<span class="impl-stat">${openQs.length} open question(s) · ${answered} answered</span>` : ""}
+      </div>
+      <div class="impl-toolbar-row">
+        <div class="impl-filters" role="group" aria-label="Filter the blueprint">
+          ${FILTERS.map(([k, l]) => `<button type="button" class="mode-btn${impl.filter === k ? " active" : ""}" data-filter="${k}" aria-pressed="${impl.filter === k}">${l}</button>`).join("")}
+        </div>
+        <div class="impl-toolbar-actions">
+          ${openQs.length ? `<button type="button" class="ghost small" data-tool="copy-questions">Copy questions for email</button>` : ""}
+          ${answered ? `<button type="button" class="ghost small" data-tool="regen-answers">Apply answers and regenerate</button>` : ""}
+          <button type="button" class="ghost small" data-tool="regen">Regenerate</button>
+        </div>
+      </div>`;
   }
 
   function itemHtml(section, o) {
@@ -331,7 +408,8 @@
   }
 
   // ---- actions ----
-  async function generate() {
+  async function generate(opts) {
+    const answers = (opts && opts.answers) || [];
     L.setTabState("build", { locked: false });
     L.showTab("build");
     L.setStatus("build", "");
@@ -340,9 +418,19 @@
     els.run.innerHTML = "";
     render();
     try {
-      const data = await post("/implement", { brd: L.state.brd, modules: L.state.modulesSelected || [] },
+      const data = await post("/implement", { brd: L.state.brd, modules: L.state.modulesSelected || [], answers },
         190_000, "Implementation spec");
       impl.spec = data.spec;
+      // Keep the client's answers: on questions asked again, and as a record on the blueprint.
+      if (answers.length) {
+        const byText = {};
+        answers.forEach((a) => { byText[a.question.toLowerCase().trim()] = a.answer; });
+        (impl.spec.open_questions || []).forEach((q) => {
+          const a = byText[(q.question || "").toLowerCase().trim()];
+          if (a) q.answer = a;
+        });
+        impl.spec.decisions = answers;
+      }
       const meta = Object.assign({}, data);
       delete meta.spec;
       impl.meta = meta;
@@ -384,7 +472,8 @@
   // status: waiting | running | done | failed | conflict | skipped
   function buildSteps() {
     return (impl.dryRun.results || [])
-      .filter((r) => r.executor === "api" && ["would_create", "would_update", "conflict", "failed"].includes(r.result))
+      .filter((r) => (r.executor === "api" || r.executor === "partial")
+        && ["would_create", "would_update", "conflict", "failed"].includes(r.result))
       .map((r) => ({
         id: r.id, label: r.label,
         method: r.request ? r.request.method : "", path: r.request ? r.request.path.replace(/\?.*$/, "") : "",
@@ -674,6 +763,7 @@
       f.item.answer = t.value;
       if (impl.spec.approved) changed();
       save();
+      els.toolbar.innerHTML = toolbarHtml();   // answered count + "Apply answers" (not the textarea: keeps focus)
       refreshButtons();
     }
   });
@@ -714,6 +804,38 @@
   els.toUat.addEventListener("click", toUat);
   els.download.addEventListener("click", () => download("implementation-spec.json", Object.assign({}, impl.meta, { spec: impl.spec })));
   els.downloadRpa.addEventListener("click", rpaQueue);
+
+  function answeredQuestions() {
+    const now = (impl.spec.open_questions || []).filter((q) => (q.answer || "").trim())
+      .map((q) => ({ question: q.question, answer: q.answer.trim() }));
+    const seen = new Set(now.map((a) => a.question.toLowerCase().trim()));
+    (impl.spec.decisions || []).forEach((a) => { if (!seen.has(a.question.toLowerCase().trim())) now.push(a); });
+    return now;
+  }
+
+  els.toolbar.addEventListener("click", async (e) => {
+    const f = e.target.closest("button[data-filter]");
+    if (f) { impl.filter = f.dataset.filter; render(); return; }
+    const t = e.target.closest("button[data-tool]");
+    if (!t) return;
+    if (t.dataset.tool === "copy-questions") {
+      const qs = (impl.spec.open_questions || []).filter((q) => q.include !== false && !(q.answer || "").trim());
+      const base = (L.state.fileName || "the BRD").replace(/\.[^.]+$/, "");
+      const text = `Questions on ${base}\n\n` + qs.map((q, i) =>
+        `${i + 1}. ${q.question}${q.blocking ? " (needed before we can build this)" : ""}`
+        + (q.context ? `\n   Context: ${q.context}` : "")
+        + ((q.req_ids || []).length ? `\n   Requirement: ${q.req_ids.join(", ")}` : "")).join("\n\n");
+      try { await navigator.clipboard.writeText(text); L.showToast(`${qs.length} question(s) copied`, "ok", 2500); }
+      catch (err) { download("open-questions.txt", text); }
+      return;
+    }
+    if (t.dataset.tool === "regen" || t.dataset.tool === "regen-answers") {
+      const answers = t.dataset.tool === "regen-answers" ? answeredQuestions() : (impl.spec.decisions || []);
+      if (!window.confirm("Regenerate the blueprint from the BRD" + (answers.length ? ` with ${answers.length} client answer(s)` : "")
+          + "?\n\nYour edits, ticks and the dry run are replaced.")) return;
+      return generate({ answers });
+    }
+  });
 
   window.LiftOffImpl = {
     generate,

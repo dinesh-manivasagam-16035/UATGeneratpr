@@ -24,8 +24,9 @@ import java.util.Set;
  *
  * Every item gets, server side:
  *   id        stable short id per section (MOD-1, FLD-3, ...)
- *   executor  who builds it: "api" (REST, /implement/apply), "rpa" (UI-only, for an
- *             RPA bot or a consultant), "review" (open questions), "projects" (plan)
+ *   executor  who builds it: "api" (REST, /implement/apply), "partial" (REST creates it, a
+ *             person finishes it), "rpa" (UI-only, for an RPA bot or a consultant),
+ *             "review" (open questions), "projects" (plan), "none" (already there)
  *   status    new / exists / needs_update / conflict / not_compared (ImplCompare)
  *   include   true; the reviewer unticks items they don't want built
  *   req_ids   requirement IDs the item delivers
@@ -350,8 +351,12 @@ public final class ImplSpec {
         if ("exists".equals(o.path("status").asText())) return "none";
         switch (section) {
             case "modules": return "standard".equals(o.path("kind").asText()) ? "none" : "api";
-            case "fields":  return API_FIELD_TYPES.contains(o.path("data_type").asText()) ? "api" : "rpa";
-            case "roles":   return "api";
+            // "partial": the API creates it, a person finishes it (mandatory is a layout setting;
+            // a role's module permissions live on its profile).
+            case "fields":
+                if (!API_FIELD_TYPES.contains(o.path("data_type").asText())) return "rpa";
+                return o.path("required").asBoolean(false) ? "partial" : "api";
+            case "roles":   return o.path("permissions").size() > 0 ? "partial" : "api";
             case "open_questions": return "review";
             case "plan":    return "projects";
             default:        return "rpa";   // layouts, validation rules, workflows, functions
