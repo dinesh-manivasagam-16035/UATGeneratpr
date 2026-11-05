@@ -3491,9 +3491,6 @@ footer { display: none; }
 /* ── Implementation generator (Build tab) ── */
 .mode-selector { margin-bottom: 8px; }
 .mode-hint { margin: 0 0 16px; font-size: 13px; max-width: 640px; }
-.impl-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0 0 14px; }
-.impl-steps li { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); }
-.impl-steps li.done { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-border); }
 .impl-org { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 12px;
   border: 1px solid var(--border); border-radius: 10px; background: var(--bg-subtle); font-size: 13px; }
 .impl-summary { margin: 0 0 8px; }
@@ -3578,3 +3575,4 @@ footer { display: none; }
 .impl-handoff > div:first-child { max-width: 60ch; }
 #impl-promote { flex-basis: 100%; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.impl-panel-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }

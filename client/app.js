@@ -6,7 +6,8 @@
     ? "http://localhost:9000/uat_generator"
     : "/server/uat_generator";
 
-  const TABS = ["input", "cases", "execute", "push", "build"];
+  const TABS = ["input", "cases", "execute", "push", "blueprint", "build", "verify"];
+  const IMPL_TABS = ["blueprint", "build", "verify"];   // Implementation mode (implement.js)
 
   const els = {
     tabs: document.querySelectorAll(".tab"),
@@ -555,7 +556,9 @@
       cases: els.statusCases,
       execute: els.statusExecute,
       push: els.statusPush,
+      blueprint: document.getElementById("status-blueprint"),
       build: document.getElementById("status-build"),
+      verify: document.getElementById("status-verify"),
     }[panelName];
     if (!el) return;
     el.textContent = msg || "";
@@ -2185,8 +2188,8 @@
   }
 
   // ---- Generator mode (UAT cases / Implementation) ----
-  // Implementation mode is CRM-only and uses the Build tab (implement.js) instead of
-  // Cases → Fly → Land.
+  // Implementation mode is CRM-only and uses Blueprint → Build → Verify (implement.js)
+  // instead of Cases → Fly → Land.
   function switchMode(mode) {
     state.mode = mode === "impl" ? "impl" : "uat";
     const impl = state.mode === "impl";
@@ -2199,11 +2202,10 @@
     const hint = document.getElementById("mode-hint");
     if (hint) hint.hidden = !impl;
     ["cases", "execute", "push"].forEach((t) => { const b = getTabBtn(t); if (b) b.hidden = impl; });
-    const buildBtn = getTabBtn("build");
-    if (buildBtn) buildBtn.hidden = !impl;
-    els.generate.innerHTML = impl ? "Generate implementation spec &rarr;" : "Generate UAT cases &rarr;";
+    IMPL_TABS.forEach((t) => { const b = getTabBtn(t); if (b) b.hidden = !impl; });
+    els.generate.innerHTML = impl ? "Generate blueprint &rarr;" : "Generate UAT cases &rarr;";
     if (!TABS.includes(state.activeTab) || (impl && ["cases", "execute", "push"].includes(state.activeTab))
-        || (!impl && state.activeTab === "build")) {
+        || (!impl && IMPL_TABS.includes(state.activeTab))) {
       showTab("input");
     }
     refreshGenerateAvailability();

@@ -205,14 +205,15 @@ Creates one Projects task per case. Returns per-case results.
 
 ## Implementation generator
 
-Switch the Brief tab to **Implementation** to turn a BRD into a build spec instead of
-test cases. The pipeline:
+Switch the Brief tab to **Implementation** to turn a BRD into an implementation blueprint instead of
+test cases. The tabs become **Brief → Blueprint → Build → Verify**; each unlocks when the step
+before it is ready (Build once the blueprint is approved, Verify once a dry run is done). The pipeline:
 
 ```
 BRD ──► 1. Extract  POST /implement          implementation spec (JSON)
-    ──► 2. Review   Build tab                untick / edit items, answer open questions, approve
-    ──► 3. Apply    POST /implement/apply    dry run, then REST create calls; UI-only items → RPA queue
-    ──► 4. Verify   POST /implement/verify   read org metadata back, diff against the spec
+    ──► 2. Review   Blueprint tab            untick / edit items, answer open questions, approve
+    ──► 3. Apply    Build tab                dry run, then ordered REST steps; UI-only items → Configure by hand
+    ──► 4. Verify   Verify tab               read the sandbox back, diff against the blueprint
     ──► 5. UAT      in Verify                UAT cases from the approved blueprint, run on the sandbox
     ──► Promote     hand-off package         for Zoho's sandbox-to-production deployment
 ```

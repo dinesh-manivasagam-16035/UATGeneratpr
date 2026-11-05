@@ -187,8 +187,14 @@
     <button class="tab locked" data-tab="push" data-step="4" id="tab-push" role="tab" aria-selected="false" aria-controls="panel-push">
       <span class="tab-num">4</span><span class="tab-label">Land</span><span class="tab-state"></span>
     </button>
-    <button class="tab locked" data-tab="build" data-step="2" id="tab-build" role="tab" aria-selected="false" aria-controls="panel-build" hidden>
-      <span class="tab-num">2</span><span class="tab-label">Build</span><span class="tab-state"></span>
+    <button class="tab locked" data-tab="blueprint" data-step="2" id="tab-blueprint" role="tab" aria-selected="false" aria-controls="panel-blueprint" hidden>
+      <span class="tab-num">2</span><span class="tab-label">Blueprint</span><span class="tab-state"></span>
+    </button>
+    <button class="tab locked" data-tab="build" data-step="3" id="tab-build" role="tab" aria-selected="false" aria-controls="panel-build" hidden>
+      <span class="tab-num">3</span><span class="tab-label">Build</span><span class="tab-state"></span>
+    </button>
+    <button class="tab locked" data-tab="verify" data-step="4" id="tab-verify" role="tab" aria-selected="false" aria-controls="panel-verify" hidden>
+      <span class="tab-num">4</span><span class="tab-label">Verify</span><span class="tab-state"></span>
     </button>
   </nav>
 
@@ -273,8 +279,8 @@
           <button class="mode-btn" data-mode="impl" id="mode-impl-btn" type="button">Implementation</button>
         </div>
         <p class="muted mode-hint" id="mode-hint" hidden>
-          Builds an implementation spec from the BRD (modules, fields, layouts, workflows, roles, Deluge,
-          delivery plan). You review it, then apply it to a sandbox org and verify.
+          Drafts an implementation blueprint from the BRD (modules, fields, layouts, automation, roles, Deluge,
+          delivery plan). You review it, build it in a sandbox org, then verify it with UAT.
         </p>
 
         <!-- Platform selector -->
@@ -601,24 +607,23 @@
       </div>
     </section>
 
-    <!-- Tab: Build (Implementation mode) -->
-    <section class="tab-panel" data-panel="build" id="panel-build" role="tabpanel" aria-labelledby="tab-build" hidden>
+    <!-- Implementation mode: Blueprint → Build → Verify (implement.js) -->
+    <section class="tab-panel" data-panel="blueprint" id="panel-blueprint" role="tabpanel" aria-labelledby="tab-blueprint" hidden>
       <div class="loader" hidden>
         <div class="spinner"></div>
-        <div class="loader-text">Extracting the implementation spec…</div>
+        <div class="loader-text">Drafting the implementation blueprint…</div>
       </div>
       <div class="panel-body">
-        <div class="panel-header">
-          <h2>Build plan 🛠️</h2>
-          <p class="muted" id="impl-meta"></p>
+        <div class="panel-header impl-panel-header">
+          <div>
+            <h2>Implementation blueprint</h2>
+            <p class="muted" id="impl-meta"></p>
+          </div>
+          <div class="impl-toolbar-actions">
+            <button id="impl-download" class="ghost small" disabled>Download JSON</button>
+            <button id="impl-push-plan" class="ghost small" disabled>Push plan to Projects</button>
+          </div>
         </div>
-        <ol class="impl-steps" aria-label="Implementation pipeline">
-          <li data-step="extract">1. Extract</li>
-          <li data-step="review">2. Review</li>
-          <li data-step="apply">3. Apply</li>
-          <li data-step="verify">4. Verify</li>
-          <li data-step="uat">5. UAT</li>
-        </ol>
         <div id="impl-org" class="impl-org" hidden></div>
         <div id="impl-warnings"></div>
         <div id="impl-toolbar" class="impl-toolbar" hidden></div>
@@ -627,25 +632,65 @@
         <div class="impl-review-bar" id="impl-review-bar" hidden>
           <label class="impl-approve">
             <input type="checkbox" id="impl-approve" />
-            I've reviewed this spec and approve it for build
+            I've reviewed this blueprint and approve it for build
           </label>
           <span class="muted" id="impl-approve-note"></span>
         </div>
 
         <div class="actions">
           <button id="impl-back" class="ghost">&larr; Back</button>
-          <button id="impl-dry-run" class="ghost" disabled>Dry run</button>
-          <button id="impl-apply" class="primary" disabled>Apply to CRM</button>
-          <button id="impl-verify" class="ghost" disabled>Verify org</button>
-          <button id="impl-push-plan" class="ghost" disabled>Push plan to Projects</button>
+          <button id="impl-to-build" class="primary" disabled>Continue to Build &rarr;</button>
         </div>
-        <div class="actions inline tight">
-          <button id="impl-download" class="ghost small" disabled>Download spec JSON</button>
-          <button id="impl-download-rpa" class="ghost small" disabled>Download RPA queue</button>
+        <p id="status-blueprint" class="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="build" id="panel-build" role="tabpanel" aria-labelledby="tab-build" hidden>
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text">Building…</div>
+      </div>
+      <div class="panel-body">
+        <div class="panel-header impl-panel-header">
+          <div>
+            <h2>Build in sandbox</h2>
+            <p class="muted" id="impl-build-meta">Dry run first to preview every API call; nothing is written until you apply.</p>
+          </div>
+          <div class="impl-toolbar-actions">
+            <button id="impl-dry-run" class="ghost" disabled>Run dry run</button>
+            <button id="impl-apply" class="primary" disabled>Apply to sandbox</button>
+          </div>
         </div>
         <div id="impl-run"></div>
-        <div id="impl-verify-area"></div>
+        <div class="actions">
+          <button id="impl-back-blueprint" class="ghost">&larr; Back</button>
+          <button id="impl-download-rpa" class="ghost" disabled>Download RPA queue</button>
+          <button id="impl-to-verify" class="primary" disabled>Continue to Verify &rarr;</button>
+        </div>
         <p id="status-build" class="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="verify" id="panel-verify" role="tabpanel" aria-labelledby="tab-verify" hidden>
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text">Reading the sandbox back…</div>
+      </div>
+      <div class="panel-body">
+        <div class="panel-header impl-panel-header">
+          <div>
+            <h2>Verify the build</h2>
+            <p class="muted">Read the sandbox back, check it against the blueprint, then test it with UAT cases written from the same blueprint.</p>
+          </div>
+          <div class="impl-toolbar-actions">
+            <button id="impl-verify" class="primary" disabled>Check the sandbox</button>
+          </div>
+        </div>
+        <div id="impl-verify-area"></div>
+        <div class="actions">
+          <button id="impl-back-build" class="ghost">&larr; Back</button>
+        </div>
+        <p id="status-verify" class="status" aria-live="polite"></p>
       </div>
     </section>
 

@@ -51,6 +51,8 @@
     back: $("impl-back"), dry: $("impl-dry-run"), apply: $("impl-apply"), verify: $("impl-verify"),
     pushPlan: $("impl-push-plan"), verifyArea: $("impl-verify-area"), download: $("impl-download"),
     downloadRpa: $("impl-download-rpa"), run: $("impl-run"),
+    toBuild: $("impl-to-build"), toVerify: $("impl-to-verify"),
+    backBlueprint: $("impl-back-blueprint"), backBuild: $("impl-back-build"),
   };
 
   // ---- persistence (per-browser convenience only) ----
@@ -384,26 +386,29 @@
     els.dry.disabled = !have;
     const sandbox = !!(impl.dryRun && impl.dryRun.org && impl.dryRun.org.sandbox);
     els.apply.disabled = running || !(have && impl.spec.approved && impl.dryRun && impl.dryRun.org && connected && sandbox);
-    els.apply.title = !have ? "" : !impl.spec.approved ? "Approve the spec first"
+    els.apply.title = !have ? "" : !impl.spec.approved ? "Approve the blueprint first"
       : !impl.dryRun ? "Run a dry run first" : !connected ? "Connect CRM first"
       : !sandbox ? "Apply only writes to sandbox orgs" : "";
     els.verify.disabled = !(have && connected);
     els.pushPlan.disabled = !(have && (impl.spec.plan || []).some((t) => t.include !== false));
     els.download.disabled = !have;
     els.downloadRpa.disabled = !(impl.applied || impl.dryRun);
-    document.querySelectorAll(".impl-steps li").forEach((li) => {
-      const s = li.dataset.step;
-      const done = { extract: have, review: have && impl.spec.approved, apply: !!(impl.build && impl.build.finishedAt),
-                     verify: checksOk(), uat: uatOk() }[s];
-      li.classList.toggle("done", !!done);
-    });
+    // Tabs follow the pipeline: Blueprint once drafted, Build once approved, Verify once dry-run.
+    const approved = have && !!impl.spec.approved;
+    const dryDone = approved && !!impl.dryRun;
+    const buildDone = !!(impl.build && impl.build.finishedAt) || (dryDone && !buildSteps().length);
+    L.setTabState("blueprint", { locked: !have, done: approved });
+    L.setTabState("build", { locked: !approved, done: buildDone });
+    L.setTabState("verify", { locked: !dryDone, done: checksOk() && uatOk() });
+    els.toBuild.disabled = !approved;
+    els.toVerify.disabled = !dryDone || running;
   }
 
   // Any edit after approval needs a fresh approval and a fresh dry run.
   function changed() {
     if (impl.spec.approved) {
       setApproved(false);
-      L.setStatus("build", "Spec changed — review and approve again.", "warn");
+      L.setStatus("blueprint", "Blueprint changed — review and approve again.", "warn");
     }
     if (!running) { impl.dryRun = null; impl.build = null; }
     save();
@@ -412,17 +417,17 @@
   // ---- actions ----
   async function generate(opts) {
     const answers = (opts && opts.answers) || [];
-    L.setTabState("build", { locked: false });
-    L.showTab("build");
-    L.setStatus("build", "");
-    L.showLoader("build", "Extracting the implementation spec… this can take a couple of minutes.");
+    L.setTabState("blueprint", { locked: false });
+    L.showTab("blueprint");
+    L.setStatus("blueprint", "");
+    L.showLoader("blueprint", "Drafting the blueprint… this can take a couple of minutes.");
     impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null; impl.uat = null;
     els.run.innerHTML = "";
     els.verifyArea.innerHTML = "";
     render();
     try {
       const data = await post("/implement", { brd: L.state.brd, modules: L.state.modulesSelected || [], answers },
-        190_000, "Implementation spec");
+        190_000, "Blueprint");
       impl.spec = data.spec;
       // Keep the client's answers: on questions asked again, and as a record on the blueprint.
       if (answers.length) {
@@ -439,14 +444,13 @@
       impl.meta = meta;
       save();
       render();
-      L.setTabState("build", { done: true });
       const w = (data.warnings || []).length;
-      L.setStatus("build", w ? `Spec ready with ${w} note(s). Review it, then approve.` : "Spec ready. Review it, then approve.", w ? "warn" : "ok");
+      L.setStatus("blueprint", w ? `Blueprint ready with ${w} note(s). Review it, then approve.` : "Blueprint ready. Review it, then approve.", w ? "warn" : "ok");
     } catch (e) {
-      L.setStatus("build", "Spec extraction failed: " + e.message, "err");
-      L.showToast("Implementation spec failed: " + String(e.message).slice(0, 80), "err", 6000);
+      L.setStatus("blueprint", "Blueprint generation failed: " + e.message, "err");
+      L.showToast("Blueprint failed: " + String(e.message).slice(0, 80), "err", 6000);
     } finally {
-      L.hideLoader("build");
+      L.hideLoader("blueprint");
     }
   }
 
@@ -667,17 +671,17 @@
 
   // ---- Verify: configuration check, UAT run, hand-off ----
   async function verify() {
-    L.setStatus("build", "Reading the sandbox back…");
+    L.setStatus("verify", "Reading the sandbox back…");
     try {
       impl.verify = await post("/implement/verify", { spec: impl.spec }, 90_000, "Verify");
       save();
       renderVerify();
       render();
       const c = verifyCounts();
-      L.setStatus("build", `${c.match} match, ${c.differ} differ, ${c.missing} missing, ${c.byHand} to confirm by hand.`,
+      L.setStatus("verify", `${c.match} match, ${c.differ} differ, ${c.missing} missing, ${c.byHand} to confirm by hand.`,
         (c.differ || c.missing) ? "warn" : "ok");
     } catch (e) {
-      L.setStatus("build", "Verify failed: " + e.message, "err");
+      L.setStatus("verify", "Verify failed: " + e.message, "err");
     }
   }
 
@@ -837,33 +841,33 @@
 
   async function runUat() {
     const modules = scopeModules();
-    if (!modules.length) { L.setStatus("build", "The blueprint names no modules to test.", "warn"); return; }
+    if (!modules.length) { L.setStatus("verify", "The blueprint names no modules to test.", "warn"); return; }
     const org = verifyOrg();
     const live = !!(org && org.sandbox);   // UAT creates and deletes records: only ever live on a sandbox
     try {
-      L.setStatus("build", "Writing UAT cases from the blueprint…");
+      L.setStatus("verify", "Writing UAT cases from the blueprint…");
       const gen = await post("/generate", { brd: specToBrd(), modules, platform: "crm" }, 190_000, "UAT generation");
       const cases = gen.cases || [];
       if (!cases.length) throw new Error((gen.warnings || [])[0] || "No cases were written.");
-      L.setStatus("build", `Running ${cases.length} case(s) ${live ? "against the sandbox" : "as a dry run"}…`);
+      L.setStatus("verify", `Running ${cases.length} case(s) ${live ? "against the sandbox" : "as a dry run"}…`);
       const ex = await post("/execute", { cases, platform: "crm", dry_run: !live }, 190_000, "UAT run");
       impl.uat = { cases: ex.cases || cases, live: live && !ex.dry_run, ranAt: new Date().toISOString(), modules };
       save();
       renderVerify();
       refreshButtons();
       const c = uatCounts();
-      L.setStatus("build", impl.uat.live ? `UAT: ${c.passed} passed, ${c.failed} failed, ${c.notRun} not run.`
+      L.setStatus("verify", impl.uat.live ? `UAT: ${c.passed} passed, ${c.failed} failed, ${c.notRun} not run.`
         : "UAT dry run: plans checked, nothing sent. Connect a sandbox org to run them.", c.failed ? "warn" : "ok");
     } catch (e) {
-      L.setStatus("build", "UAT run failed: " + e.message, "err");
+      L.setStatus("verify", "UAT run failed: " + e.message, "err");
     }
   }
 
   async function fixInSandbox(id) {
     const org = verifyOrg();
     if (!org || !org.sandbox) return;
-    if (!impl.spec.approved) { L.setStatus("build", "Approve the blueprint before changing the sandbox.", "warn"); return; }
-    L.setStatus("build", `Fixing ${id} in the sandbox…`);
+    if (!impl.spec.approved) { L.setStatus("verify", "Approve the blueprint before changing the sandbox.", "warn"); return; }
+    L.setStatus("verify", `Fixing ${id} in the sandbox…`);
     try {
       const data = await post("/implement/apply", { spec: impl.spec, dry_run: false, confirm_org_id: org.id, item_ids: [id] },
         90_000, "Fix");
@@ -871,21 +875,21 @@
       if (!["created", "updated", "skipped"].includes(r.result)) throw new Error(r.detail || r.result || "no result");
       await verify();
     } catch (e) {
-      L.setStatus("build", `Couldn't fix ${id}: ${e.message}`, "err");
+      L.setStatus("verify", `Couldn't fix ${id}: ${e.message}`, "err");
     }
   }
 
   async function pushUat() {
     const base = (L.state.fileName || "BRD").replace(/\.[^.]+$/, "");
     const projectName = `UAT — ${base} — ${new Date().toISOString().slice(0, 10)}`;
-    L.setStatus("build", `Pushing ${impl.uat.cases.length} case(s) to Zoho Projects…`);
+    L.setStatus("verify", `Pushing ${impl.uat.cases.length} case(s) to Zoho Projects…`);
     try {
       const data = await post("/push", { cases: impl.uat.cases, project_name: projectName }, 120_000, "Push");
-      L.setStatus("build", `${data.tasks_created || 0} task(s) and ${data.bugs_created || 0} bug(s) created`
+      L.setStatus("verify", `${data.tasks_created || 0} task(s) and ${data.bugs_created || 0} bug(s) created`
         + (data.project_name ? ` in "${data.project_name}"` : "") + (data.mock ? " (mock)" : "") + ".",
         data.tasks_failed || data.bugs_failed ? "warn" : "ok");
     } catch (e) {
-      L.setStatus("build", "Push failed: " + e.message, "err");
+      L.setStatus("verify", "Push failed: " + e.message, "err");
     }
   }
 
@@ -969,16 +973,16 @@
     }));
     const base = (L.state.fileName || "BRD").replace(/\.[^.]+$/, "");
     const projectName = `Implementation — ${base} — ${new Date().toISOString().slice(0, 10)}`;
-    L.setStatus("build", `Pushing ${cases.length} task(s) to Zoho Projects…`);
+    L.setStatus("blueprint", `Pushing ${cases.length} task(s) to Zoho Projects…`);
     try {
       const data = await post("/push", { cases, project_name: projectName }, 120_000, "Push");
       const link = data.project_url ? ` <a href="${esc(data.project_url)}" target="_blank" rel="noopener">Open project</a>` : "";
-      const el = document.getElementById("status-build");
+      const el = document.getElementById("status-blueprint");
       el.className = "status " + (data.tasks_failed ? "warn" : "ok");
       el.innerHTML = esc(`${data.tasks_created || 0} task(s) created${data.tasks_failed ? `, ${data.tasks_failed} failed` : ""}`
         + (data.project_name ? ` in "${data.project_name}"` : "") + (data.mock ? " (mock)" : "") + ".") + link;
     } catch (e) {
-      L.setStatus("build", "Push failed: " + e.message, "err");
+      L.setStatus("blueprint", "Push failed: " + e.message, "err");
     }
   }
 
@@ -1058,23 +1062,27 @@
         impl.spec[f.section][f.index] = next;
         changed();
         render();
-        L.setStatus("build", `${id} updated.`, "ok");
+        L.setStatus("blueprint", `${id} updated.`, "ok");
       } catch (err) {
-        L.setStatus("build", `${id}: not valid JSON — ${err.message}`, "err");
+        L.setStatus("blueprint", `${id}: not valid JSON — ${err.message}`, "err");
       }
     }
   });
   els.approve.addEventListener("change", () => {
     if (els.approve.checked && blockingOpen().length) { els.approve.checked = false; return; }
     setApproved(els.approve.checked);
-    L.setStatus("build", els.approve.checked ? "Approved. Run a dry run, then Apply." : "", "ok");
+    L.setStatus("blueprint", els.approve.checked ? "Approved. Continue to Build for a dry run." : "", "ok");
   });
   els.back.addEventListener("click", () => L.showTab("input"));
+  els.toBuild.addEventListener("click", () => L.showTab("build"));
+  els.toVerify.addEventListener("click", () => { L.showTab("verify"); if (!impl.verify) verify(); });
+  els.backBlueprint.addEventListener("click", () => L.showTab("blueprint"));
+  els.backBuild.addEventListener("click", () => L.showTab("build"));
   els.dry.addEventListener("click", dryRun);
   els.apply.addEventListener("click", apply);
   els.verify.addEventListener("click", verify);
   els.pushPlan.addEventListener("click", pushPlan);
-  els.download.addEventListener("click", () => download("implementation-spec.json", Object.assign({}, impl.meta, { spec: impl.spec })));
+  els.download.addEventListener("click", () => download("implementation-blueprint.json", Object.assign({}, impl.meta, { spec: impl.spec })));
   els.downloadRpa.addEventListener("click", rpaQueue);
 
   function answeredQuestions() {
@@ -1116,15 +1124,13 @@
       try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
       els.run.innerHTML = "";
       els.verifyArea.innerHTML = "";
-      L.setStatus("build", "");
-      L.setTabState("build", { locked: true, done: false });
+      ["blueprint", "build", "verify"].forEach((t) => { L.setStatus(t, ""); L.setTabState(t, { locked: true, done: false }); });
       render();
     },
   };
 
   load();
   if (impl.spec) {
-    L.setTabState("build", { locked: false, done: true });
     if (impl.build || impl.dryRun) renderBuild();
     renderVerify();
     render();
