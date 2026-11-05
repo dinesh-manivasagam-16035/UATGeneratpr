@@ -58,6 +58,7 @@ public final class ImplJob {
             status(key, "running", 0, total, null, "Starting", steps);
             // Calls here aren't bound by Catalyst's 30 s request limit.
             ZiaAgentClient.timeoutSecOverride = ImplementServlet.envInt("IMPL_WORKER_CALL_TIMEOUT_SEC", 240);
+            ZiaAgentClient.retrySecOverride = new int[]{8, 20};   // transient 5xx/429: two more tries
 
             int[] done = {0};
             ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(2, jobs.size())));

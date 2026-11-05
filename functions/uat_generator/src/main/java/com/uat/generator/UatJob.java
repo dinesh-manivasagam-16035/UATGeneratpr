@@ -50,6 +50,7 @@ final class UatJob {
         ImplJob.status(key, "running", 0, total, null, "Starting", steps);
         // Calls here aren't bound by Catalyst's 30 s request limit.
         ZiaAgentClient.timeoutSecOverride = ImplementServlet.envInt("IMPL_WORKER_CALL_TIMEOUT_SEC", 240);
+        ZiaAgentClient.retrySecOverride = new int[]{8, 20};   // transient 5xx/429: two more tries
 
         String brd = in.path("brd").asText("");
         BrdChunker.Result split = GenerateServlet.split(brd, Llm.mock());

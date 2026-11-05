@@ -82,10 +82,30 @@ public final class ZiaAgentClient {
         ObjectNode body = MAPPER.createObjectNode();
         body.put("query", query);
         body.putObject("systemArgs");
-        return post(body, true);
+        // Long-running callers (the impl_worker job) retry Zia's transient 5xx/429 errors;
+        // a web request (~30 s budget) only retries a 429 once.
+        int[] waits = retrySecOverride != null ? retrySecOverride : new int[0];
+        int attempt = 0;
+        while (true) {
+            try {
+                return post(body, query.length(), attempt == 0 && waits.length == 0);
+            } catch (Transient t) {
+                if (attempt >= waits.length) throw new RuntimeException(t.getMessage());
+                Thread.sleep(waits[attempt] * 1000L);
+                attempt++;
+            }
+        }
     }
 
-    private static LlmResult post(ObjectNode body, boolean retryOn429) throws Exception {
+    /** Waits (seconds) between retries of a transient error; set by the impl_worker job. null = no retries. */
+    static volatile int[] retrySecOverride = null;
+
+    /** A 5xx or 429 from the Agent API, worth retrying. */
+    private static final class Transient extends Exception {
+        Transient(String m) { super(m); }
+    }
+
+    private static LlmResult post(ObjectNode body, int queryChars, boolean retryOn429) throws Exception {
         String token = tokenClient().accessToken();
         // 25 s inside an Advanced I/O request (~30 s limit); the impl_worker job sets a longer one.
         int timeout = timeoutSecOverride > 0 ? timeoutSecOverride : envInt("ZIA_AGENT_TIMEOUT_SEC", 25);
@@ -105,6 +125,11 @@ public final class ZiaAgentClient {
                 String text = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity());
                 int code = response.getCode();
                 if (code == 429) return Integer.valueOf(429);
+                if (code >= 500) {
+                    return new Transient("Zia Agent error " + code + " (query " + String.format("%,d", queryChars) + " chars): "
+                            + trim(text, 240) + " If this keeps happening, the request may be too long for the agent: "
+                            + "lower IMPL_CHUNK_CHARS (default 6000) on uat_generator.");
+                }
                 if (code >= 400) {
                     String hint = code == 401 ? " Called " + agentUrl() + " with a token from " + accountsBase()
                             + ": both must be on the same data center, and the token needs scope ZiaAgents.agents.TRIGGER."
@@ -121,12 +146,13 @@ public final class ZiaAgentClient {
                 return new LlmResult(resp.isTextual() ? resp.asText() : resp.toString(), null);
             });
             if (out instanceof LlmResult) return (LlmResult) out;
+            if (out instanceof Transient) throw (Transient) out;
             if (out instanceof RuntimeException) throw (RuntimeException) out;
             if (retryOn429) {
                 Thread.sleep(8000);
-                return post(body, false);
+                return post(body, queryChars, false);
             }
-            throw new RuntimeException("Zia Agent rate limit hit. Try again shortly, or lower GEN_CONCURRENCY.");
+            throw new Transient("Zia Agent rate limit hit (429). Try again shortly, or lower GEN_CONCURRENCY.");
         }
     }
 
