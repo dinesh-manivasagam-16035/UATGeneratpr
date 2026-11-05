@@ -45,6 +45,20 @@ public final class ClaudeClient {
         return callOpenAICompat(requireToken(), endpoint(), payload);
     }
 
+    /**
+     * One JSON-mode chat call with caller-supplied prompts (used by the implementation
+     * generator). maxTokens <= 0 uses LLM_MAX_TOKENS.
+     */
+    public static LlmResult chat(String system, String user, int maxTokens) throws Exception {
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("model", model());
+        payload.put("max_tokens", maxTokens > 0 ? Math.min(maxTokens, maxTokens()) : maxTokens());
+        ArrayNode messages = payload.putArray("messages");
+        messages.addObject().put("role", "system").put("content", system);
+        messages.addObject().put("role", "user").put("content", user);
+        return callOpenAICompat(requireToken(), endpoint(), payload);
+    }
+
     public static String analyze(String brd, String moduleNames) throws Exception {
         String token    = requireToken();
         String model    = model();

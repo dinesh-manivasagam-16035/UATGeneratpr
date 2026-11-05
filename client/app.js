@@ -6,7 +6,7 @@
     ? "http://localhost:9000/uat_generator"
     : "/server/uat_generator";
 
-  const TABS = ["input", "cases", "execute", "push"];
+  const TABS = ["input", "cases", "execute", "push", "build"];
 
   const els = {
     tabs: document.querySelectorAll(".tab"),
@@ -98,6 +98,7 @@
     stepDone: { input: false, cases: false, execute: false, push: false },
     // Creator
     platform: "crm",
+    mode: "uat",        // "uat" (test cases) or "impl" (implementation spec, see implement.js)
     creatorOwner: "",
     creatorApp: "",
     creatorForms: [],
@@ -138,6 +139,7 @@
         requirements:          state.requirements,
         modulesSelected:       state.modulesSelected,
         platform:              state.platform,
+        mode:                  state.mode,
         creatorOwner:          state.creatorOwner,
         creatorApp:            state.creatorApp,
         creatorAppDisplayName: state.creatorAppDisplayName,
@@ -165,6 +167,7 @@
       }
       if (Array.isArray(saved.requirements)) state.requirements = saved.requirements;
       if (saved.platform) state.platform = saved.platform;
+      if (saved.mode === "impl" || saved.mode === "uat") state.mode = saved.mode;
       if (saved.creatorOwner)           state.creatorOwner           = saved.creatorOwner;
       if (saved.creatorApp)             state.creatorApp             = saved.creatorApp;
       if (saved.creatorAppDisplayName)  state.creatorAppDisplayName  = saved.creatorAppDisplayName;
@@ -552,6 +555,7 @@
       cases: els.statusCases,
       execute: els.statusExecute,
       push: els.statusPush,
+      build: document.getElementById("status-build"),
     }[panelName];
     if (!el) return;
     el.textContent = msg || "";
@@ -1438,6 +1442,11 @@
   // ---- Actions ----
 
   async function generate() {
+    if (state.mode === "impl") {
+      if (!state.brd) { setStatus("input", "Attach a BRD first.", "warn"); return; }
+      if (window.LiftOffImpl) window.LiftOffImpl.generate();
+      return;
+    }
     if (!state.brd) { setStatus("input", "Attach a UAT spec file first.", "warn"); return; }
     if (state.platform === "creator") {
       if (!getCreatorFormLink()) {
@@ -1918,7 +1927,9 @@
   }
 
   function refreshGenerateAvailability() {
-    if (state.platform === "creator") {
+    if (state.mode === "impl") {
+      els.generate.disabled = !state.brd;   // modules are optional: the spec can propose new ones
+    } else if (state.platform === "creator") {
       els.generate.disabled = !(state.brd && getCreatorFormLink());
     } else {
       els.generate.disabled = !(state.brd && state.modulesSelected.length);
@@ -2172,6 +2183,60 @@
       || document.getElementById("creator-app-display-name")?.value
       || state.creatorAppLinkName || state.creatorAppDisplayName || state.creatorApp || "").trim();
   }
+
+  // ---- Generator mode (UAT cases / Implementation) ----
+  // Implementation mode is CRM-only and uses the Build tab (implement.js) instead of
+  // Cases → Fly → Land.
+  function switchMode(mode) {
+    state.mode = mode === "impl" ? "impl" : "uat";
+    const impl = state.mode === "impl";
+    document.querySelectorAll(".mode-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.mode === state.mode);
+    });
+    if (impl && state.platform === "creator") switchPlatform("crm");
+    const creatorBtn = document.getElementById("platform-creator-btn");
+    if (creatorBtn) creatorBtn.hidden = impl;
+    const hint = document.getElementById("mode-hint");
+    if (hint) hint.hidden = !impl;
+    ["cases", "execute", "push"].forEach((t) => { const b = getTabBtn(t); if (b) b.hidden = impl; });
+    const buildBtn = getTabBtn("build");
+    if (buildBtn) buildBtn.hidden = !impl;
+    els.generate.innerHTML = impl ? "Generate implementation spec &rarr;" : "Generate UAT cases &rarr;";
+    if (!TABS.includes(state.activeTab) || (impl && ["cases", "execute", "push"].includes(state.activeTab))
+        || (!impl && state.activeTab === "build")) {
+      showTab("input");
+    }
+    refreshGenerateAvailability();
+    saveStateToStorage();
+  }
+
+  // Hooks for implement.js (kept small on purpose).
+  window.LiftOff = {
+    FUNCTION_BASE,
+    state,
+    fetchWithTimeout,
+    showToast: (...a) => showToast(...a),
+    escapeHtml: (s) => escapeHtml(s),
+    showTab,
+    setTabState,
+    setStatus,
+    showLoader,
+    hideLoader,
+    switchMode,
+    /** Step 5: run the UAT generator on a BRD derived from the approved spec. */
+    generateUat(brd, modules) {
+      switchMode("uat");
+      state.brd = brd;
+      state.fileName = "implementation-spec.md";
+      state.modulesSelected = modules.slice(0, MAX_MODULES);
+      if (els.fileMeta) els.fileMeta.textContent = "Implementation spec — " + brd.length.toLocaleString() + " chars";
+      renderModuleChips();
+      refreshGenerateAvailability();
+      saveStateToStorage();
+      setTabState("cases", { locked: false });
+      return generate();
+    },
+  };
 
   function switchPlatform(platform) {
     if (state.platform === platform) return;
@@ -2577,6 +2642,7 @@
   }
 
   function restart() {
+    if (window.LiftOffImpl) window.LiftOffImpl.reset();
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     state.brd = "";
     state.fileName = "";
@@ -2817,6 +2883,11 @@
     if (overlay)    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.hidden = true; });
   }());
 
+  // Generator mode selector
+  document.querySelectorAll(".mode-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchMode(btn.dataset.mode));
+  });
+
   // Platform selector
   document.querySelectorAll(".platform-btn").forEach((btn) => {
     btn.addEventListener("click", () => switchPlatform(btn.dataset.platform));
@@ -2859,6 +2930,8 @@
     }
     refreshGenerateAvailability();
   }
+
+  if (state.mode === "impl") switchMode("impl");
 
   // Auth
   initAuth();

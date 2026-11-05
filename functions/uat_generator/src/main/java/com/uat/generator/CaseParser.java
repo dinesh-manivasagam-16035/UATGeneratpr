@@ -223,7 +223,7 @@ public final class CaseParser {
     }
 
     /** Drops any prose or code fences before the first { or [ and after the last } or ]. */
-    private static String sliceToJson(String raw) {
+    static String sliceToJson(String raw) {
         String t = raw.trim();
         int firstBrace = t.indexOf('{');
         int firstBracket = t.indexOf('[');

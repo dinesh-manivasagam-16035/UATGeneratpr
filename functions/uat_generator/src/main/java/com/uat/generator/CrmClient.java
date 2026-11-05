@@ -53,6 +53,9 @@ public class CrmClient {
         this.refreshToken = refreshToken;
     }
 
+    /** API host this client talks to, e.g. https://www.zohoapis.in. */
+    public String apiBase() { return apiBase; }
+
     public boolean hasCredentials() {
         if (notEmpty(staticAccessToken)) return true;
         return notEmpty(clientId) && notEmpty(clientSecret) && notEmpty(refreshToken);

@@ -187,6 +187,9 @@
     <button class="tab locked" data-tab="push" data-step="4" id="tab-push" role="tab" aria-selected="false" aria-controls="panel-push">
       <span class="tab-num">4</span><span class="tab-label">Land</span><span class="tab-state"></span>
     </button>
+    <button class="tab locked" data-tab="build" data-step="2" id="tab-build" role="tab" aria-selected="false" aria-controls="panel-build" hidden>
+      <span class="tab-num">2</span><span class="tab-label">Build</span><span class="tab-state"></span>
+    </button>
   </nav>
 
   <main hidden>
@@ -263,6 +266,16 @@
           </div>
 
         </div>
+
+        <!-- Generator mode: UAT cases or Implementation spec -->
+        <div class="platform-selector mode-selector" id="mode-selector" role="group" aria-label="What to generate">
+          <button class="mode-btn active" data-mode="uat" id="mode-uat-btn" type="button">UAT cases</button>
+          <button class="mode-btn" data-mode="impl" id="mode-impl-btn" type="button">Implementation</button>
+        </div>
+        <p class="muted mode-hint" id="mode-hint" hidden>
+          Builds an implementation spec from the BRD (modules, fields, layouts, workflows, roles, Deluge,
+          delivery plan). You review it, then apply it to a sandbox org and verify.
+        </p>
 
         <!-- Platform selector -->
         <div class="platform-selector" id="platform-selector" role="group" aria-label="Select platform">
@@ -588,6 +601,53 @@
       </div>
     </section>
 
+    <!-- Tab: Build (Implementation mode) -->
+    <section class="tab-panel" data-panel="build" id="panel-build" role="tabpanel" aria-labelledby="tab-build" hidden>
+      <div class="loader" hidden>
+        <div class="spinner"></div>
+        <div class="loader-text">Extracting the implementation spec…</div>
+      </div>
+      <div class="panel-body">
+        <div class="panel-header">
+          <h2>Build plan 🛠️</h2>
+          <p class="muted" id="impl-meta"></p>
+        </div>
+        <ol class="impl-steps" aria-label="Implementation pipeline">
+          <li data-step="extract">1. Extract</li>
+          <li data-step="review">2. Review</li>
+          <li data-step="apply">3. Apply</li>
+          <li data-step="verify">4. Verify</li>
+          <li data-step="uat">5. UAT</li>
+        </ol>
+        <div id="impl-org" class="impl-org" hidden></div>
+        <div id="impl-warnings"></div>
+        <div id="impl-spec"></div>
+
+        <div class="impl-review-bar" id="impl-review-bar" hidden>
+          <label class="impl-approve">
+            <input type="checkbox" id="impl-approve" />
+            I've reviewed this spec and approve it for build
+          </label>
+          <span class="muted" id="impl-approve-note"></span>
+        </div>
+
+        <div class="actions">
+          <button id="impl-back" class="ghost">&larr; Back</button>
+          <button id="impl-dry-run" class="ghost" disabled>Dry run</button>
+          <button id="impl-apply" class="primary" disabled>Apply to CRM</button>
+          <button id="impl-verify" class="ghost" disabled>Verify org</button>
+          <button id="impl-push-plan" class="ghost" disabled>Push plan to Projects</button>
+          <button id="impl-to-uat" class="ghost" disabled>Generate UAT from spec &rarr;</button>
+        </div>
+        <div class="actions inline tight">
+          <button id="impl-download" class="ghost small" disabled>Download spec JSON</button>
+          <button id="impl-download-rpa" class="ghost small" disabled>Download RPA queue</button>
+        </div>
+        <div id="impl-run"></div>
+        <p id="status-build" class="status" aria-live="polite"></p>
+      </div>
+    </section>
+
   </main>
 
   <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
@@ -846,6 +906,7 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="implement.js"></script>
 
   <!-- ConvoKraft Bot Widget — hidden by default, toggle via FAB -->
   <script src="https://console.catalyst.zoho.in/convokraft/assets/js/convokraft-chat-sdk.js"></script>

@@ -16,6 +16,10 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 │       └── src/main/java/com/uat/generator/
 │           ├── AnalyzeServlet.java     # POST /analyze   — suggest modules for a BRD
 │           ├── GenerateServlet.java    # POST /generate  — UAT cases per module
+│           ├── ImplementServlet.java   # POST /implement — BRD → implementation spec
+│           ├── ImplementApplyServlet.java  # POST /implement/apply  — dry run / create in CRM
+│           ├── ImplementVerifyServlet.java # POST /implement/verify — org vs spec diff
+│           ├── ImplSpec, ImplPrompts, ImplOrg, ImplPlan, ImplRpa, MockImplClient  # spec helpers
 │           ├── ExecuteServlet.java     # POST /execute   — run execution_plan against CRM
 │           ├── CrmExecutor.java        #   step runner + assertions
 │           ├── PushServlet.java        # POST /push      — cases to Zoho Projects tasks
@@ -26,7 +30,7 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 │           ├── ZiaClient.java          # Zia LLM client (placeholder contract)
 │           ├── MockLlmClient.java      # offline mock provider
 │           └── ProjectsClient.java, BugsClient.java, RunLogger.java, ...
-├── client/                              # Catalyst Web Client (static): index.html, app.js, styles.css
+├── client/                              # Catalyst Web Client (static): index.html, app.js, implement.js, styles.css
 └── samples/                             # Demo BRDs + golden output JSON
 ```
 
@@ -198,6 +202,46 @@ Response (abridged):
 ```
 
 Creates one Projects task per case. Returns per-case results.
+
+## Implementation generator
+
+Switch the Brief tab to **Implementation** to turn a BRD into a build spec instead of
+test cases. The pipeline:
+
+```
+BRD ──► 1. Extract  POST /implement          implementation spec (JSON)
+    ──► 2. Review   Build tab                untick / edit items, answer open questions, approve
+    ──► 3. Apply    POST /implement/apply    dry run, then REST create calls; UI-only items → RPA queue
+    ──► 4. Verify   POST /implement/verify   read org metadata back, diff against the spec
+    ──► 5. UAT      "Generate UAT from spec" UAT cases from a BRD rendered from the approved spec
+```
+
+**Spec sections:** `modules`, `fields` (with picklists and lookups), `layouts`, `validation_rules`,
+`workflows` (workflow, blueprint, assignment, approval, scoring, escalation, schedule, cadence,
+webhook), `roles`, `functions` (Deluge), `open_questions`, `plan`. Every item carries
+`id`, `req_ids`, `include`, `status` (`new` / `exists` / `unknown`, checked against the connected
+org) and `executor`:
+
+| executor | Items | Built by |
+|---|---|---|
+| `api` | custom modules, custom fields (standard types), roles | `/implement/apply` via `/crm/v6/settings/*` |
+| `rpa` | layouts, validation rules, automation, Deluge functions, formula/autonumber/multi-lookup fields | RPA bot or consultant, from the `rpa_queue` (click paths + values) |
+| `review` | open questions | consultant, before approval |
+| `projects` | plan tasks | "Push plan to Projects" (`/push`) |
+
+**Safety:** `/implement/apply` is a dry run unless `dry_run: false`. A real run needs
+`spec.approved: true`, `confirm_org_id` equal to the connected org, and `allow_production: true`
+when the org isn't a sandbox. Blocking open questions must be answered (or unticked) before the UI
+lets you approve. Items already in the org are skipped. "Required" on a field is a layout setting
+and is returned as a follow-up, not applied.
+
+**Verify** reports `present`, `mismatch` (type, missing picklist values, lookup target), `missing`,
+or `unverifiable` (validation rules, workflows and functions aren't read back through the APIs used
+here; check them in Setup).
+
+Tunables: `IMPL_MAX_LLM_CALLS` (9: two calls per BRD part plus one for the plan),
+`CRM_SETTINGS_API_VERSION` (`v6`), plus the shared `GEN_*` settings. `LLM_PROVIDER=mock` returns a
+shallow offline spec; `zia` isn't supported for this mode yet.
 
 ## Sessions and execution
 

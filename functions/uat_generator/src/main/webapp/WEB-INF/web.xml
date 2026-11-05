@@ -161,4 +161,31 @@
     <url-pattern>/agent/run</url-pattern>
   </servlet-mapping>
 
+  <servlet>
+    <servlet-name>implement</servlet-name>
+    <servlet-class>com.uat.generator.ImplementServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>implement</servlet-name>
+    <url-pattern>/implement</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>implement-apply</servlet-name>
+    <servlet-class>com.uat.generator.ImplementApplyServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>implement-apply</servlet-name>
+    <url-pattern>/implement/apply</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>implement-verify</servlet-name>
+    <servlet-class>com.uat.generator.ImplementVerifyServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>implement-verify</servlet-name>
+    <url-pattern>/implement/verify</url-pattern>
+  </servlet-mapping>
+
 </web-app>
