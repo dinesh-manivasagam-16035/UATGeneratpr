@@ -94,7 +94,7 @@ Variables**:
 | `ZIA_ACCOUNTS_BASE` | `https://accounts.zoho.in` for India (else derived from `ZOHO_DC`) |
 | `LLM_PROVIDER` | optional: `zia`. When unset, LiftOff uses the Zia Agent whenever the variables above are set |
 | `ZIA_AGENT_URL` | optional. Default: the Agent API on the same data center as `ZIA_ACCOUNTS_BASE` (`https://ziaagents.zoho.in/...` for India). A token only works on its own data center's host |
-| `ZIA_AGENT_TIMEOUT_SEC` | optional, per-call timeout, default 120 |
+| `ZIA_AGENT_TIMEOUT_SEC` | optional, per-call timeout, default 25 (Catalyst stops a function request at about 30 s) |
 
 Save. Catalyst applies env vars to new invocations; redeploy the function if you changed code.
 
@@ -122,4 +122,7 @@ Authorization: Zoho-oauthtoken {access token}
 ```
 
 LiftOff splits a BRD into parts and makes several calls per run (two per part for a blueprint,
-plus one for the plan; up to `MAX_LLM_CALLS` for UAT), `GEN_CONCURRENCY` (default 2) at a time.
+plus one for the plan). Catalyst stops an Advanced I/O request at about 30 seconds, so the Blueprint
+tab sends **one agent call per request** (`POST /implement/stage`: start → parts, two at a time →
+finish → plan). Each call has to finish within `ZIA_AGENT_TIMEOUT_SEC`; if parts time out, lower
+`IMPL_CHUNK_CHARS` (default 6000) so each part is smaller.

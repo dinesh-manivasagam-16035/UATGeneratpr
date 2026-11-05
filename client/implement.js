@@ -436,8 +436,7 @@
     els.verifyArea.innerHTML = "";
     render();
     try {
-      const data = await post("/implement", { brd: L.state.brd, modules: L.state.modulesSelected || [], answers },
-        190_000, "Blueprint");
+      const data = await generateStaged(answers);
       impl.spec = data.spec;
       // Keep the client's answers: on questions asked again, and as a record on the blueprint.
       if (answers.length) {
@@ -462,6 +461,62 @@
     } finally {
       L.hideLoader("blueprint");
     }
+  }
+
+  // Blueprint generation in short requests (POST /implement/stage): Catalyst stops a function
+  // call after ~30 s, and a whole blueprint takes several LLM calls. start → parts (two at a
+  // time, one LLM call each) → finish → plan.
+  async function generateStaged(answers) {
+    const brd = L.state.brd;
+    const modules = L.state.modulesSelected || [];
+    const stage = (body, label) => post("/implement/stage", body, 60_000, label);
+    const progress = (t) => L.showLoader("blueprint", t);
+
+    progress("Reading the BRD and your org…");
+    const start = await stage({ stage: "start", brd, modules, answers }, "Blueprint start");
+    const jobs = [];
+    start.parts.forEach((p) => p.groups.forEach((g) => jobs.push({ part: p.part, label: p.label, group: g })));
+
+    const results = new Array(jobs.length);
+    let next = 0, done = 0;
+    const GROUP = { data_model: "data model", automation: "automation", mock: "offline" };
+    const worker = async () => {
+      while (next < jobs.length) {
+        const j = jobs[next++];
+        const body = { stage: "part", brd, modules, answers, part: j.part, group: j.group, org_text: start.org_text };
+        let r;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            r = await stage(body, `Part ${j.part} (${GROUP[j.group] || j.group})`);
+            if (!r.error || attempt === 2) break;
+          } catch (e) {
+            r = { part: j.part, group: j.group, error: e.message };
+          }
+        }
+        results[jobs.indexOf(j)] = r;
+        done++;
+        progress(`Drafting the blueprint… ${done} of ${jobs.length} done (part ${j.part}: ${j.label}).`);
+      }
+    };
+    progress(`Drafting the blueprint… 0 of ${jobs.length} done.`);
+    await Promise.all([worker(), worker()]);
+
+    progress("Merging and checking against your org…");
+    const fin = await stage({ stage: "finish", brd, modules, results, warnings: start.warnings || [] }, "Blueprint finish");
+    if (fin.needs_plan) {
+      progress("Writing the delivery plan…");
+      try {
+        const pl = await stage({ stage: "plan", spec: fin.spec, requirements: fin.requirements || [] }, "Plan");
+        fin.spec = pl.spec;
+        fin.warnings = (fin.warnings || []).concat(pl.warnings || []);
+        fin.counts = Object.assign({}, fin.counts, { plan: (pl.spec.plan || []).length });
+      } catch (e) {
+        fin.warnings = (fin.warnings || []).concat(["Plan step failed (" + e.message + "); the blueprint has no plan yet — Regenerate to try again."]);
+      }
+    }
+    fin.org = start.org;
+    fin.provider = start.provider;
+    return fin;
   }
 
   async function dryRun() {

@@ -61,7 +61,7 @@ public class ImplementServlet extends HttpServlet {
     private static final long MIN_TIME_FOR_RETRY_MS = 40_000;
     private static final long MIN_TIME_FOR_PLAN_MS = 25_000;
 
-    private static final class Task {
+    static final class Task {
         final String group;              // "data_model" | "automation"
         final BrdChunker.Chunk chunk;
         Task(String group, BrdChunker.Chunk chunk) { this.group = group; this.chunk = chunk; }
@@ -235,62 +235,7 @@ public class ImplementServlet extends HttpServlet {
             ArrayNode scope = spec.putArray("modules_in_scope");
             modules.forEach(scope::add);
 
-            // ---- 6. Traceability ----
-            ArrayNode reqOut = MAPPER.createArrayNode();
-            List<String> uncovered = new ArrayList<>();
-            Map<String, Integer> perReq = new LinkedHashMap<>();
-            for (Requirements.Requirement r : reqs) perReq.put(r.id, 0);
-            for (String s : ImplSpec.SECTIONS) {
-                if ("plan".equals(s)) continue;
-                for (JsonNode item : spec.path(s)) {
-                    for (JsonNode id : item.path("req_ids")) perReq.computeIfPresent(id.asText(), (k, v) -> v + 1);
-                }
-            }
-            for (Requirements.Requirement r : reqs) {
-                int n = perReq.get(r.id);
-                ObjectNode o = reqOut.addObject();
-                o.put("id", r.id);
-                o.put("title", r.title);
-                o.put("items", n);
-                if (n == 0) uncovered.add(r.id);
-            }
-            if (!uncovered.isEmpty()) {
-                warnings.add("Nothing in the spec delivers " + uncovered.size() + " requirement(s): "
-                        + summarize(uncovered) + ". Check them during review.");
-            }
-
-            // ---- 7. Response ----
-            ObjectNode out = MAPPER.createObjectNode();
-            out.put("provider", provider);
-            out.put("llm_calls", mock ? 0 : calls);
-            out.put("chunks", chunks.size());
-            ObjectNode orgOut = out.putObject("org");
-            orgOut.put("connected", org != null);
-            if (org != null) {
-                orgOut.put("id", org.orgId);
-                orgOut.put("name", org.orgName);
-                orgOut.put("type", org.orgType);
-                orgOut.put("sandbox", org.sandbox);
-            }
-            ObjectNode counts = out.putObject("counts");
-            ObjectNode byExec = out.putObject("by_executor");
-            for (String s : ImplSpec.SECTIONS) {
-                counts.put(s, spec.path(s).size());
-                for (JsonNode item : spec.path(s)) {
-                    String ex = item.path("executor").asText();
-                    byExec.put(ex, byExec.path(ex).asInt(0) + 1);
-                }
-            }
-            out.set("requirements", reqOut);
-            ObjectNode cov = out.putObject("coverage");
-            cov.put("requirements", reqs.size());
-            cov.put("covered", reqs.size() - uncovered.size());
-            ArrayNode unc = cov.putArray("uncovered");
-            uncovered.forEach(unc::add);
-            ArrayNode warnOut = out.putArray("warnings");
-            warnings.forEach(warnOut::add);
-            out.set("spec", spec);
-
+            ObjectNode out = respond(spec, reqs, org, warnings, provider, mock ? 0 : calls, chunks.size());
             if (!hasAnyItems(spec)) {
                 resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 out.put("error", warnings.isEmpty() ? "No implementation items were produced." : warnings.get(warnings.size() - 1));
@@ -306,7 +251,69 @@ public class ImplementServlet extends HttpServlet {
         }
     }
 
-    private static ImplSpec.Parsed runTask(Task t, int totalParts, String outline, String modules,
+    /** Requirement coverage, counts and the response body (shared with ImplementStageServlet). */
+    static ObjectNode respond(ObjectNode spec, List<Requirements.Requirement> reqs, ImplOrg org,
+                              List<String> warnings, String provider, int calls, int chunks) {
+        // ---- Traceability ----
+        ArrayNode reqOut = MAPPER.createArrayNode();
+        List<String> uncovered = new ArrayList<>();
+        Map<String, Integer> perReq = new LinkedHashMap<>();
+        for (Requirements.Requirement r : reqs) perReq.put(r.id, 0);
+        for (String s : ImplSpec.SECTIONS) {
+            if ("plan".equals(s)) continue;
+            for (JsonNode item : spec.path(s)) {
+                for (JsonNode id : item.path("req_ids")) perReq.computeIfPresent(id.asText(), (k, v) -> v + 1);
+            }
+        }
+        for (Requirements.Requirement r : reqs) {
+            int n = perReq.get(r.id);
+            ObjectNode o = reqOut.addObject();
+            o.put("id", r.id);
+            o.put("title", r.title);
+            o.put("items", n);
+            if (n == 0) uncovered.add(r.id);
+        }
+        if (!uncovered.isEmpty()) {
+            warnings.add("Nothing in the spec delivers " + uncovered.size() + " requirement(s): "
+                    + summarize(uncovered) + ". Check them during review.");
+        }
+
+        // ---- Response ----
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("provider", provider);
+        out.put("llm_calls", calls);
+        out.put("chunks", chunks);
+        ObjectNode orgOut = out.putObject("org");
+        orgOut.put("connected", org != null);
+        if (org != null) {
+            orgOut.put("id", org.orgId);
+            orgOut.put("name", org.orgName);
+            orgOut.put("type", org.orgType);
+            orgOut.put("sandbox", org.sandbox);
+        }
+        ObjectNode counts = out.putObject("counts");
+        ObjectNode byExec = out.putObject("by_executor");
+        for (String s : ImplSpec.SECTIONS) {
+            counts.put(s, spec.path(s).size());
+            for (JsonNode item : spec.path(s)) {
+                String ex = item.path("executor").asText();
+                byExec.put(ex, byExec.path(ex).asInt(0) + 1);
+            }
+        }
+        out.set("requirements", reqOut);
+        ObjectNode cov = out.putObject("coverage");
+        cov.put("requirements", reqs.size());
+        cov.put("covered", reqs.size() - uncovered.size());
+        ArrayNode unc = cov.putArray("uncovered");
+        uncovered.forEach(unc::add);
+        ArrayNode warnOut = out.putArray("warnings");
+        warnings.forEach(warnOut::add);
+        out.set("spec", spec);
+
+        return out;
+    }
+
+    static ImplSpec.Parsed runTask(Task t, int totalParts, String outline, String modules,
                                            String orgText, String requirements, String decisions,
                                            long deadline) throws Exception {
         String user = ImplPrompts.partPrompt(modules, orgText, outline, t.chunk.text,
@@ -391,7 +398,7 @@ public class ImplementServlet extends HttpServlet {
         return sb.toString();
     }
 
-    private static String allRequirements(List<Requirements.Requirement> reqs, int maxChars) {
+    static String allRequirements(List<Requirements.Requirement> reqs, int maxChars) {
         StringBuilder sb = new StringBuilder();
         for (Requirements.Requirement r : reqs) {
             String line = "- " + r.id + (r.title.isEmpty() ? "" : " — " + r.title) + "\n";
@@ -401,7 +408,7 @@ public class ImplementServlet extends HttpServlet {
         return sb.toString().trim();
     }
 
-    private static boolean hasBuildItems(ObjectNode spec) {
+    static boolean hasBuildItems(ObjectNode spec) {
         for (String s : ImplSpec.SECTIONS) {
             if ("plan".equals(s) || "open_questions".equals(s)) continue;
             if (spec.path(s).size() > 0) return true;
@@ -409,7 +416,7 @@ public class ImplementServlet extends HttpServlet {
         return false;
     }
 
-    private static boolean hasAnyItems(ObjectNode spec) {
+    static boolean hasAnyItems(ObjectNode spec) {
         for (String s : ImplSpec.SECTIONS) if (spec.path(s).size() > 0) return true;
         return false;
     }

@@ -33,7 +33,7 @@ import org.apache.hc.core5.util.Timeout;
  *   ZIA_AGENT_URL        default: the Agent API on the token's data center, e.g.
  *                        https://ziaagents.zoho.in/ziaagents/api/v1/agents/query for accounts.zoho.in
  *   ZIA_ACCOUNTS_BASE    default ZOHO_ACCOUNTS_BASE, else from ZOHO_DC (accounts.zoho.in for in)
- *   ZIA_AGENT_TIMEOUT_SEC  per call, default 120
+ *   ZIA_AGENT_TIMEOUT_SEC  per call, default 25 (a Catalyst request is stopped at ~30 s)
  */
 public final class ZiaAgentClient {
 
@@ -84,7 +84,7 @@ public final class ZiaAgentClient {
 
     private static LlmResult post(ObjectNode body, boolean retryOn429) throws Exception {
         String token = tokenClient().accessToken();
-        int timeout = envInt("ZIA_AGENT_TIMEOUT_SEC", 120);
+        int timeout = envInt("ZIA_AGENT_TIMEOUT_SEC", 25);   // under Catalyst's ~30 s per request
         RequestConfig cfg = RequestConfig.custom()
                 .setResponseTimeout(Timeout.ofSeconds(timeout))
                 .setConnectionRequestTimeout(Timeout.ofSeconds(20))

@@ -188,4 +188,13 @@
     <url-pattern>/implement/verify</url-pattern>
   </servlet-mapping>
 
+  <servlet>
+    <servlet-name>implement-stage</servlet-name>
+    <servlet-class>com.uat.generator.ImplementStageServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>implement-stage</servlet-name>
+    <url-pattern>/implement/stage</url-pattern>
+  </servlet-mapping>
+
 </web-app>
