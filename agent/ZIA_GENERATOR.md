@@ -93,7 +93,7 @@ Variables**:
 | `ZIA_AGENT_CLIENT_ID`, `ZIA_AGENT_CLIENT_SECRET` | the Self Client from step 3 |
 | `ZIA_ACCOUNTS_BASE` | `https://accounts.zoho.in` for India (else derived from `ZOHO_DC`) |
 | `LLM_PROVIDER` | optional: `zia`. When unset, LiftOff uses the Zia Agent whenever the variables above are set |
-| `ZIA_AGENT_URL` | optional, only if the Integrate tab shows a different endpoint |
+| `ZIA_AGENT_URL` | optional. Default: the Agent API on the same data center as `ZIA_ACCOUNTS_BASE` (`https://ziaagents.zoho.in/...` for India). A token only works on its own data center's host |
 | `ZIA_AGENT_TIMEOUT_SEC` | optional, per-call timeout, default 120 |
 
 Save. Catalyst applies env vars to new invocations; redeploy the function if you changed code.
@@ -101,7 +101,9 @@ Save. Catalyst applies env vars to new invocations; redeploy the function if you
 ## 5. Check it
 
 1. In LiftOff, the Blueprint tab's header line ends with **"— via Zia Agent"** after a run.
-2. A 401 means the refresh token, client ID/secret or `ZIA_ACCOUNTS_BASE` (data center) is wrong.
+2. A 401 `INVALID_OAUTHTOKEN` from the agent means the token and the Agent API are on different data
+   centers (an India token must call `ziaagents.zoho.in`), or the token lacks `ZiaAgents.agents.TRIGGER`.
+   A failed *refresh* (wrong refresh token or client ID/secret) shows as an OAuth refresh error instead.
 3. A 404, or an error mentioning the version, after a redeploy means `ZIA_AGENT_VERSION_ID` is out of date.
 4. "Response was cut off" warnings mean the agent's model hit its output limit: pick a model
    with a larger limit, or lower `CASES_PER_CALL` / `GEN_CHUNK_CHARS`.

@@ -30,7 +30,8 @@ import org.apache.hc.core5.util.Timeout;
  *   ZIA_AGENT_ORG_ID, ZIA_AGENT_ID, ZIA_AGENT_VERSION_ID   from the agent's Integrate tab
  *   ZIA_AGENT_REFRESH_TOKEN                                self-client refresh token (scope above)
  *   ZIA_AGENT_CLIENT_ID, ZIA_AGENT_CLIENT_SECRET           that self client (default: ZOHO_CLIENT_ID/SECRET)
- *   ZIA_AGENT_URL        default https://ziaagents.zoho.com/ziaagents/api/v1/agents/query
+ *   ZIA_AGENT_URL        default: the Agent API on the token's data center, e.g.
+ *                        https://ziaagents.zoho.in/ziaagents/api/v1/agents/query for accounts.zoho.in
  *   ZIA_ACCOUNTS_BASE    default ZOHO_ACCOUNTS_BASE, else from ZOHO_DC (accounts.zoho.in for in)
  *   ZIA_AGENT_TIMEOUT_SEC  per call, default 120
  */
@@ -89,7 +90,7 @@ public final class ZiaAgentClient {
                 .setConnectionRequestTimeout(Timeout.ofSeconds(20))
                 .build();
         try (CloseableHttpClient http = HttpClients.custom().setDefaultRequestConfig(cfg).build()) {
-            HttpPost post = new HttpPost(orDefault(env("ZIA_AGENT_URL"), DEFAULT_URL));
+            HttpPost post = new HttpPost(agentUrl());
             post.setHeader("X-ZIAAGENTS-ORG", env("ZIA_AGENT_ORG_ID"));
             post.setHeader("X-ZIAAGENTS-AGENT-ID", env("ZIA_AGENT_ID"));
             post.setHeader("X-ZIAAGENTS-AGENT-VERSION-ID", env("ZIA_AGENT_VERSION_ID"));
@@ -101,7 +102,8 @@ public final class ZiaAgentClient {
                 int code = response.getCode();
                 if (code == 429) return Integer.valueOf(429);
                 if (code >= 400) {
-                    String hint = code == 401 ? " Check ZIA_AGENT_REFRESH_TOKEN (scope ZiaAgents.agents.TRIGGER) and its client id/secret."
+                    String hint = code == 401 ? " Called " + agentUrl() + " with a token from " + accountsBase()
+                            + ": both must be on the same data center, and the token needs scope ZiaAgents.agents.TRIGGER."
                             : code == 404 || text.contains("VERSION") ? " If the agent was redeployed, update ZIA_AGENT_VERSION_ID." : "";
                     return new RuntimeException("Zia Agent error " + code + ": " + trim(text, 300) + hint);
                 }
@@ -132,6 +134,20 @@ public final class ZiaAgentClient {
             throw new IllegalStateException("Set ZIA_AGENT_CLIENT_ID and ZIA_AGENT_CLIENT_SECRET (the self client that issued ZIA_AGENT_REFRESH_TOKEN).");
         }
         return new CrmClient("", accountsBase(), clientId, secret, env("ZIA_AGENT_REFRESH_TOKEN"));
+    }
+
+    /**
+     * The Agent API on the same data center as the token: a token from accounts.zoho.in only
+     * works on ziaagents.zoho.in (INVALID_OAUTHTOKEN otherwise). ZIA_AGENT_URL overrides.
+     */
+    static String agentUrl() {
+        String u = env("ZIA_AGENT_URL");
+        if (notEmpty(u)) return u.trim();
+        String acc = accountsBase();
+        int at = acc.indexOf("accounts.zoho.");
+        if (at < 0) return DEFAULT_URL;
+        String tld = acc.substring(at + "accounts.zoho.".length()).replaceAll("/.*$", "");
+        return "https://ziaagents.zoho." + tld + "/ziaagents/api/v1/agents/query";
     }
 
     static String accountsBase() {
