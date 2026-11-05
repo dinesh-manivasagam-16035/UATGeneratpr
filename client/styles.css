@@ -3567,3 +3567,14 @@ footer { display: none; }
 .impl-toolbar-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .impl-group h4 { margin: 0; padding: 8px 14px 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
 .impl-empty { padding: 16px 0; }
+.impl-run-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.impl-bar { display: flex; gap: 2px; height: 10px; margin: 10px 0 4px; border-radius: 5px; overflow: hidden; background: var(--bg-subtle); }
+.impl-bar .ok { background: var(--ok); } .impl-bar .err { background: var(--err); } .impl-bar .wait { background: var(--text-muted); }
+.impl-tile.wait strong { color: var(--text-secondary); }
+.impl-badge.ver-confirmed, .impl-badge.uat-passed { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-border); }
+.impl-badge.uat-failed { color: var(--err); background: var(--err-bg); border-color: var(--err-border); }
+.impl-handoff { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start;
+  padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); }
+.impl-handoff > div:first-child { max-width: 60ch; }
+#impl-promote { flex-basis: 100%; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

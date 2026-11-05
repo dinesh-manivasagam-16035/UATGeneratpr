@@ -39,6 +39,7 @@
     applied: null,   // last real apply response
     verify: null,    // last verify response
     build: null,     // the step-by-step build run (see renderBuild)
+    uat: null,       // UAT run inside Verify: { cases, live, ranAt }
     filter: "all",   // blueprint filter (FILTERS)
   };
   let running = false;   // a build run is in progress
@@ -48,14 +49,15 @@
     meta: $("impl-meta"), org: $("impl-org"), warnings: $("impl-warnings"), spec: $("impl-spec"), toolbar: $("impl-toolbar"),
     reviewBar: $("impl-review-bar"), approve: $("impl-approve"), approveNote: $("impl-approve-note"),
     back: $("impl-back"), dry: $("impl-dry-run"), apply: $("impl-apply"), verify: $("impl-verify"),
-    pushPlan: $("impl-push-plan"), toUat: $("impl-to-uat"), download: $("impl-download"),
+    pushPlan: $("impl-push-plan"), verifyArea: $("impl-verify-area"), download: $("impl-download"),
     downloadRpa: $("impl-download-rpa"), run: $("impl-run"),
   };
 
   // ---- persistence (per-browser convenience only) ----
   function save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta: impl.meta, spec: impl.spec, dryRun: impl.dryRun, build: impl.build }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta: impl.meta, spec: impl.spec, dryRun: impl.dryRun, build: impl.build,
+        verify: impl.verify, uat: impl.uat }));
     } catch (e) {}
   }
   function load() {
@@ -66,6 +68,7 @@
       if (saved && saved.spec) {
         impl.spec = saved.spec; impl.meta = saved.meta || {};
         impl.dryRun = saved.dryRun || null; impl.build = saved.build || null;
+        impl.verify = saved.verify || null; impl.uat = saved.uat || null;
         if (impl.build) impl.build.steps.forEach((st) => { if (st.status === "running") st.status = "waiting"; });
       }
     } catch (e) {}
@@ -386,13 +389,12 @@
       : !sandbox ? "Apply only writes to sandbox orgs" : "";
     els.verify.disabled = !(have && connected);
     els.pushPlan.disabled = !(have && (impl.spec.plan || []).some((t) => t.include !== false));
-    els.toUat.disabled = !(have && impl.spec.approved);
     els.download.disabled = !have;
     els.downloadRpa.disabled = !(impl.applied || impl.dryRun);
     document.querySelectorAll(".impl-steps li").forEach((li) => {
       const s = li.dataset.step;
       const done = { extract: have, review: have && impl.spec.approved, apply: !!(impl.build && impl.build.finishedAt),
-                     verify: !!impl.verify, uat: false }[s];
+                     verify: checksOk(), uat: uatOk() }[s];
       li.classList.toggle("done", !!done);
     });
   }
@@ -414,8 +416,9 @@
     L.showTab("build");
     L.setStatus("build", "");
     L.showLoader("build", "Extracting the implementation spec… this can take a couple of minutes.");
-    impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null;
+    impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null; impl.uat = null;
     els.run.innerHTML = "";
+    els.verifyArea.innerHTML = "";
     render();
     try {
       const data = await post("/implement", { brd: L.state.brd, modules: L.state.modulesSelected || [], answers },
@@ -658,21 +661,300 @@
       ? { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() } : null;
     save();
     renderBuild();
+    renderVerify();      // "confirmed by hand" feeds the configuration check
+    refreshButtons();
   });
 
+  // ---- Verify: configuration check, UAT run, hand-off ----
   async function verify() {
-    L.setStatus("build", "Reading the org back…");
+    L.setStatus("build", "Reading the sandbox back…");
     try {
       impl.verify = await post("/implement/verify", { spec: impl.spec }, 90_000, "Verify");
-      renderRun("Verify — org vs spec", impl.verify, "verify");
+      save();
+      renderVerify();
       render();
-      const c = impl.verify.counts || {};
-      L.setStatus("build", `${c.present || 0} present, ${c.mismatch || 0} mismatched, ${c.missing || 0} missing, `
-        + `${c.unverifiable || 0} to check by hand.`, (c.missing || c.mismatch) ? "warn" : "ok");
+      const c = verifyCounts();
+      L.setStatus("build", `${c.match} match, ${c.differ} differ, ${c.missing} missing, ${c.byHand} to confirm by hand.`,
+        (c.differ || c.missing) ? "warn" : "ok");
     } catch (e) {
       L.setStatus("build", "Verify failed: " + e.message, "err");
     }
   }
+
+  // The verdict shown: the server's, adjusted for what happened in the build and by hand.
+  function effectiveVerdict(r) {
+    const step = impl.build && impl.build.steps.find((s) => s.id === r.id);
+    if (step && step.status === "skipped") return "skipped";
+    if (r.verdict === "unverifiable") {
+      const f = findItem(r.id);
+      if (f && f.item.manual_done) return "confirmed";
+    }
+    return r.verdict;
+  }
+
+  function verifyCounts() {
+    const c = { match: 0, differ: 0, missing: 0, skipped: 0, byHand: 0 };
+    ((impl.verify && impl.verify.results) || []).forEach((r) => {
+      const v = effectiveVerdict(r);
+      if (v === "present" || v === "confirmed") c.match++;
+      else if (v === "mismatch") c.differ++;
+      else if (v === "missing") c.missing++;
+      else if (v === "skipped") c.skipped++;
+      else c.byHand++;
+    });
+    return c;
+  }
+
+  function checksOk() {
+    if (!impl.verify) return false;
+    const c = verifyCounts();
+    return c.differ === 0 && c.missing === 0 && c.byHand === 0;
+  }
+
+  function uatCounts() {
+    const c = { passed: 0, failed: 0, notRun: 0 };
+    ((impl.uat && impl.uat.cases) || []).forEach((tc) => {
+      const s = (tc.execution_result || {}).status;
+      if (s === "pass") c.passed++; else if (s === "fail") c.failed++; else c.notRun++;
+    });
+    return c;
+  }
+
+  function uatOk() {
+    if (!impl.uat || !impl.uat.live) return false;
+    const c = uatCounts();
+    return c.passed > 0 && c.failed === 0;
+  }
+
+  function verifyOrg() {
+    return (impl.verify && impl.verify.org) || (impl.build && impl.build.org) || (impl.dryRun && impl.dryRun.org) || null;
+  }
+
+  const VERDICT_LABEL = { present: "Matches", confirmed: "Confirmed by hand", mismatch: "Differs", missing: "Missing",
+    skipped: "Skipped during build", unverifiable: "Check by hand" };
+
+  function renderVerify() {
+    if (!impl.verify && !impl.uat) { els.verifyArea.innerHTML = ""; return; }
+    let html = "";
+    const org = verifyOrg();
+    if (impl.verify) {
+      const c = verifyCounts();
+      const rows = (impl.verify.results || []).map((r) => ({ r, v: effectiveVerdict(r) }));
+      const order = { mismatch: 0, missing: 1, unverifiable: 2, skipped: 3, confirmed: 4, present: 5 };
+      rows.sort((a, b) => (order[a.v] ?? 9) - (order[b.v] ?? 9));
+      const rowHtml = ({ r, v }) => {
+        const f = findItem(r.id);
+        const reqs = f && (f.item.req_ids || []).length ? " · " + f.item.req_ids.join(", ") : "";
+        let action = "";
+        if ((v === "missing" || v === "mismatch") && r.fixable && org && org.sandbox) {
+          action = `<button class="ghost small" type="button" data-fix="${esc(r.id)}">Fix in sandbox</button>`;
+        } else if (v === "mismatch" && !r.fixable) {
+          action = `<span class="muted">Can't change a field's type — create a new field in Build</span>`;
+        } else if (v === "unverifiable") {
+          action = `<span class="muted">Tick it in Configure by hand once checked</span>`;
+        } else if (v === "confirmed" && f) {
+          action = `<span class="impl-done-by">${esc(f.item.manual_done.by)}</span>`;
+        }
+        return `<tr class="${v === "mismatch" || v === "missing" ? "impl-row-err" : ""}">
+          <td><strong>${esc(r.label)}</strong><div class="muted">${esc(r.id + reqs)}</div></td>
+          <td>${esc(r.expected || "")}</td>
+          <td class="${v === "mismatch" || v === "missing" ? "impl-err-text" : ""}">${esc(r.actual || "")}${r.detail && v !== "present" ? `<div class="muted">${esc(r.detail)}</div>` : ""}</td>
+          <td><span class="impl-badge ver-${esc(v)}">${esc(VERDICT_LABEL[v] || v)}</span></td>
+          <td>${action}</td></tr>`;
+      };
+      const attention = rows.filter((x) => !["present", "confirmed"].includes(x.v));
+      const fine = rows.filter((x) => ["present", "confirmed"].includes(x.v));
+      const tiles = [["match the blueprint", c.match, "ok"], ["differ", c.differ, "err"], ["missing", c.missing, "err"],
+        ["to confirm by hand", c.byHand, "wait"], ["skipped during build", c.skipped, "wait"]].filter(([, n, k]) => n || k === "ok");
+      html += `<div class="impl-run"><h3>Configuration check</h3>
+        <p class="muted">Sandbox "${esc(org ? org.name : "")}" read back and compared with the blueprint.
+          <button class="ghost small" type="button" data-verify-act="recheck">Check again</button></p>
+        <div class="impl-tiles">${tiles.map(([l, n, k]) => `<div class="impl-tile ${k}"><strong>${n}</strong><span>${l}</span></div>`).join("")}</div>
+        <div class="impl-table-wrap"><table class="impl-table"><thead><tr><th>Item</th><th>Blueprint says</th><th>Sandbox has</th><th>Result</th><th><span class="sr-only">Action</span></th></tr></thead>
+        <tbody>${attention.map(rowHtml).join("")}</tbody></table></div>
+        ${fine.length ? `<details><summary class="muted">${fine.length} item(s) match</summary><div class="impl-table-wrap"><table class="impl-table"><tbody>${fine.map(rowHtml).join("")}</tbody></table></div></details>` : ""}
+        ${(impl.verify.warnings || []).length ? `<p class="status warn">${esc(impl.verify.warnings.join(" • "))}</p>` : ""}
+      </div>`;
+    }
+
+    // UAT cases, written from the same blueprint and run against the sandbox.
+    const u = uatCounts();
+    const total = u.passed + u.failed + u.notRun;
+    const canRunLive = !!(org && org.sandbox);
+    html += `<div class="impl-run"><div class="impl-run-head"><div><h3>UAT cases</h3>
+        <p class="muted">${impl.uat ? `${total} case(s) from the blueprint · ${impl.uat.live ? "run against the sandbox" : "dry run: plans checked, nothing sent"}`
+          : "Written from the approved blueprint, then run against the sandbox."}</p></div>
+        <div class="impl-toolbar-actions">
+          ${impl.uat ? `<button class="ghost small" type="button" data-verify-act="uat-download">Download cases</button>` : ""}
+          <button class="${impl.uat ? "ghost" : "primary"} small" type="button" data-verify-act="uat-run" ${impl.spec && impl.spec.approved ? "" : "disabled title=\"Approve the blueprint first\""}>
+            ${impl.uat ? "Run all cases again" : canRunLive ? "Write and run cases" : "Write cases and dry-run them"}</button>
+        </div></div>`;
+    if (impl.uat) {
+      html += `<div class="impl-bar" role="img" aria-label="${u.passed} passed, ${u.failed} failed, ${u.notRun} not run">
+          <span class="ok" style="flex:${u.passed}"></span><span class="err" style="flex:${u.failed}"></span><span class="wait" style="flex:${u.notRun}"></span></div>
+        <p class="muted">${u.passed} passed · ${u.failed} failed · ${u.notRun} not run</p>
+        <div class="impl-table-wrap"><table class="impl-table"><thead><tr><th>Case</th><th>Requirement</th><th>Result</th></tr></thead><tbody>`
+        + impl.uat.cases.slice().sort((a, b) => rank(a) - rank(b)).map((tc) => {
+          const er = tc.execution_result || {};
+          const s = er.status === "pass" ? "passed" : er.status === "fail" ? "failed" : "not run";
+          const why = er.status === "fail" ? (er.first_failure || er.reason || "")
+            : er.status === "dry_run" ? (er.plan_ok ? "plan looks runnable" : er.first_issue || "plan needs fixes") : er.reason || "";
+          return `<tr><td>${esc(tc.title)}</td><td>${(tc.req_ids || []).map((id) => `<span class="impl-req">${esc(id)}</span>`).join(" ")}</td>
+            <td><span class="impl-badge uat-${s.replace(" ", "_")}">${esc(s)}</span>${why ? `<div class="muted">${esc(typeof why === "string" ? why : JSON.stringify(why))}</div>` : ""}</td></tr>`;
+        }).join("") + "</tbody></table></div>";
+    }
+    html += "</div>";
+
+    // Hand-off: Projects, and promotion as a package for Zoho's sandbox deployment.
+    const ready = checksOk() && uatOk();
+    const why = !impl.verify ? "Verify the sandbox first." : !checksOk() ? "Every check must match or be confirmed by hand."
+      : !impl.uat ? "Run the UAT cases first." : !impl.uat.live ? "Run the UAT cases against the sandbox (not a dry run)."
+      : !uatOk() ? "No UAT case may fail." : "";
+    html += `<div class="impl-run impl-handoff"><div><h3>Hand off</h3>
+        <p class="muted">Push cases and failures to Zoho Projects for the team. Promotion hands over a package for Zoho's
+          sandbox deployment; LiftOff never writes to production.</p>
+        ${why ? `<p class="muted"><strong>Promote is locked:</strong> ${esc(why)}</p>` : ""}</div>
+        <div class="impl-toolbar-actions">
+          <button class="ghost" type="button" data-verify-act="uat-push" ${impl.uat ? "" : "disabled"}>Push to Zoho Projects</button>
+          <button class="primary" type="button" data-verify-act="promote" ${ready ? "" : "disabled"}>Promote to production</button>
+        </div>
+        <div id="impl-promote" hidden></div></div>`;
+    els.verifyArea.innerHTML = html;
+  }
+
+  function rank(tc) {
+    const s = (tc.execution_result || {}).status;
+    return s === "fail" ? 0 : s === "pass" ? 2 : 1;
+  }
+
+  function scopeModules() {
+    const modules = [];
+    (impl.spec.modules_in_scope || []).forEach((m) => { if (!modules.includes(m)) modules.push(m); });
+    (impl.spec.modules || []).forEach((m) => { if (m.include !== false && !modules.includes(m.api_name)) modules.push(m.api_name); });
+    (impl.spec.fields || []).forEach((f) => { if (!modules.includes(f.module)) modules.push(f.module); });
+    return modules.slice(0, 3);   // /generate covers up to 3 modules
+  }
+
+  async function runUat() {
+    const modules = scopeModules();
+    if (!modules.length) { L.setStatus("build", "The blueprint names no modules to test.", "warn"); return; }
+    const org = verifyOrg();
+    const live = !!(org && org.sandbox);   // UAT creates and deletes records: only ever live on a sandbox
+    try {
+      L.setStatus("build", "Writing UAT cases from the blueprint…");
+      const gen = await post("/generate", { brd: specToBrd(), modules, platform: "crm" }, 190_000, "UAT generation");
+      const cases = gen.cases || [];
+      if (!cases.length) throw new Error((gen.warnings || [])[0] || "No cases were written.");
+      L.setStatus("build", `Running ${cases.length} case(s) ${live ? "against the sandbox" : "as a dry run"}…`);
+      const ex = await post("/execute", { cases, platform: "crm", dry_run: !live }, 190_000, "UAT run");
+      impl.uat = { cases: ex.cases || cases, live: live && !ex.dry_run, ranAt: new Date().toISOString(), modules };
+      save();
+      renderVerify();
+      refreshButtons();
+      const c = uatCounts();
+      L.setStatus("build", impl.uat.live ? `UAT: ${c.passed} passed, ${c.failed} failed, ${c.notRun} not run.`
+        : "UAT dry run: plans checked, nothing sent. Connect a sandbox org to run them.", c.failed ? "warn" : "ok");
+    } catch (e) {
+      L.setStatus("build", "UAT run failed: " + e.message, "err");
+    }
+  }
+
+  async function fixInSandbox(id) {
+    const org = verifyOrg();
+    if (!org || !org.sandbox) return;
+    if (!impl.spec.approved) { L.setStatus("build", "Approve the blueprint before changing the sandbox.", "warn"); return; }
+    L.setStatus("build", `Fixing ${id} in the sandbox…`);
+    try {
+      const data = await post("/implement/apply", { spec: impl.spec, dry_run: false, confirm_org_id: org.id, item_ids: [id] },
+        90_000, "Fix");
+      const r = (data.results || [])[0] || {};
+      if (!["created", "updated", "skipped"].includes(r.result)) throw new Error(r.detail || r.result || "no result");
+      await verify();
+    } catch (e) {
+      L.setStatus("build", `Couldn't fix ${id}: ${e.message}`, "err");
+    }
+  }
+
+  async function pushUat() {
+    const base = (L.state.fileName || "BRD").replace(/\.[^.]+$/, "");
+    const projectName = `UAT — ${base} — ${new Date().toISOString().slice(0, 10)}`;
+    L.setStatus("build", `Pushing ${impl.uat.cases.length} case(s) to Zoho Projects…`);
+    try {
+      const data = await post("/push", { cases: impl.uat.cases, project_name: projectName }, 120_000, "Push");
+      L.setStatus("build", `${data.tasks_created || 0} task(s) and ${data.bugs_created || 0} bug(s) created`
+        + (data.project_name ? ` in "${data.project_name}"` : "") + (data.mock ? " (mock)" : "") + ".",
+        data.tasks_failed || data.bugs_failed ? "warn" : "ok");
+    } catch (e) {
+      L.setStatus("build", "Push failed: " + e.message, "err");
+    }
+  }
+
+  // Promotion package: what was built and proven in the sandbox, for Zoho's own deployment.
+  function promotionPackage() {
+    const org = verifyOrg();
+    const built = [];
+    for (const [s, label] of SECTIONS) {
+      if (s === "plan" || s === "open_questions") continue;
+      (impl.spec[s] || []).filter((o) => o.include !== false).forEach((o) => built.push({ section: s, group: label, item: o }));
+    }
+    const u = uatCounts();
+    const json = {
+      kind: "liftoff-promotion-package", generated_at: new Date().toISOString(),
+      sandbox: org, approved: !!impl.spec.approved,
+      components: built.map((b) => ({ id: b.item.id, section: b.section, what: describe(b.section, b.item),
+        executor: b.item.executor, req_ids: b.item.req_ids || [], manual_done: b.item.manual_done || null })),
+      decisions: (impl.spec.open_questions || []).filter((q) => (q.answer || "").trim()).map((q) => ({ question: q.question, answer: q.answer })),
+      verify: (impl.verify.results || []).map((r) => ({ id: r.id, verdict: effectiveVerdict(r), expected: r.expected, actual: r.actual })),
+      build_log: impl.build ? impl.build.log : [],
+      uat: { ran_at: impl.uat.ranAt, passed: u.passed, failed: u.failed, not_run: u.notRun,
+        cases: impl.uat.cases.map((tc) => ({ title: tc.title, req_ids: tc.req_ids || [], status: (tc.execution_result || {}).status || "not_run" })) },
+    };
+    const groups = {};
+    built.forEach((b) => { (groups[b.group] = groups[b.group] || []).push(b.item); });
+    let md = `# Promotion hand-off\n\nSandbox: ${org ? `${org.name} (${org.id})` : "—"} · prepared ${json.generated_at.slice(0, 10)}\n\n`
+      + `All ${(impl.verify.results || []).length} configuration checks match the blueprint and UAT passed `
+      + `(${u.passed} passed, ${u.failed} failed, ${u.notRun} not run).\n\n`
+      + "## Deploy\n\n1. In the **sandbox**, open Zoho CRM's sandbox deployment and select the components below.\n"
+      + "2. Deploy them to **production** and review Zoho's deployment report.\n"
+      + "3. Repeat the hand-configured items marked *(by hand)* if the deployment doesn't carry them.\n"
+      + "4. Smoke-test the P0 UAT cases in production with test records, then delete those records.\n\n## Components\n\n";
+    Object.entries(groups).forEach(([g, items]) => {
+      md += `### ${g}\n\n` + items.map((o) => `- [ ] ${describe(sectionOf(o), o)}${o.executor === "rpa" || o.executor === "partial" ? " *(by hand)*" : ""}`
+        + ((o.req_ids || []).length ? ` — ${o.req_ids.join(", ")}` : "")).join("\n") + "\n\n";
+    });
+    if (json.decisions.length) md += "## Client decisions\n\n" + json.decisions.map((d) => `- ${d.question} → ${d.answer}`).join("\n") + "\n\n";
+    md += "## Evidence\n\nSee the attached promotion-package.json for the verify results, build log and UAT results.\n";
+    return { json, md };
+  }
+
+  function sectionOf(item) {
+    for (const [s] of SECTIONS) if ((impl.spec[s] || []).includes(item)) return s;
+    return "";
+  }
+
+  els.verifyArea.addEventListener("click", (e) => {
+    const fix = e.target.closest("button[data-fix]");
+    if (fix) return fixInSandbox(fix.dataset.fix);
+    const t = e.target.closest("button[data-verify-act]");
+    if (!t) return;
+    const act = t.dataset.verifyAct;
+    if (act === "recheck") return verify();
+    if (act === "uat-run") return runUat();
+    if (act === "uat-push") return pushUat();
+    if (act === "uat-download") return download("uat-cases.json", impl.uat);
+    if (act === "promote") {
+      if (!(checksOk() && uatOk())) return;
+      const pkg = promotionPackage();
+      const box = document.getElementById("impl-promote");
+      box.hidden = false;
+      box.innerHTML = `<p class="status ok">Ready to promote. Download the hand-off and the evidence, then deploy with Zoho CRM's sandbox deployment.</p>
+        <div class="impl-toolbar-actions">
+          <button class="primary small" type="button" data-pkg="md">Download hand-off (.md)</button>
+          <button class="ghost small" type="button" data-pkg="json">Download evidence (.json)</button></div>`;
+      box.querySelector('[data-pkg="md"]').addEventListener("click", () => download("promotion-handoff.md", pkg.md));
+      box.querySelector('[data-pkg="json"]').addEventListener("click", () => download("promotion-package.json", pkg.json));
+    }
+  });
 
   async function pushPlan() {
     const tasks = (impl.spec.plan || []).filter((t) => t.include !== false);
@@ -728,15 +1010,6 @@
       md += "## Decisions\n\n" + answered.map((q) => `- ${q.question} → ${q.answer}`).join("\n") + "\n";
     }
     return md;
-  }
-
-  function toUat() {
-    const modules = [];
-    (impl.spec.modules_in_scope || []).forEach((m) => { if (!modules.includes(m)) modules.push(m); });
-    (impl.spec.modules || []).forEach((m) => { if (m.include !== false && !modules.includes(m.api_name)) modules.push(m.api_name); });
-    (impl.spec.fields || []).forEach((f) => { if (!modules.includes(f.module)) modules.push(f.module); });
-    if (!modules.length) { L.setStatus("build", "The spec names no modules to test.", "warn"); return; }
-    L.generateUat(specToBrd(), modules);
   }
 
   function rpaQueue() {
@@ -801,7 +1074,6 @@
   els.apply.addEventListener("click", apply);
   els.verify.addEventListener("click", verify);
   els.pushPlan.addEventListener("click", pushPlan);
-  els.toUat.addEventListener("click", toUat);
   els.download.addEventListener("click", () => download("implementation-spec.json", Object.assign({}, impl.meta, { spec: impl.spec })));
   els.downloadRpa.addEventListener("click", rpaQueue);
 
@@ -840,9 +1112,10 @@
   window.LiftOffImpl = {
     generate,
     reset() {
-      impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null;
+      impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null; impl.uat = null;
       try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
       els.run.innerHTML = "";
+      els.verifyArea.innerHTML = "";
       L.setStatus("build", "");
       L.setTabState("build", { locked: true, done: false });
       render();
@@ -853,6 +1126,7 @@
   if (impl.spec) {
     L.setTabState("build", { locked: false, done: true });
     if (impl.build || impl.dryRun) renderBuild();
+    renderVerify();
     render();
   } else {
     refreshButtons();

@@ -84,39 +84,90 @@ public class ImplementVerifyServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Sets verdict, plus "expected" (what the blueprint says) and "actual" (what the org has)
+     * as short readable text, and "fixable" when /implement/apply can repair it.
+     */
     static void check(String section, JsonNode item, ImplOrg org, ObjectNode r) {
         switch (section) {
-            case "modules":
-                r.put("verdict", org.hasModule(item) ? "present" : "missing");
+            case "modules": {
+                boolean has = org.hasModule(item);
+                r.put("verdict", has ? "present" : "missing");
+                r.put("expected", "module " + item.path("plural_label").asText());
+                r.put("actual", has ? "present" : "not found");
+                r.put("fixable", !has);
                 return;
-            case "roles":
-                r.put("verdict", org.hasRole(item.path("name").asText()) ? "present" : "missing");
+            }
+            case "roles": {
+                boolean has = org.hasRole(item.path("name").asText());
+                r.put("verdict", has ? "present" : "missing");
+                r.put("expected", "role " + item.path("name").asText()
+                        + (item.path("reports_to").asText("").isEmpty() ? "" : ", under " + item.path("reports_to").asText()));
+                r.put("actual", has ? "present" : "not found");
+                r.put("fixable", !has);
                 return;
+            }
             case "layouts": {
                 Boolean has = org.hasLayout(item.path("module").asText(), item.path("name").asText());
-                if (has == null) { r.put("verdict", "unverifiable"); r.put("detail", "Layouts of this module couldn't be read."); }
-                else r.put("verdict", has ? "present" : "missing");
+                r.put("expected", "layout " + item.path("name").asText());
+                if (has == null) {
+                    r.put("verdict", "unverifiable");
+                    r.put("actual", "couldn't read layouts");
+                    r.put("detail", "Layouts of this module couldn't be read.");
+                } else {
+                    r.put("verdict", has ? "present" : "missing");
+                    r.put("actual", has ? "present (sections not compared)" : "not found");
+                }
                 return;
             }
             case "fields": {
                 String module = item.path("module").asText();
+                r.put("expected", fieldText(item.path("data_type").asText(), item.path("picklist_values"),
+                        item.path("lookup_module").asText("")));
                 if (!org.knowsFieldsOf(module)) {
-                    r.put("verdict", org.moduleApiName(module) == null ? "missing" : "unverifiable");
-                    r.put("detail", org.moduleApiName(module) == null ? "Module " + module + " doesn't exist." : "Fields couldn't be read.");
+                    boolean noModule = org.moduleApiName(module) == null;
+                    r.put("verdict", noModule ? "missing" : "unverifiable");
+                    r.put("actual", noModule ? "module " + module + " not found" : "couldn't read fields");
+                    r.put("fixable", false);
                     return;
                 }
                 JsonNode live = org.findField(item);
-                if (live == null) { r.put("verdict", "missing"); return; }
+                if (live == null) {
+                    r.put("verdict", "missing");
+                    r.put("actual", "not found");
+                    r.put("fixable", ImplSpec.API_FIELD_TYPES.contains(item.path("data_type").asText()));
+                    return;
+                }
                 List<String> diffs = fieldDiffs(item, live);
                 r.put("verdict", diffs.isEmpty() ? "present" : "mismatch");
                 r.put("api_name", live.path("api_name").asText());
+                r.put("actual", fieldText(ImplCompare.liveType(live.path("data_type").asText()),
+                        live.path("pick_list_values"), live.path("lookup").path("module").path("api_name").asText("")));
+                // Missing picklist values can be added; a type or lookup conflict can't be changed in place.
+                r.put("fixable", !diffs.isEmpty() && ImplCompare.conflict(item, live) == null);
                 if (!diffs.isEmpty()) r.put("detail", String.join("; ", diffs));
                 return;
             }
             default:
                 r.put("verdict", "unverifiable");
+                r.put("expected", ImplPlan.describe(section, item));
+                r.put("actual", "check in Setup");
                 r.put("detail", "Not readable through the metadata APIs used here; check in Setup.");
         }
+    }
+
+    /** "picklist: A, B, C" / "lookup to Deals" / "decimal". */
+    static String fieldText(String type, JsonNode picks, String lookup) {
+        StringBuilder sb = new StringBuilder(type);
+        if (!lookup.isEmpty()) sb.append(" to ").append(lookup);
+        List<String> vals = new ArrayList<>();
+        for (JsonNode p : picks) {
+            String v = p.isObject() ? p.path("display_value").asText(p.path("actual_value").asText("")) : p.asText("");
+            if (!v.isEmpty() && !"-None-".equals(v)) vals.add(v);
+            if (vals.size() == 8) { vals.add("…"); break; }
+        }
+        if (!vals.isEmpty()) sb.append(": ").append(String.join(", ", vals));
+        return sb.toString();
     }
 
     static List<String> fieldDiffs(JsonNode spec, JsonNode live) {

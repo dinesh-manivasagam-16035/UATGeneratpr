@@ -213,7 +213,8 @@ BRD ──► 1. Extract  POST /implement          implementation spec (JSON)
     ──► 2. Review   Build tab                untick / edit items, answer open questions, approve
     ──► 3. Apply    POST /implement/apply    dry run, then REST create calls; UI-only items → RPA queue
     ──► 4. Verify   POST /implement/verify   read org metadata back, diff against the spec
-    ──► 5. UAT      "Generate UAT from spec" UAT cases from a BRD rendered from the approved spec
+    ──► 5. UAT      in Verify                UAT cases from the approved blueprint, run on the sandbox
+    ──► Promote     hand-off package         for Zoho's sandbox-to-production deployment
 ```
 
 **Spec sections:** `modules`, `fields` (with picklists and lookups), `layouts`, `validation_rules`,
@@ -250,9 +251,19 @@ log downloads as JSON. Items the APIs can't do are listed under **Configure by h
 click paths; tick each one off (who and when is kept), and items tied to an unanswered blocking
 question show as blocked.
 
-**Verify** reports `present`, `mismatch` (type, missing picklist values, lookup target), `missing`,
-or `unverifiable` (validation rules, workflows and functions aren't read back through the APIs used
-here; check them in Setup).
+**Verify** reads the sandbox back and shows, per item, what the blueprint says and what the sandbox
+has: `present`, `mismatch` (type, missing picklist values, lookup target), `missing`, or
+`unverifiable` (validation rules, workflows and functions aren't read back through the APIs used here).
+Missing items and missing picklist values have **Fix in sandbox**; an unverifiable item counts once
+it's ticked in Configure by hand. **UAT cases** are then written from the approved blueprint
+(`/generate`) and run against the sandbox (`/execute`; a dry run when the org isn't a sandbox), and
+can be pushed to Zoho Projects with their failures.
+
+**Promote to production** unlocks only when every check matches (or is confirmed by hand) and a live
+UAT run has no failures. LiftOff never writes to production: promotion downloads a hand-off
+(`promotion-handoff.md`: components to deploy with Zoho CRM's sandbox deployment, hand-configured
+items, client decisions) and the evidence (`promotion-package.json`: verify results, build log, UAT
+results).
 
 Tunables: `IMPL_MAX_LLM_CALLS` (9: two calls per BRD part plus one for the plan),
 `CRM_SETTINGS_API_VERSION` (`v8`), plus the shared `GEN_*` settings. `LLM_PROVIDER=mock` returns a
