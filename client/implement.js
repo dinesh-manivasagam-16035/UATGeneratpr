@@ -26,6 +26,8 @@
     ["plan",             "Delivery plan"],
   ];
   const EXECUTOR_LABEL = { api: "API", rpa: "RPA / manual", review: "Review", projects: "Projects", none: "—" };
+  const STATUS_LABEL = { new: "New", exists: "Already in org", needs_update: "Needs update", conflict: "Conflict",
+    not_compared: "Not compared", created: "Created", open: "Open" };
   const API_FIELD_TYPES = ["text", "textarea", "email", "phone", "website", "picklist", "multiselectpicklist",
     "date", "datetime", "integer", "bigint", "decimal", "currency", "percent", "boolean", "lookup"];
 
@@ -233,7 +235,7 @@
     const reqs = (o.req_ids || []).length ? `<span class="impl-req">${esc(o.req_ids.join(", "))}</span>` : "";
     const badges = [
       `<span class="impl-badge exec-${esc(o.executor)}">${esc(EXECUTOR_LABEL[o.executor] || o.executor)}</span>`,
-      o.status && !["todo"].includes(o.status) ? `<span class="impl-badge st-${esc(o.status)}">${esc(o.status)}</span>` : "",
+      o.status && !["todo"].includes(o.status) ? `<span class="impl-badge st-${esc(o.status)}">${esc(STATUS_LABEL[o.status] || o.status)}</span>` : "",
       run ? `<span class="impl-badge run-${esc(run.result)}" title="${esc(run.detail || "")}">${esc(run.result.replace(/_/g, " "))}</span>` : "",
       ver ? `<span class="impl-badge ver-${esc(ver.verdict)}" title="${esc(ver.detail || "")}">${esc(ver.verdict)}</span>` : "",
       section === "open_questions" && o.blocking ? `<span class="impl-badge warn">blocking</span>` : "",
@@ -292,9 +294,11 @@
       : blocking.length ? `Answer ${blocking.length} blocking question(s) (${blocking.map((q) => q.id).join(", ")}) or untick them to approve.`
       : impl.spec.approved ? "Approved." : "Untick anything you don't want built, edit what's wrong, then approve.";
     els.dry.disabled = !have;
-    els.apply.disabled = !(have && impl.spec.approved && impl.dryRun && impl.dryRun.org && connected);
+    const sandbox = !!(impl.dryRun && impl.dryRun.org && impl.dryRun.org.sandbox);
+    els.apply.disabled = !(have && impl.spec.approved && impl.dryRun && impl.dryRun.org && connected && sandbox);
     els.apply.title = !have ? "" : !impl.spec.approved ? "Approve the spec first"
-      : !impl.dryRun ? "Run a dry run first" : !connected ? "Connect CRM first" : "";
+      : !impl.dryRun ? "Run a dry run first" : !connected ? "Connect CRM first"
+      : !sandbox ? "Apply only writes to sandbox orgs" : "";
     els.verify.disabled = !(have && connected);
     els.pushPlan.disabled = !(have && (impl.spec.plan || []).some((t) => t.include !== false));
     els.toUat.disabled = !(have && impl.spec.approved);
@@ -354,8 +358,11 @@
       impl.applied = null;
       renderRun("Dry run — nothing was changed", impl.dryRun, "apply");
       render();
-      L.setStatus("build", impl.dryRun.org
-        ? `Dry run against ${impl.dryRun.org.name || impl.dryRun.org.id}. Check the requests, then Apply.`
+      const o = impl.dryRun.org;
+      L.setStatus("build", o && !o.sandbox
+        ? `Dry run against ${o.name || o.id}. It isn't a sandbox, so Apply stays off — connect a sandbox org to build.`
+        : o
+        ? `Dry run against ${o.name || o.id}. Check the requests, then Apply.`
         : "Dry run done (no CRM connected — connect CRM to apply).", "ok");
     } catch (e) {
       L.setStatus("build", "Dry run failed: " + e.message, "err");
@@ -365,31 +372,30 @@
   async function apply() {
     const org = impl.dryRun && impl.dryRun.org;
     if (!org) return;
-    const apiCount = (impl.dryRun.counts || {}).would_create || 0;
-    if (!window.confirm(`Create ${apiCount} item(s) in "${org.name}" (${org.id}, ${org.sandbox ? "sandbox" : org.type || "production"})?\n\n`
-        + "This writes to the org. Items for RPA/manual work are not changed.")) return;
-    let allowProduction = false;
     if (!org.sandbox) {
-      const typed = window.prompt(`"${org.name}" doesn't look like a sandbox. Type the org name to apply to it anyway:`);
-      if (typed == null) return;
-      if (typed.trim() !== (org.name || "").trim()) { L.setStatus("build", "Org name didn't match — nothing was applied.", "warn"); return; }
-      allowProduction = true;
+      L.setStatus("build", `"${org.name}" isn't a sandbox. LiftOff only builds in sandbox orgs.`, "warn");
+      return;
     }
+    const c0 = impl.dryRun.counts || {};
+    const writes = (c0.would_create || 0) + (c0.would_update || 0);
+    if (!window.confirm(`Write ${writes} change(s) to sandbox "${org.name}" (${org.id})?\n\n`
+        + "Conflicts and items for RPA/manual work are not changed.")) return;
     L.setStatus("build", "Applying…");
     try {
       impl.applied = await post("/implement/apply", {
-        spec: impl.spec, dry_run: false, confirm_org_id: org.id, allow_production: allowProduction,
+        spec: impl.spec, dry_run: false, confirm_org_id: org.id,
       }, 180_000, "Apply");
       // Created items now exist; keep the spec in step with the org.
       (impl.applied.results || []).forEach((r) => {
-        if (r.result === "created") { const f = findItem(r.id); if (f) f.item.status = "created"; }
+        if (r.result === "created" || r.result === "updated") { const f = findItem(r.id); if (f) f.item.status = "created"; }
       });
       save();
       renderRun("Apply results", impl.applied, "apply");
       render();
       const c = impl.applied.counts || {};
-      L.setStatus("build", `Applied: ${c.created || 0} created, ${c.failed || 0} failed, ${c.queued_for_rpa || 0} queued for RPA. Now Verify.`,
-        c.failed ? "warn" : "ok");
+      L.setStatus("build", `Applied: ${c.created || 0} created, ${c.updated || 0} updated, ${c.failed || 0} failed, `
+        + `${c.conflict || 0} conflict(s), ${c.queued_for_rpa || 0} queued for RPA. Now Verify.`,
+        (c.failed || c.conflict) ? "warn" : "ok");
     } catch (e) {
       L.setStatus("build", "Apply failed: " + e.message, "err");
     }

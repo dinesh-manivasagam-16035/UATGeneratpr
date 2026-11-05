@@ -26,7 +26,7 @@ import java.util.Set;
  *   id        stable short id per section (MOD-1, FLD-3, ...)
  *   executor  who builds it: "api" (REST, /implement/apply), "rpa" (UI-only, for an
  *             RPA bot or a consultant), "review" (open questions), "projects" (plan)
- *   status    "new", "exists" (already in the org) or "unknown" (CRM not connected)
+ *   status    new / exists / needs_update / conflict / not_compared (ImplCompare)
  *   include   true; the reviewer unticks items they don't want built
  *   req_ids   requirement IDs the item delivers
  *
@@ -347,6 +347,7 @@ public final class ImplSpec {
     }
 
     static String executorFor(String section, JsonNode o) {
+        if ("exists".equals(o.path("status").asText())) return "none";
         switch (section) {
             case "modules": return "standard".equals(o.path("kind").asText()) ? "none" : "api";
             case "fields":  return API_FIELD_TYPES.contains(o.path("data_type").asText()) ? "api" : "rpa";

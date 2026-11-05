@@ -219,19 +219,21 @@ BRD ──► 1. Extract  POST /implement          implementation spec (JSON)
 **Spec sections:** `modules`, `fields` (with picklists and lookups), `layouts`, `validation_rules`,
 `workflows` (workflow, blueprint, assignment, approval, scoring, escalation, schedule, cadence,
 webhook), `roles`, `functions` (Deluge), `open_questions`, `plan`. Every item carries
-`id`, `req_ids`, `include`, `status` (`new` / `exists` / `unknown`, checked against the connected
-org) and `executor`:
+`id`, `req_ids`, `include`, `status` and `executor`. Status is checked against the connected org:
+`new`, `exists` (unticked), `needs_update` (a picklist lacks values; they're added), `conflict`
+(different type or lookup target; CRM can't change a type, so create a new field or skip) or
+`not_compared` (org not read). Executors:
 
 | executor | Items | Built by |
 |---|---|---|
-| `api` | custom modules, custom fields (standard types), roles | `/implement/apply` via `/crm/v6/settings/*` |
+| `api` | custom modules, custom fields (standard types), picklist value additions, roles | `/implement/apply` via `/crm/v8/settings/*` |
 | `rpa` | layouts, validation rules, automation, Deluge functions, formula/autonumber/multi-lookup fields | RPA bot or consultant, from the `rpa_queue` (click paths + values) |
 | `review` | open questions | consultant, before approval |
 | `projects` | plan tasks | "Push plan to Projects" (`/push`) |
 
 **Safety:** `/implement/apply` is a dry run unless `dry_run: false`. A real run needs
-`spec.approved: true`, `confirm_org_id` equal to the connected org, and `allow_production: true`
-when the org isn't a sandbox. Blocking open questions must be answered (or unticked) before the UI
+`spec.approved: true` and `confirm_org_id` equal to the connected org, and it only writes to
+**sandbox** orgs; production is read-only (dry runs still work there). Blocking open questions must be answered (or unticked) before the UI
 lets you approve. Items already in the org are skipped. "Required" on a field is a layout setting
 and is returned as a follow-up, not applied.
 
@@ -240,7 +242,7 @@ or `unverifiable` (validation rules, workflows and functions aren't read back th
 here; check them in Setup).
 
 Tunables: `IMPL_MAX_LLM_CALLS` (9: two calls per BRD part plus one for the plan),
-`CRM_SETTINGS_API_VERSION` (`v6`), plus the shared `GEN_*` settings. `LLM_PROVIDER=mock` returns a
+`CRM_SETTINGS_API_VERSION` (`v8`), plus the shared `GEN_*` settings. `LLM_PROVIDER=mock` returns a
 shallow offline spec; `zia` isn't supported for this mode yet.
 
 ## Sessions and execution

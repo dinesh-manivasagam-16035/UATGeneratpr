@@ -125,7 +125,7 @@ public class ImplementServlet extends HttpServlet {
                 for (String e : org.errors) warnings.add("Couldn't read org metadata — " + trim(e, 160));
             } else if (!mock) {
                 warnings.add("Not connected to Zoho CRM, so nothing is checked against your org and every "
-                        + "item is marked \"unknown\". Connect CRM to reuse existing fields and to apply.");
+                        + "item is marked \"not compared\". Connect CRM to reuse existing fields and to apply.");
             }
 
             // ---- 3. Plan the calls (one call is kept back for the delivery plan) ----
@@ -322,7 +322,10 @@ public class ImplementServlet extends HttpServlet {
         return p2;
     }
 
-    /** Sets status on every item: exists / new against the live org, or unknown. */
+    /**
+     * Sets status on every item against the live org (see ImplCompare for the meanings)
+     * and the executor that follows from it.
+     */
     static void markStatus(ObjectNode spec, ImplOrg org) {
         for (String s : ImplSpec.SECTIONS) {
             for (JsonNode n : spec.path(s)) {
@@ -330,19 +333,14 @@ public class ImplementServlet extends HttpServlet {
                 String status;
                 switch (s) {
                     case "modules":
-                        status = org == null || org.modules.isEmpty() ? "unknown" : org.hasModule(o) ? "exists" : "new";
-                        if ("exists".equals(status)) o.put("executor", "none");
+                        status = org == null || org.modules.isEmpty() ? "not_compared" : org.hasModule(o) ? "exists" : "new";
                         break;
-                    case "fields": {
-                        String module = o.path("module").asText();
-                        if (org == null) status = "unknown";
-                        else if (org.findField(o) != null) status = "exists";
-                        else if (org.knowsFieldsOf(module) || org.moduleApiName(module) == null) status = "new";
-                        else status = "unknown";
+                    case "fields":
+                        ImplCompare.fieldStatus(o, org);
+                        status = o.path("status").asText();
                         break;
-                    }
                     case "roles":
-                        status = org == null || org.roles.isEmpty() ? "unknown" : org.hasRole(o.path("name").asText()) ? "exists" : "new";
+                        status = org == null || org.roles.isEmpty() ? "not_compared" : org.hasRole(o.path("name").asText()) ? "exists" : "new";
                         break;
                     case "open_questions":
                         status = "open";
@@ -351,10 +349,15 @@ public class ImplementServlet extends HttpServlet {
                         status = "todo";
                         break;
                     default:
-                        status = org == null ? "unknown" : "new";
+                        status = org == null ? "not_compared" : "new";
                 }
                 o.put("status", status);
-                if ("exists".equals(status)) o.put("include", false);
+                if ("exists".equals(status)) {
+                    o.put("include", false);
+                    o.put("executor", "none");
+                } else {
+                    o.put("executor", ImplSpec.executorFor(s, o));
+                }
             }
         }
     }

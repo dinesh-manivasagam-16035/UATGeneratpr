@@ -121,27 +121,10 @@ public class ImplementVerifyServlet extends HttpServlet {
 
     static List<String> fieldDiffs(JsonNode spec, JsonNode live) {
         List<String> d = new ArrayList<>();
-        String want = spec.path("data_type").asText();
-        String got = live.path("data_type").asText();
-        if ("decimal".equals(want)) want = "double";
-        if (!want.isEmpty() && !got.isEmpty() && !want.equalsIgnoreCase(got)) {
-            d.add("type is " + got + ", spec says " + spec.path("data_type").asText());
-        }
-        if (spec.path("picklist_values").size() > 0) {
-            List<String> have = new ArrayList<>();
-            for (JsonNode p : live.path("pick_list_values")) {
-                have.add(ImplSpec.low(p.path("actual_value").asText(p.path("display_value").asText())));
-                have.add(ImplSpec.low(p.path("display_value").asText()));
-            }
-            List<String> missing = new ArrayList<>();
-            for (JsonNode v : spec.path("picklist_values")) if (!have.contains(ImplSpec.low(v.asText()))) missing.add(v.asText());
-            if (!missing.isEmpty()) d.add("picklist is missing " + String.join(", ", missing));
-        }
-        String target = spec.path("lookup_module").asText("");
-        String liveTarget = live.path("lookup").path("module").path("api_name").asText("");
-        if (!target.isEmpty() && !liveTarget.isEmpty() && !ImplSpec.low(target).equals(ImplSpec.low(liveTarget))) {
-            d.add("lookup points to " + liveTarget + ", spec says " + target);
-        }
+        String why = ImplCompare.conflict(spec, live);
+        if (why != null) d.add(why);
+        List<String> missing = ImplCompare.missingPicklistValues(spec, live);
+        if (!missing.isEmpty()) d.add("Picklist is missing " + String.join(", ", missing) + ".");
         return d;
     }
 

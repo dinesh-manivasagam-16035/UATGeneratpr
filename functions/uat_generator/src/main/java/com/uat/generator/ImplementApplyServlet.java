@@ -28,10 +28,10 @@ import java.util.logging.Logger;
  *   "spec": { ...from /implement, after review... },
  *   "dry_run": true,                 // default true: nothing is written, requests are previewed
  *   "confirm_org_id": "6000...",     // required for a real run; must match the connected org
- *   "allow_production": false,       // required (true) for a real run on a non-sandbox org
  *   "item_ids": ["MOD-1","FLD-2"]    // optional subset; default = every included item
  * }
- * A real run also requires spec.approved == true (set in the UI after human review).
+ * A real run also requires spec.approved == true (set in the UI after human review), and
+ * only ever writes to a sandbox org: production is read-only here (dry runs still work).
  *
  * What runs where:
  *   api  — custom modules, custom fields, roles: created through the CRM settings REST APIs,
@@ -39,10 +39,12 @@ import java.util.logging.Logger;
  *   rpa  — layouts, validation rules, workflows/blueprints/assignment/approvals, Deluge
  *          functions, and field types the field API doesn't create: returned in rpa_queue
  *          with step-by-step instructions for an RPA bot or a consultant.
- * Items with status "exists" are skipped. Every item gets a result line; failures don't
- * stop the run.
+ * Every item is re-compared with the org at apply time (ImplCompare): already there →
+ * skipped; a picklist missing values → those values are added (PATCH); a type or lookup
+ * conflict → result "conflict" and nothing is sent. Every item gets a result line;
+ * failures don't stop the run.
  *
- * Env: CRM_SETTINGS_API_VERSION (v6) — API version used for the create calls.
+ * Env: CRM_SETTINGS_API_VERSION (v8) — API version used for the create/update calls.
  */
 public class ImplementApplyServlet extends HttpServlet {
 
@@ -86,10 +88,10 @@ public class ImplementApplyServlet extends HttpServlet {
                             + org.orgName + ", " + org.orgId + "). Nothing was changed.");
                     return;
                 }
-                if (!org.sandbox && !body.path("allow_production").asBoolean(false)) {
-                    ImplementServlet.writeError(resp, 403, "\"" + org.orgName + "\" doesn't look like a sandbox org (type: "
-                            + (org.orgType.isEmpty() ? "unknown" : org.orgType) + "). Apply to a sandbox first, or "
-                            + "confirm production explicitly. Nothing was changed.");
+                if (!org.sandbox) {
+                    ImplementServlet.writeError(resp, 403, "\"" + org.orgName + "\" isn't a sandbox org (type: "
+                            + (org.orgType.isEmpty() ? "unknown" : org.orgType) + "). LiftOff only builds in sandbox; "
+                            + "production is updated by promoting a verified build. Nothing was changed.");
                     return;
                 }
             }
@@ -178,7 +180,7 @@ public class ImplementApplyServlet extends HttpServlet {
         final CrmClient crm;
         final ImplOrg org;
         final boolean dryRun;
-        final String v = System.getenv().getOrDefault("CRM_SETTINGS_API_VERSION", "v6");
+        final String v = System.getenv().getOrDefault("CRM_SETTINGS_API_VERSION", "v8");
         final Map<String, String> createdModules = new LinkedHashMap<>();   // low(label/api) -> api_name
         List<String> profileIds;
         Map<String, String> roleIds;
@@ -195,6 +197,7 @@ public class ImplementApplyServlet extends HttpServlet {
         }
 
         void module(JsonNode m, ObjectNode r) throws Exception {
+            if (org != null && org.hasModule(m)) { r.put("result", "skipped"); r.put("detail", "Already in the org."); return; }
             ObjectNode mod = MAPPER.createObjectNode();
             mod.put("singular_label", m.path("singular_label").asText());
             mod.put("plural_label", m.path("plural_label").asText());
@@ -213,6 +216,19 @@ public class ImplementApplyServlet extends HttpServlet {
 
         void field(JsonNode f, ObjectNode r) throws Exception {
             String module = moduleApi(f.path("module").asText());
+            JsonNode live = org == null ? null : org.findField(f);
+            if (live != null) {
+                String why = ImplCompare.conflict(f, live);
+                if (why != null) {
+                    r.put("result", "conflict");
+                    r.put("detail", why + " CRM can't change a field's type: create a new field instead, or skip.");
+                    return;
+                }
+                List<String> missing = ImplCompare.missingPicklistValues(f, live);
+                if (missing.isEmpty()) { r.put("result", "skipped"); r.put("detail", "Already in the org."); return; }
+                addPicklistValues(module, live, missing, r);
+                return;
+            }
             String type = f.path("data_type").asText("text");
             ObjectNode fld = MAPPER.createObjectNode();
             fld.put("field_label", f.path("label").asText());
@@ -250,7 +266,29 @@ public class ImplementApplyServlet extends HttpServlet {
             }
         }
 
+        /** PATCH an existing picklist: its current values (by id) plus the missing ones. */
+        void addPicklistValues(String module, JsonNode live, List<String> missing, ObjectNode r) throws Exception {
+            ObjectNode fld = MAPPER.createObjectNode();
+            fld.put("id", live.path("id").asText());
+            ArrayNode pv = fld.putArray("pick_list_values");
+            for (JsonNode p : live.path("pick_list_values")) {
+                if (p.hasNonNull("id")) pv.addObject().put("id", p.path("id").asText());
+            }
+            for (String v : missing) pv.addObject().put("display_value", v).put("actual_value", v);
+            ObjectNode payload = MAPPER.createObjectNode();
+            payload.putArray("fields").add(fld);
+            send(r, "PATCH", "/crm/" + v + "/settings/fields/" + live.path("id").asText() + "?module=" + enc(module),
+                    payload, "fields");
+            r.put("detail", (dryRun ? "Would add " : "Added ") + String.join(", ", missing) + " to "
+                    + live.path("api_name").asText() + ".");
+            if (dryRun) r.put("result", "would_update");
+            else if ("created".equals(r.path("result").asText())) r.put("result", "updated");
+        }
+
         void role(JsonNode role, ObjectNode r) throws Exception {
+            if (org != null && org.hasRole(role.path("name").asText())) {
+                r.put("result", "skipped"); r.put("detail", "Already in the org."); return;
+            }
             Map<String, String> ids = roles();
             String parentName = role.path("reports_to").asText("");
             String parent = ids.get(ImplSpec.low(parentName));

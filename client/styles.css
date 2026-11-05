@@ -3512,11 +3512,12 @@ footer { display: none; }
 .impl-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .impl-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--bg-subtle); color: var(--text-secondary); white-space: nowrap; }
-.impl-badge.ok, .impl-badge.exec-api, .impl-badge.run-created, .impl-badge.ver-present, .impl-badge.st-created
+.impl-badge.ok, .impl-badge.exec-api, .impl-badge.run-created, .impl-badge.run-updated, .impl-badge.ver-present, .impl-badge.st-created
   { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-border); }
-.impl-badge.warn, .impl-badge.exec-rpa, .impl-badge.run-queued_for_rpa, .impl-badge.ver-mismatch, .impl-badge.st-unknown
+.impl-badge.warn, .impl-badge.exec-rpa, .impl-badge.run-queued_for_rpa, .impl-badge.ver-mismatch, .impl-badge.st-not_compared,
+.impl-badge.st-needs_update, .impl-badge.run-would_update
   { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-border); }
-.impl-badge.run-failed, .impl-badge.ver-missing { color: var(--err); background: var(--err-bg); border-color: var(--err-border); }
+.impl-badge.run-failed, .impl-badge.ver-missing, .impl-badge.st-conflict, .impl-badge.run-conflict { color: var(--err); background: var(--err-bg); border-color: var(--err-border); }
 .impl-badge.st-new, .impl-badge.run-would_create { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
 .impl-details { margin: 6px 0 0 26px; padding: 0; font-size: 13px; color: var(--text-secondary); }
 .impl-details li { overflow-wrap: anywhere; }
