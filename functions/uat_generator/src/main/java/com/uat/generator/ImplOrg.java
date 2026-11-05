@@ -21,6 +21,7 @@ import java.util.Map;
  *   GET /crm/v3/settings/fields?module=X    fields, per module asked for
  *   GET /crm/v3/settings/layouts?module=X   layout names, per module asked for
  *   GET /crm/v3/settings/roles              roles
+ *   GET /crm/v8/settings/automation/workflow_rules?module=X   workflow rule names, per module
  * A section that can't be read is left empty and listed in errors.
  */
 public final class ImplOrg {
@@ -35,6 +36,8 @@ public final class ImplOrg {
     public final Map<String, List<JsonNode>> fields = new LinkedHashMap<>();
     public final Map<String, List<String>> layouts = new LinkedHashMap<>();
     public final List<String> roles = new ArrayList<>();
+    /** lower-cased module api_name → workflow rule names (only for modules that were read). */
+    public final Map<String, List<String>> workflows = new LinkedHashMap<>();
     public final List<String> errors = new ArrayList<>();
 
     private ImplOrg() {}
@@ -75,6 +78,15 @@ public final class ImplOrg {
             } catch (Exception e) {
                 o.errors.add("fields of " + api + ": " + e.getMessage());
             }
+            try {
+                List<String> names = new ArrayList<>();
+                JsonNode wr = get(crm, "/crm/v8/settings/automation/workflow_rules?module=" + enc(api)).path("workflow_rules");
+                for (JsonNode w : wr) names.add(w.path("name").asText(""));
+                o.workflows.put(ImplSpec.low(name), names);
+                if (!ImplSpec.low(name).equals(ImplSpec.low(api))) o.workflows.put(ImplSpec.low(api), names);
+            } catch (Exception e) {
+                o.errors.add("workflow rules of " + api + ": " + e.getMessage());
+            }
             if (withLayouts) {
                 try {
                     List<String> names = new ArrayList<>();
@@ -109,6 +121,31 @@ public final class ImplOrg {
         return moduleApiName(specModule.path("api_name").asText("")) != null
             || moduleApiName(specModule.path("plural_label").asText("")) != null
             || moduleApiName(specModule.path("singular_label").asText("")) != null;
+    }
+
+    /** The org's module id, or "" when the module isn't known. */
+    public String moduleId(String nameOrLabel) {
+        JsonNode m = modules.get(ImplSpec.low(nameOrLabel));
+        return m == null ? "" : m.path("id").asText("");
+    }
+
+    /** A live field of a module by api name (or label), or null. */
+    public JsonNode field(String module, String apiOrLabel) {
+        List<JsonNode> list = fields.get(ImplSpec.low(module));
+        if (list == null) return null;
+        String k = ImplSpec.low(apiOrLabel);
+        for (JsonNode f : list) {
+            if (ImplSpec.low(f.path("api_name").asText()).equals(k) || ImplSpec.low(f.path("field_label").asText()).equals(k)) return f;
+        }
+        return null;
+    }
+
+    /** True/false when the module's workflow rules were read, null when they weren't. */
+    public Boolean hasWorkflow(String module, String name) {
+        List<String> l = workflows.get(ImplSpec.low(module));
+        if (l == null) return null;
+        for (String n : l) if (ImplSpec.low(n).equals(ImplSpec.low(ImplRules.ruleName(name)))) return true;
+        return false;
     }
 
     /** The live field matching a spec field by api name or label, or null. */

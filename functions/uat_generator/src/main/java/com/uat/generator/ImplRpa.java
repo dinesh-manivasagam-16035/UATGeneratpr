@@ -83,6 +83,10 @@ public final class ImplRpa {
                     ? "the profile for " + o.path("name").asText() : o.path("profile").asText()) + ".");
             for (JsonNode p : o.path("permissions")) s.add("Allow: " + p.asText() + ".");
             s.add("Save, and assign users with role " + o.path("name").asText() + " to that profile.");
+        } else if ("workflows".equals(section)) {
+            s.add("Setup → Automation → Workflow Rules → " + ImplRules.ruleName(o.path("name").asText()) + " → Edit.");
+            for (JsonNode a : o.path("other_actions")) s.add("Add action: " + a.asText() + ".");
+            s.add("Save.");
         } else {
             s.add("Finish as described in the blueprint.");
         }

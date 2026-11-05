@@ -75,6 +75,11 @@ public final class MockImplClient {
             w.put("trigger", "On create");
             w.put("criteria", "As described in " + r.id);
             w.putArray("actions").add("Field update / notification per " + r.id);
+            // Structured form, so the API path can be exercised offline (dry run).
+            w.put("trigger_type", "create");
+            w.putArray("conditions");
+            w.putArray("tasks").addObject().put("subject", "Follow up: " + (r.title.isEmpty() ? r.id : r.title)).put("due_in_days", 1);
+            w.putArray("other_actions").add("Email alert to the record owner");
             reqIds(w, r.id);
         }
 

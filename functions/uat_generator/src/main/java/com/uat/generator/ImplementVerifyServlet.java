@@ -27,7 +27,8 @@ import java.util.logging.Logger;
  *   mismatch      found, but differs (data type, missing picklist values, lookup target)
  *   missing       not found
  *   unverifiable  the REST metadata APIs used here can't read it back (validation rules,
- *                 workflows, Deluge functions) — check in Setup
+ *                 blueprints/approvals, Deluge functions) — check in Setup. Workflow rules are
+ *                 checked by name (their actions aren't compared).
  */
 public class ImplementVerifyServlet extends HttpServlet {
 
@@ -146,6 +147,21 @@ public class ImplementVerifyServlet extends HttpServlet {
                 // Missing picklist values can be added; a type or lookup conflict can't be changed in place.
                 r.put("fixable", !diffs.isEmpty() && ImplCompare.conflict(item, live) == null);
                 if (!diffs.isEmpty()) r.put("detail", String.join("; ", diffs));
+                return;
+            }
+            case "workflows": {
+                r.put("expected", "rule " + ImplRules.ruleName(item.path("name").asText()));
+                Boolean has = "workflow".equals(item.path("type").asText())
+                        ? org.hasWorkflow(item.path("module").asText(), item.path("name").asText()) : null;
+                if (has != null) {
+                    r.put("verdict", has ? "present" : "missing");
+                    r.put("actual", has ? "present (actions not compared)" : "not found");
+                    r.put("fixable", !has && !"rpa".equals(item.path("executor").asText()));
+                    return;
+                }
+                r.put("verdict", "unverifiable");
+                r.put("actual", "check in Setup");
+                r.put("detail", "Only workflow rules are read back; check " + item.path("type").asText() + "s in Setup.");
                 return;
             }
             default:

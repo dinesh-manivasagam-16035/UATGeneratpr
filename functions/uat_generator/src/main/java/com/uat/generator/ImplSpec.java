@@ -71,6 +71,14 @@ public final class ImplSpec {
             "date", "datetime", "integer", "bigint", "decimal", "currency", "percent",
             "boolean", "lookup", "multiselectlookup", "autonumber", "formula", "fileupload",
             "imageupload", "rollup_summary", "userlookup"));
+    /** execute_when.type values the workflow-rules API is used for (others stay manual). */
+    public static final Set<String> API_TRIGGERS = new HashSet<>(Arrays.asList(
+            "create", "edit", "create_or_edit", "field_update", "delete"));
+    private static final Set<String> TRIGGERS = new HashSet<>(Arrays.asList(
+            "create", "edit", "create_or_edit", "field_update", "delete", "date_or_datetime"));
+    private static final Set<String> COMPARATORS = new HashSet<>(Arrays.asList(
+            "equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with", "greater_than",
+            "less_than", "greater_equal", "less_equal", "is_empty", "is_not_empty"));
     private static final Set<String> WORKFLOW_TYPES = new HashSet<>(Arrays.asList(
             "workflow", "blueprint", "assignment", "approval", "scoring", "escalation",
             "schedule", "cadence", "webhook"));
@@ -230,6 +238,35 @@ public final class ImplSpec {
                 copyStrings(in, o, "actions");
                 copyStrings(in, o, "states");
                 o.put("details", text(in, "details"));
+                // Structured form, used to build the rule through the API (workflow type only).
+                String trig = text(in, "trigger_type").toLowerCase(Locale.ROOT);
+                o.put("trigger_type", TRIGGERS.contains(trig) ? trig : "");
+                copyStrings(in, o, "trigger_fields");
+                o.put("match", "or".equalsIgnoreCase(text(in, "match")) ? "or" : "and");
+                ArrayNode conds = o.putArray("conditions");
+                for (JsonNode c : in.path("conditions")) {
+                    String field = text(c, "field");
+                    String cmp = text(c, "comparator").toLowerCase(Locale.ROOT);
+                    if (field.isEmpty() || !COMPARATORS.contains(cmp)) continue;
+                    conds.addObject().put("field", field).put("comparator", cmp).put("value", text(c, "value"));
+                }
+                ArrayNode fus = o.putArray("field_updates");
+                for (JsonNode f : in.path("field_updates")) {
+                    String field = text(f, "field");
+                    if (field.isEmpty()) continue;
+                    ObjectNode fu = fus.addObject().put("field", field);
+                    if (f.path("value").isArray()) fu.set("value", f.path("value"));
+                    else fu.put("value", text(f, "value"));
+                }
+                ArrayNode tasks = o.putArray("tasks");
+                for (JsonNode t : in.path("tasks")) {
+                    String subject = text(t, "subject");
+                    if (subject.isEmpty()) continue;
+                    ObjectNode to = tasks.addObject().put("subject", subject)
+                            .put("due_in_days", Math.max(0, t.path("due_in_days").asInt(0)));
+                    if (!text(t, "priority").isEmpty()) to.put("priority", text(t, "priority"));
+                }
+                copyStrings(in, o, "other_actions");
                 break;
             }
             case "roles": {
@@ -351,12 +388,18 @@ public final class ImplSpec {
         if ("exists".equals(o.path("status").asText())) return "none";
         switch (section) {
             case "modules": return "standard".equals(o.path("kind").asText()) ? "none" : "api";
-            // "partial": the API creates it, a person finishes it (mandatory is a layout setting;
-            // a role's module permissions live on its profile).
-            case "fields":
-                if (!API_FIELD_TYPES.contains(o.path("data_type").asText())) return "rpa";
-                return o.path("required").asBoolean(false) ? "partial" : "api";
+            // "partial": the API creates it, a person finishes it (a role's module permissions
+            // live on its profile; a workflow's email/webhook/function actions are added by hand).
+            // Required fields are marked mandatory through the layouts API, so they stay "api".
+            case "fields":  return API_FIELD_TYPES.contains(o.path("data_type").asText()) ? "api" : "rpa";
             case "roles":   return o.path("permissions").size() > 0 ? "partial" : "api";
+            case "workflows": {
+                boolean apiRule = "workflow".equals(o.path("type").asText())
+                        && API_TRIGGERS.contains(o.path("trigger_type").asText(""))
+                        && (o.path("field_updates").size() > 0 || o.path("tasks").size() > 0);
+                if (!apiRule) return "rpa";
+                return o.path("other_actions").size() > 0 ? "partial" : "api";
+            }
             case "open_questions": return "review";
             case "plan":    return "projects";
             default:        return "rpa";   // layouts, validation rules, workflows, functions

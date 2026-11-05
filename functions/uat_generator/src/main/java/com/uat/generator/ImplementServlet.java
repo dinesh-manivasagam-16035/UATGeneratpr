@@ -353,6 +353,12 @@ public class ImplementServlet extends HttpServlet {
                     case "roles":
                         status = org == null || org.roles.isEmpty() ? "not_compared" : org.hasRole(o.path("name").asText()) ? "exists" : "new";
                         break;
+                    case "workflows": {
+                        Boolean has = org == null || !"workflow".equals(o.path("type").asText()) ? null
+                                : org.hasWorkflow(o.path("module").asText(), o.path("name").asText());
+                        status = has == null ? (org == null ? "not_compared" : "new") : has ? "exists" : "new";
+                        break;
+                    }
                     case "open_questions":
                         status = "open";
                         break;

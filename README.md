@@ -228,11 +228,20 @@ webhook), `roles`, `functions` (Deluge), `open_questions`, `plan`. Every item ca
 
 | executor | Items | Built by |
 |---|---|---|
-| `api` | custom modules, custom fields (standard types), picklist value additions, roles | `/implement/apply` via `/crm/v8/settings/*` |
-| `rpa` (Manual) | layouts, validation rules, automation, Deluge functions, formula/autonumber/multi-lookup fields | RPA bot or consultant, from the `rpa_queue` (click paths + values) |
-| `partial` (Partly manual) | required fields (mandatory is a layout setting), roles with module permissions | API creates it; the finishing steps go to the `rpa_queue` |
+| `api` | custom modules, custom fields (standard types; required ones are then marked mandatory through the layouts API), picklist value additions, roles, workflow rules with field-update and task actions | `/implement/apply` via `/crm/v8/settings/*` |
+| `rpa` (Manual) | layouts, validation rules (no create API), blueprints, approvals, assignment/scoring rules, date-based workflow rules, Deluge functions, formula/autonumber/multi-lookup fields | RPA bot or consultant, from the `rpa_queue` (click paths + values) |
+| `partial` (Partly manual) | roles with module permissions; workflow rules that also need email, webhook or function actions | API creates it; the finishing steps go to the `rpa_queue` |
 | `review` | open questions | consultant, before approval |
 | `projects` | plan tasks | "Push plan to Projects" (`/push`) |
+
+**Workflow rules** are built through the v8 API from the structured form the generator asks for
+(`trigger_type`, `trigger_fields`, `conditions`, `match`, `field_updates`, `tasks`, `other_actions`).
+A rule references its actions by id, so a build step makes one call per field update
+(`/settings/automation/field_updates`) and per task (`/settings/automation/tasks`), then the rule
+(`/settings/automation/workflow_rules`). Field and module ids come from the live org; a field that
+doesn't exist yet stops the step. Verify checks rules by name (their actions aren't compared).
+Request shapes follow Zoho's v8 docs (config-workflow, create-field-update, create-automation-task,
+create-custom-field, update-custom-fields, update-custom-layout, create-custom-module-api, create-role).
 
 **Safety:** `/implement/apply` is a dry run unless `dry_run: false`. A real run needs
 `spec.approved: true` and `confirm_org_id` equal to the connected org, and it only writes to

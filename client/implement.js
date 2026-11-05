@@ -29,6 +29,7 @@
   const FILTERS = [["all", "All items"], ["attention", "Needs attention"], ["new", "New"], ["exists", "Already in org"]];
   const STATUS_LABEL = { new: "New", exists: "Already in org", needs_update: "Needs update", conflict: "Conflict",
     not_compared: "Not compared", created: "Created", open: "Open" };
+  const API_TRIGGERS = ["create", "edit", "create_or_edit", "field_update", "delete"];   // ImplSpec.API_TRIGGERS
   const API_FIELD_TYPES = ["text", "textarea", "email", "phone", "website", "picklist", "multiselectpicklist",
     "date", "datetime", "integer", "bigint", "decimal", "currency", "percent", "boolean", "lookup"];
 
@@ -117,6 +118,9 @@
         if (o.criteria) parts.push("if " + o.criteria);
         (o.actions || []).forEach((a) => parts.push("→ " + a));
         if (o.states && o.states.length) parts.push("states: " + o.states.join(" → "));
+        (o.field_updates || []).forEach((f) => parts.push(`set ${f.field} = ${Array.isArray(f.value) ? f.value.join(", ") : f.value}`));
+        (o.tasks || []).forEach((t) => parts.push(`task "${t.subject}" due in ${t.due_in_days || 0} day(s)`));
+        (o.other_actions || []).forEach((a) => parts.push("by hand: " + a));
         if (o.details) parts.push(o.details);
         break;
       case "roles":
@@ -152,8 +156,14 @@
   function executorFor(section, o) {
     if (section === "modules") return o.kind === "standard" || o.status === "exists" ? "none" : "api";
     if (o.status === "exists") return "none";
-    if (section === "fields") return !API_FIELD_TYPES.includes(o.data_type) ? "rpa" : o.required ? "partial" : "api";
+    if (section === "fields") return API_FIELD_TYPES.includes(o.data_type) ? "api" : "rpa";
     if (section === "roles") return (o.permissions || []).length ? "partial" : "api";
+    if (section === "workflows") {
+      const apiRule = o.type === "workflow" && API_TRIGGERS.includes(o.trigger_type || "")
+        && ((o.field_updates || []).length || (o.tasks || []).length);
+      if (!apiRule) return "rpa";
+      return (o.other_actions || []).length ? "partial" : "api";
+    }
     if (section === "open_questions") return "review";
     if (section === "plan") return "projects";
     return "rpa";
@@ -477,13 +487,21 @@
   // ---- Build: ordered steps, one API call each, stop on the first problem ----
   // impl.build = { org, steps: [{id, label, method, path, status, detail, at}], log: [] }
   // status: waiting | running | done | failed | conflict | skipped
+  function req(r) {
+    if (r.request) return r.request;
+    const list = r.requests || [];
+    return list.length ? list[list.length - 1] : {};
+  }
+
   function buildSteps() {
     return (impl.dryRun.results || [])
       .filter((r) => (r.executor === "api" || r.executor === "partial")
         && ["would_create", "would_update", "conflict", "failed"].includes(r.result))
       .map((r) => ({
         id: r.id, label: r.label,
-        method: r.request ? r.request.method : "", path: r.request ? r.request.path.replace(/\?.*$/, "") : "",
+        // A workflow rule is several calls (its actions, then the rule): show the rule call.
+        method: req(r).method || "", path: (req(r).path || "").replace(/\?.*$/, ""),
+        calls: (r.requests || []).length || (r.request ? 1 : 0),
         status: "waiting", detail: r.result === "failed" || r.result === "conflict" ? r.detail : "",
       }));
   }
@@ -577,7 +595,7 @@
           return `<tr class="${stuck ? "impl-row-err" : ""}"><td class="muted">${i + 1}</td>
             <td><strong>${esc(st.label)}</strong><div class="muted">${esc(st.id)}${f && (f.item.req_ids || []).length ? " · " + esc(f.item.req_ids.join(", ")) : ""}</div>
               ${st.detail ? `<div class="${stuck ? "impl-err-text" : "muted"}">${esc(st.detail)}</div>` : ""}</td>
-            <td class="impl-mono">${esc(st.method + " " + st.path)}</td>
+            <td class="impl-mono">${esc(st.method + " " + st.path)}${st.calls > 1 ? `<div class="muted">+ ${st.calls - 1} action call(s) first</div>` : ""}</td>
             <td><span class="impl-badge step-${esc(st.status)}">${esc(st.status)}</span>${actions}</td></tr>`;
         }).join("")
         + `</tbody></table></div>

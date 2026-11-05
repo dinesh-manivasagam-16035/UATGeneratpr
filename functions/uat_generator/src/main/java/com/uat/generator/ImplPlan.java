@@ -140,6 +140,13 @@ public final class ImplPlan {
         return out;
     }
 
+    /** "a, b, c" from a JSON string array. */
+    static String join(JsonNode arr) {
+        List<String> s = new ArrayList<>();
+        for (JsonNode v : arr) s.add(v.asText());
+        return String.join(", ", s);
+    }
+
     private static String ids(List<JsonNode> items) {
         List<String> s = new ArrayList<>();
         for (JsonNode i : items) s.add(i.path("id").asText());

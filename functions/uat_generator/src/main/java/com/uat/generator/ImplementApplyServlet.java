@@ -219,6 +219,7 @@ public class ImplementApplyServlet extends HttpServlet {
                 case "modules": module(item, r); break;
                 case "fields":  field(item, r); break;
                 case "roles":   role(item, r); break;
+                case "workflows": workflow(item, r); break;
                 default: throw new IllegalStateException("No API executor for " + section);
             }
         }
@@ -226,8 +227,8 @@ public class ImplementApplyServlet extends HttpServlet {
         void module(JsonNode m, ObjectNode r) throws Exception {
             if (org != null && org.hasModule(m)) { r.put("result", "skipped"); r.put("detail", "Already in the org."); return; }
             ObjectNode mod = MAPPER.createObjectNode();
-            mod.put("singular_label", m.path("singular_label").asText());
-            mod.put("plural_label", m.path("plural_label").asText());
+            mod.put("singular_label", moduleLabel(m.path("singular_label").asText()));
+            mod.put("plural_label", moduleLabel(m.path("plural_label").asText()));
             mod.put("api_name", m.path("api_name").asText());
             ArrayNode profs = mod.putArray("profiles");
             for (String pid : profiles()) profs.addObject().put("id", pid);
@@ -260,8 +261,14 @@ public class ImplementApplyServlet extends HttpServlet {
             ObjectNode fld = MAPPER.createObjectNode();
             fld.put("field_label", f.path("label").asText());
             fld.put("data_type", "decimal".equals(type) ? "double" : type);
-            if (f.path("length").asInt(0) > 0) fld.put("length", f.path("length").asInt());
+            int len = f.path("length").asInt(0);
+            if (len > 0) fld.put("length", len);
             else if ("text".equals(type)) fld.put("length", 255);
+            else if ("decimal".equals(type)) fld.put("length", 16);
+            if ("textarea".equals(type)) {
+                fld.putObject("textarea").put("type", len > 2000 ? "large" : "small");
+            }
+            if ("currency".equals(type)) fld.putObject("currency").put("rounding_option", "normal");
             if (type.contains("picklist")) {
                 if (f.path("picklist_values").size() == 0) {
                     throw new IllegalStateException("Picklist has no values. Add them in review, then apply again.");
@@ -275,32 +282,143 @@ public class ImplementApplyServlet extends HttpServlet {
                 String target = f.path("lookup_module").asText("");
                 if (target.isEmpty()) throw new IllegalStateException("Lookup target module isn't set.");
                 ObjectNode lk = fld.putObject("lookup");
-                lk.putObject("module").put("api_name", moduleApi(target));
+                lk.put("module", moduleApi(target));          // a module api name string, not an object
                 lk.put("display_label", f.path("module").asText());
             }
-            if (f.path("unique").asBoolean(false)) fld.putObject("unique").put("casesensitive", "false");
-            if (!f.path("tooltip").asText("").isEmpty()) {
-                fld.putObject("tooltip").put("name", "static_text").put("value", f.path("tooltip").asText());
+            if (f.path("unique").asBoolean(false)) fld.putObject("unique").put("case_sensitive", false);
+            String tip = f.path("tooltip").asText("");
+            if (!tip.isEmpty()) {
+                // Picklists, dates, booleans and uploads accept only info_icon; static_text is max 35 chars.
+                boolean iconOnly = type.contains("picklist") || type.startsWith("date") || "boolean".equals(type)
+                        || tip.length() > 35;
+                fld.putObject("tooltip").put("name", iconOnly ? "info_icon" : "static_text").put("value", tip);
             }
             ArrayNode profs = fld.putArray("profiles");
             for (String pid : profiles()) profs.addObject().put("id", pid).put("permission_type", "read_write");
             ObjectNode payload = MAPPER.createObjectNode();
             payload.putArray("fields").add(fld);
-            send(r, "POST", "/crm/" + v + "/settings/fields?module=" + enc(module), payload, "fields");
+            String newId = send(r, "POST", "/crm/" + v + "/settings/fields?module=" + enc(module), payload, "fields");
             if (f.path("required").asBoolean(false)) {
-                r.put("follow_up", "Mark as mandatory in the " + f.path("module").asText()
-                        + " layout (layout-level setting, not set by the field API).");
+                // Mandatory is a layout setting: mark it through the layouts API.
+                if (dryRun) {
+                    r.put("follow_up", "Then marks it mandatory: PATCH /crm/" + v + "/settings/layouts/{layout}?module=" + module + ".");
+                } else {
+                    try {
+                        markRequired(module, newId);
+                        r.put("follow_up", "Marked mandatory in the layout.");
+                    } catch (Exception e) {
+                        r.put("follow_up", "Created, but couldn't mark it mandatory (" + ImplementServlet.trim(e.getMessage(), 200)
+                                + "). Mark it as required in the " + f.path("module").asText() + " layout.");
+                    }
+                }
             }
         }
 
-        /** PATCH an existing picklist: its current values (by id) plus the missing ones. */
+        /** PATCH the layout section(s) holding the field: {"layouts":[{"sections":[{"id","fields":[{"id","required":true}]}]}]} */
+        void markRequired(String module, String fieldId) throws Exception {
+            if (fieldId == null || fieldId.isEmpty()) throw new IllegalStateException("no field id returned");
+            CrmClient.Response res = crm.call("GET", "/crm/" + v + "/settings/layouts?module=" + enc(module), null);
+            if (res.json == null) throw new IllegalStateException("couldn't read layouts (HTTP " + res.statusCode + ")");
+            int marked = 0;
+            for (JsonNode layout : res.json.path("layouts")) {
+                for (JsonNode sec : layout.path("sections")) {
+                    for (JsonNode fl : sec.path("fields")) {
+                        if (!fieldId.equals(fl.path("id").asText())) continue;
+                        ObjectNode body = MAPPER.createObjectNode();
+                        ObjectNode so = body.putArray("layouts").addObject().putArray("sections").addObject();
+                        so.put("id", sec.path("id").asText());
+                        so.putArray("fields").addObject().put("id", fieldId).put("required", true);
+                        CrmClient.Response pr = crm.call("PATCH", "/crm/" + v + "/settings/layouts/" + layout.path("id").asText()
+                                + "?module=" + enc(module), MAPPER.writeValueAsString(body));
+                        JsonNode first = pr.json == null ? null : pr.json.path("layouts").path(0);
+                        String code = first == null ? "" : first.path("code").asText("");
+                        if (pr.statusCode >= 400 || (!code.isEmpty() && !"SUCCESS".equalsIgnoreCase(code))) {
+                            throw new IllegalStateException("HTTP " + pr.statusCode + ": " + ImplementServlet.trim(pr.rawBody, 200));
+                        }
+                        marked++;
+                    }
+                }
+            }
+            if (marked == 0) throw new IllegalStateException("the new field isn't on any layout yet");
+        }
+
+        /** Builds a workflow rule: its field-update and task actions first, then the rule (ImplRules). */
+        void workflow(JsonNode wf, ObjectNode r) throws Exception {
+            String moduleName = wf.path("module").asText();
+            String module = moduleApi(moduleName);
+            if (org != null && Boolean.TRUE.equals(org.hasWorkflow(module, wf.path("name").asText()))) {
+                r.put("result", "skipped"); r.put("detail", "A rule with this name already exists."); return;
+            }
+            String moduleId = org == null ? "" : org.moduleId(module);
+            if (moduleId.isEmpty() && !dryRun) throw new IllegalStateException("Module " + module + " isn't in the org.");
+            String rule = ImplRules.ruleName(wf.path("name").asText());
+            ArrayNode requests = r.putArray("requests");
+            java.util.function.Function<String, JsonNode> fieldOf = (api) -> {
+                JsonNode live = org == null ? null : org.field(module, api);
+                if (live != null || !dryRun) return live;
+                // Dry run: a field built earlier in this run doesn't exist yet; show a placeholder id.
+                return MAPPER.createObjectNode().put("api_name", api).put("id", "<id of " + api + ">").put("field_label", api);
+            };
+
+            List<String[]> actions = new ArrayList<>();
+            for (JsonNode fu : wf.path("field_updates")) {
+                JsonNode live = fieldOf.apply(fu.path("field").asText());
+                if (live == null) throw new IllegalStateException("Field " + fu.path("field").asText() + " isn't in " + module + " yet.");
+                ObjectNode body = ImplRules.fieldUpdate(module, moduleId, rule, live, fu.path("value"));
+                actions.add(new String[]{"field_updates", call(requests, "POST", "/crm/" + v + "/settings/automation/field_updates",
+                        body, "field_updates", "field update")});
+            }
+            for (JsonNode t : wf.path("tasks")) {
+                ObjectNode body = ImplRules.task(module, moduleId, t, this::taskField);
+                actions.add(new String[]{"tasks", call(requests, "POST", "/crm/" + v + "/settings/automation/tasks",
+                        body, "tasks", "task")});
+            }
+            ObjectNode body = ImplRules.rule(wf, module, moduleId, fieldOf, actions);
+            call(requests, "POST", "/crm/" + v + "/settings/automation/workflow_rules", body, "workflow_rules", "rule");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would create " : "Created ") + actions.size() + " action(s) and the rule \"" + rule + "\".");
+            if (wf.path("other_actions").size() > 0) {
+                r.put("follow_up", "Add by hand: " + ImplPlan.join(wf.path("other_actions")) + ".");
+            }
+        }
+
+        /** One call of a multi-call build; records the request, returns the new id (a placeholder on a dry run). */
+        String call(ArrayNode requests, String method, String path, ObjectNode payload, String key, String what) throws Exception {
+            ObjectNode rq = requests.addObject();
+            rq.put("method", method);
+            rq.put("path", path);
+            rq.set("body", payload);
+            if (dryRun) return "<new " + what + " id>";
+            CrmClient.Response res = crm.call(method, path, MAPPER.writeValueAsString(payload));
+            JsonNode first = res.json == null ? null : res.json.path(key).path(0);
+            String code = first == null ? "" : first.path("code").asText("");
+            if (res.statusCode >= 400 || (!code.isEmpty() && !"SUCCESS".equalsIgnoreCase(code))) {
+                String msg = first != null && first.has("message") ? first.path("message").asText() + " " + first.path("details") : res.rawBody;
+                throw new IllegalStateException(what + ": HTTP " + res.statusCode + ": " + ImplementServlet.trim(msg, 300));
+            }
+            String id = first == null ? "" : first.path("details").path("id").asText("");
+            rq.put("created_id", id);
+            return id;
+        }
+
+        Map<String, JsonNode> taskFields;
+        JsonNode taskField(String api) {
+            if (taskFields == null) {
+                taskFields = new LinkedHashMap<>();
+                try {
+                    CrmClient.Response res = crm == null ? null : crm.call("GET", "/crm/v3/settings/fields?module=Tasks", null);
+                    if (res != null && res.json != null) for (JsonNode f : res.json.path("fields")) taskFields.put(f.path("api_name").asText(), f);
+                } catch (Exception ignored) { /* reported as a missing field below */ }
+            }
+            JsonNode f = taskFields.get(api);
+            if (f == null && dryRun) return MAPPER.createObjectNode().put("api_name", api).put("id", "<id of Tasks." + api + ">");
+            return f;
+        }
+
+        /** PATCH an existing picklist with only the new options (existing ones are kept). */
         void addPicklistValues(String module, JsonNode live, List<String> missing, ObjectNode r) throws Exception {
             ObjectNode fld = MAPPER.createObjectNode();
-            fld.put("id", live.path("id").asText());
             ArrayNode pv = fld.putArray("pick_list_values");
-            for (JsonNode p : live.path("pick_list_values")) {
-                if (p.hasNonNull("id")) pv.addObject().put("id", p.path("id").asText());
-            }
             for (String v : missing) pv.addObject().put("display_value", v).put("actual_value", v);
             ObjectNode payload = MAPPER.createObjectNode();
             payload.putArray("fields").add(fld);
@@ -395,6 +513,12 @@ public class ImplementApplyServlet extends HttpServlet {
             }
             return roleIds;
         }
+    }
+
+    /** Module labels: letters, numbers and spaces, at most 25 characters. */
+    static String moduleLabel(String s) {
+        String t = (s == null ? "" : s).replaceAll("[^A-Za-z0-9 ]", " ").replaceAll("\\s+", " ").trim();
+        return t.length() > 25 ? t.substring(0, 25).trim() : t;
     }
 
     private static String enc(String s) {
