@@ -7,7 +7,7 @@ package com.uat.generator;
  *   LLM_PROVIDER=zia     Zia Agent (ZiaAgentClient)
  *   LLM_PROVIDER=github  GitHub Models (ClaudeClient)
  *   LLM_PROVIDER=mock    offline mocks (handled by the callers)
- *   unset                Zia Agent when it's configured, else GitHub Models
+ *   unset                Zia Agent, unless only GITHUB_TOKEN is set (then GitHub Models)
  */
 public final class Llm {
 
@@ -19,7 +19,10 @@ public final class Llm {
         if ("mock".equals(p)) return "mock";
         if ("zia".equals(p) || "zia_agent".equals(p)) return "zia";
         if ("github".equals(p) || "copilot".equals(p) || "claude".equals(p)) return "github";
-        return ZiaAgentClient.configured() ? "zia" : "github";
+        // Unset: the Zia Agent, unless only GitHub Models is configured. With neither set up, errors
+        // name the missing ZIA_AGENT_* variables rather than GITHUB_TOKEN.
+        if (ZiaAgentClient.configured()) return "zia";
+        return ClaudeClient.configured() ? "github" : "zia";
     }
 
     public static boolean mock() { return "mock".equals(provider()); }
