@@ -19,9 +19,21 @@ public final class JsonSalvage {
     private JsonSalvage() {}
 
     public static List<String> completeObjects(String text) {
+        if (text == null) return new ArrayList<>();
+        return scan(text, arrayStart(text));
+    }
+
+    /**
+     * Complete objects of the array under {@code "key"} only, or an empty list when
+     * the key is absent. For responses with several arrays (implementation specs).
+     */
+    public static List<String> completeObjects(String text, String key) {
+        if (text == null) return new ArrayList<>();
+        return scan(text, keyedArrayStart(text, key));
+    }
+
+    private static List<String> scan(String text, int start) {
         List<String> out = new ArrayList<>();
-        if (text == null) return out;
-        int start = arrayStart(text);
         if (start < 0) return out;
 
         boolean inString = false;
@@ -56,18 +68,22 @@ public final class JsonSalvage {
 
     /** Index of the '[' that opens the cases array, or -1. */
     private static int arrayStart(String text) {
-        int key = text.indexOf("\"cases\"");
-        if (key < 0) key = text.indexOf("\"test_cases\"");
-        if (key >= 0) {
-            int colon = text.indexOf(':', key);
-            if (colon >= 0) {
-                for (int i = colon + 1; i < text.length(); i++) {
-                    char c = text.charAt(i);
-                    if (c == '[') return i;
-                    if (!Character.isWhitespace(c)) break;
-                }
-            }
+        int i = keyedArrayStart(text, "cases");
+        if (i < 0) i = keyedArrayStart(text, "test_cases");
+        return i >= 0 ? i : text.indexOf('[');
+    }
+
+    /** Index of the '[' right after {@code "key":}, or -1. */
+    private static int keyedArrayStart(String text, String key) {
+        int at = text.indexOf("\"" + key + "\"");
+        if (at < 0) return -1;
+        int colon = text.indexOf(':', at);
+        if (colon < 0) return -1;
+        for (int i = colon + 1; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '[') return i;
+            if (!Character.isWhitespace(c)) break;
         }
-        return text.indexOf('[');
+        return -1;
     }
 }

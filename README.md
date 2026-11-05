@@ -16,6 +16,10 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 │       └── src/main/java/com/uat/generator/
 │           ├── AnalyzeServlet.java     # POST /analyze   — suggest modules for a BRD
 │           ├── GenerateServlet.java    # POST /generate  — UAT cases per module
+│           ├── ImplementServlet.java   # POST /implement — BRD → implementation spec
+│           ├── ImplementApplyServlet.java  # POST /implement/apply  — dry run / create in CRM
+│           ├── ImplementVerifyServlet.java # POST /implement/verify — org vs spec diff
+│           ├── ImplSpec, ImplPrompts, ImplOrg, ImplPlan, ImplRpa, MockImplClient  # spec helpers
 │           ├── ExecuteServlet.java     # POST /execute   — run execution_plan against CRM
 │           ├── CrmExecutor.java        #   step runner + assertions
 │           ├── PushServlet.java        # POST /push      — cases to Zoho Projects tasks
@@ -26,7 +30,7 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 │           ├── ZiaClient.java          # Zia LLM client (placeholder contract)
 │           ├── MockLlmClient.java      # offline mock provider
 │           └── ProjectsClient.java, BugsClient.java, RunLogger.java, ...
-├── client/                              # Catalyst Web Client (static): index.html, app.js, styles.css
+├── client/                              # Catalyst Web Client (static): index.html, app.js, implement.js, styles.css
 └── samples/                             # Demo BRDs + golden output JSON
 ```
 
@@ -198,6 +202,82 @@ Response (abridged):
 ```
 
 Creates one Projects task per case. Returns per-case results.
+
+## Implementation generator
+
+Switch the Brief tab to **Implementation** to turn a BRD into an implementation blueprint instead of
+test cases. The tabs become **Brief → Blueprint → Build → Verify**; each unlocks when the step
+before it is ready (Build once the blueprint is approved, Verify once a dry run is done). The pipeline:
+
+```
+BRD ──► 1. Extract  POST /implement          implementation spec (JSON)
+    ──► 2. Review   Blueprint tab            untick / edit items, answer open questions, approve
+    ──► 3. Apply    Build tab                dry run, then ordered REST steps; UI-only items → Configure by hand
+    ──► 4. Verify   Verify tab               read the sandbox back, diff against the blueprint
+    ──► 5. UAT      in Verify                UAT cases from the approved blueprint, run on the sandbox
+    ──► Promote     hand-off package         for Zoho's sandbox-to-production deployment
+```
+
+**Spec sections:** `modules`, `fields` (with picklists and lookups), `layouts`, `validation_rules`,
+`workflows` (workflow, blueprint, assignment, approval, scoring, escalation, schedule, cadence,
+webhook), `roles`, `functions` (Deluge), `open_questions`, `plan`. Every item carries
+`id`, `req_ids`, `include`, `status` and `executor`. Status is checked against the connected org:
+`new`, `exists` (unticked), `needs_update` (a picklist lacks values; they're added), `conflict`
+(different type or lookup target; CRM can't change a type, so create a new field or skip) or
+`not_compared` (org not read). Executors:
+
+| executor | Items | Built by |
+|---|---|---|
+| `api` | custom modules, custom fields (standard types; required ones are then marked mandatory through the layouts API), picklist value additions, roles, workflow rules with field-update and task actions | `/implement/apply` via `/crm/v8/settings/*` |
+| `rpa` (Manual) | layouts, validation rules (no create API), blueprints, approvals, assignment/scoring rules, date-based workflow rules, Deluge functions, formula/autonumber/multi-lookup fields | RPA bot or consultant, from the `rpa_queue` (click paths + values) |
+| `partial` (Partly manual) | roles with module permissions; workflow rules that also need email, webhook or function actions | API creates it; the finishing steps go to the `rpa_queue` |
+| `review` | open questions | consultant, before approval |
+| `projects` | plan tasks | "Push plan to Projects" (`/push`) |
+
+**Workflow rules** are built through the v8 API from the structured form the generator asks for
+(`trigger_type`, `trigger_fields`, `conditions`, `match`, `field_updates`, `tasks`, `other_actions`).
+A rule references its actions by id, so a build step makes one call per field update
+(`/settings/automation/field_updates`) and per task (`/settings/automation/tasks`), then the rule
+(`/settings/automation/workflow_rules`). Field and module ids come from the live org; a field that
+doesn't exist yet stops the step. Verify checks rules by name (their actions aren't compared).
+Request shapes follow Zoho's v8 docs (config-workflow, create-field-update, create-automation-task,
+create-custom-field, update-custom-fields, update-custom-layout, create-custom-module-api, create-role).
+
+**Safety:** `/implement/apply` is a dry run unless `dry_run: false`. A real run needs
+`spec.approved: true` and `confirm_org_id` equal to the connected org, and it only writes to
+**sandbox** orgs; production is read-only (dry runs still work there). Blocking open questions must be answered (or unticked) before the UI
+lets you approve. Items already in the org are skipped. "Required" on a field is a layout setting
+and is returned as a follow-up, not applied.
+
+**Review** shows a summary (included, conflicts, need update, new, already in org, not compared;
+share by API, partly manual, manual), filters (All, Needs attention, New, Already in org) and fields
+grouped by module. Open questions can be copied for an email to the client; their answers are sent
+back with **Apply answers and regenerate** (`answers` on `/implement`) and override the BRD.
+
+**Build** runs the API items as ordered steps (modules, then fields, then roles), one call per
+step (`item_ids`), with live Done / Running / Failed / Waiting counts. A run stops at the first
+failure or conflict and offers Retry, Skip, or, for a type conflict, Create new field instead; the run
+log downloads as JSON. Items the APIs can't do are listed under **Configure by hand** with their
+click paths; tick each one off (who and when is kept), and items tied to an unanswered blocking
+question show as blocked.
+
+**Verify** reads the sandbox back and shows, per item, what the blueprint says and what the sandbox
+has: `present`, `mismatch` (type, missing picklist values, lookup target), `missing`, or
+`unverifiable` (validation rules, workflows and functions aren't read back through the APIs used here).
+Missing items and missing picklist values have **Fix in sandbox**; an unverifiable item counts once
+it's ticked in Configure by hand. **UAT cases** are then written from the approved blueprint
+(`/generate`) and run against the sandbox (`/execute`; a dry run when the org isn't a sandbox), and
+can be pushed to Zoho Projects with their failures.
+
+**Promote to production** unlocks only when every check matches (or is confirmed by hand) and a live
+UAT run has no failures. LiftOff never writes to production: promotion downloads a hand-off
+(`promotion-handoff.md`: components to deploy with Zoho CRM's sandbox deployment, hand-configured
+items, client decisions) and the evidence (`promotion-package.json`: verify results, build log, UAT
+results).
+
+Tunables: `IMPL_MAX_LLM_CALLS` (9: two calls per BRD part plus one for the plan),
+`CRM_SETTINGS_API_VERSION` (`v8`), plus the shared `GEN_*` settings. `LLM_PROVIDER=mock` returns a
+shallow offline spec; `zia` isn't supported for this mode yet.
 
 ## Sessions and execution
 
