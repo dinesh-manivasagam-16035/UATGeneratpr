@@ -1,0 +1,171 @@
+package com.uat.generator;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
+
+/**
+ * The slow half of blueprint generation, run by the impl_worker job function (up to 15 min)
+ * instead of an Advanced I/O request (~30 s). Same calls as the "part" and "plan" stages of
+ * ImplementStageServlet; inputs, progress and results go through JobStore.
+ *
+ * Cache entries for job key K:
+ *   K + "i"   input   {brd, modules, answers, org_text, jobs:[{part, group}]}
+ *   K + "s"   status  {state: queued|running|done|failed, done, total, error?, label?,
+ *                      steps:[{label, state: waiting|working|done|failed, seconds?}]}
+ *   K + "r" + n  result of jobs[n] (the "part" stage response)
+ *   K + "p"   plan    {items:[...], warnings:[...]}
+ */
+public final class ImplJob {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private ImplJob() {}
+
+    public static String inputKey(String k)  { return k + "i"; }
+    public static String statusKey(String k) { return k + "s"; }
+    public static String resultKey(String k, int n) { return k + "r" + n; }
+    public static String planKey(String k)   { return k + "p"; }
+
+    /** Entry point for the impl_worker job function. remainingMs = time the job has left. */
+    public static boolean run(String key, LongSupplier remainingMs) {
+        try {
+            if (!JobStore.validKey(key)) throw new IllegalArgumentException("bad job key");
+            JsonNode in = MAPPER.readTree(JobStore.get(inputKey(key)));
+            ArrayNode jobs = (ArrayNode) in.path("jobs");
+            int total = jobs.size() + 1;                         // + the plan
+            Steps steps = new Steps(jobs);
+            status(key, "running", 0, total, null, "Starting", steps);
+            // Calls here aren't bound by Catalyst's 30 s request limit.
+            ZiaAgentClient.timeoutSecOverride = ImplementServlet.envInt("IMPL_WORKER_CALL_TIMEOUT_SEC", 240);
+
+            int[] done = {0};
+            ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(2, jobs.size())));
+            try {
+                List<Future<?>> futures = new ArrayList<>();
+                for (int i = 0; i < jobs.size(); i++) {
+                    final int n = i;
+                    futures.add(pool.submit(() -> {
+                        JsonNode j = jobs.get(n);
+                        steps.start(n);
+                        synchronized (done) { status(key, "running", done[0], total, null, steps.label(n), steps); }
+                        ObjectNode body = ((ObjectNode) in).deepCopy();
+                        body.remove("jobs");
+                        body.put("part", j.path("part").asInt());
+                        body.put("group", j.path("group").asText());
+                        body.put("deadline_sec", 200);
+                        ObjectNode r = ImplementStageServlet.part(body);
+                        JobStore.put(resultKey(key, n), MAPPER.writeValueAsString(r));
+                        steps.finish(n, r.hasNonNull("error") && !r.path("error").asText("").isEmpty(), count(r));
+                        synchronized (done) {
+                            done[0]++;
+                            status(key, "running", done[0], total, null, steps.label(n), steps);
+                        }
+                        return null;
+                    }));
+                }
+                for (Future<?> f : futures) {
+                    long left = Math.max(1000, remainingMs.getAsLong() - 90_000);   // keep time for the plan
+                    f.get(left, TimeUnit.MILLISECONDS);
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            // Plan, from the merged parts (ids match what "finish" will assign: same merge order).
+            List<JsonNode> results = new ArrayList<>();
+            for (int i = 0; i < jobs.size(); i++) results.add(MAPPER.readTree(JobStore.get(resultKey(key, i))));
+            List<String> warnings = new ArrayList<>();
+            ObjectNode spec = ImplementStageServlet.merge(results, warnings);
+            ObjectNode plan = MAPPER.createObjectNode();
+            ArrayNode planItems = plan.putArray("items");
+            ArrayNode planWarnings = plan.putArray("warnings");
+            if (ImplementServlet.hasBuildItems(spec)) {
+                steps.start(jobs.size());
+                status(key, "running", done[0], total, null, steps.label(jobs.size()), steps);
+                ObjectNode pb = MAPPER.createObjectNode();
+                pb.set("spec", spec);
+                pb.set("requirements", requirementList(in.path("brd").asText("")));
+                ObjectNode pr = ImplementStageServlet.plan(pb);
+                for (JsonNode t : pr.path("spec").path("plan")) planItems.add(t);
+                for (JsonNode w : pr.path("warnings")) planWarnings.add(w);
+            }
+            JobStore.put(planKey(key), MAPPER.writeValueAsString(plan));
+            steps.finish(jobs.size(), false, planItems.size());
+            status(key, "done", total, total, null, "Done", steps);
+            return true;
+        } catch (Exception e) {
+            try { status(key, "failed", 0, 0, String.valueOf(e.getMessage()), null, null); } catch (Exception ignored) {}
+            return false;
+        }
+    }
+
+    static ArrayNode requirementList(String brd) {
+        ArrayNode arr = MAPPER.createArrayNode();
+        for (Requirements.Requirement r : ImplementStageServlet.requirements(brd)) {
+            arr.addObject().put("id", r.id).put("title", r.title);
+        }
+        return arr;
+    }
+
+    /** Items a part produced, for the progress display. */
+    private static int count(JsonNode r) {
+        int n = 0;
+        for (JsonNode list : r.path("items")) n += list.size();
+        return n;
+    }
+
+    /** Per-step progress shown while the job runs: each BRD part's data model and automation, then the plan. */
+    static final class Steps {
+        private static final java.util.Map<String, String> WHAT = java.util.Map.of(
+                "data_model", "modules, fields, layouts, validation rules, roles",
+                "automation", "workflows, blueprints, approvals, Deluge functions",
+                "mock", "offline sample");
+        final ArrayNode arr = MAPPER.createArrayNode();
+        final long[] started;
+
+        Steps(ArrayNode jobs) {
+            for (JsonNode j : jobs) {
+                String g = j.path("group").asText();
+                arr.addObject().put("label", "Part " + j.path("part").asInt() + " · " + g.replace('_', ' '))
+                        .put("detail", WHAT.getOrDefault(g, "")).put("state", "waiting");
+            }
+            arr.addObject().put("label", "Delivery plan").put("detail", "phases, tasks, effort, dependencies").put("state", "waiting");
+            started = new long[arr.size()];
+        }
+        synchronized void start(int i) { started[i] = System.currentTimeMillis(); ((ObjectNode) arr.get(i)).put("state", "working"); }
+        synchronized void finish(int i, boolean failed, int items) {
+            ObjectNode o = (ObjectNode) arr.get(i);
+            o.put("state", failed ? "failed" : "done");
+            o.put("seconds", Math.round((System.currentTimeMillis() - started[i]) / 1000.0));
+            o.put("items", items);
+        }
+        synchronized String label(int i) { return arr.get(i).path("label").asText(); }
+        synchronized ArrayNode copy() { return arr.deepCopy(); }
+    }
+
+    static void status(String key, String state, int done, int total, String error, String label) throws Exception {
+        status(key, state, done, total, error, label, null);
+    }
+
+    static void status(String key, String state, int done, int total, String error, String label, Steps steps) throws Exception {
+        ObjectNode s = MAPPER.createObjectNode();
+        if (steps != null) s.set("steps", steps.copy());
+        s.put("state", state);
+        s.put("done", done);
+        s.put("total", total);
+        if (label != null) s.put("label", label);
+        if (error != null) s.put("error", ImplementServlet.trim(error, 400));
+        s.put("updated", System.currentTimeMillis());
+        JobStore.put(statusKey(key), MAPPER.writeValueAsString(s));
+    }
+}

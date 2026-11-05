@@ -40,6 +40,9 @@ public final class ZiaAgentClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String DEFAULT_URL = "https://ziaagents.zoho.com/ziaagents/api/v1/agents/query";
 
+    /** Per-call timeout set by long-running callers (the impl_worker job); 0 = use the env/default. */
+    static volatile int timeoutSecOverride = 0;
+
     private ZiaAgentClient() {}
 
     /** True when the agent ids and a refresh token are set. */
@@ -84,7 +87,8 @@ public final class ZiaAgentClient {
 
     private static LlmResult post(ObjectNode body, boolean retryOn429) throws Exception {
         String token = tokenClient().accessToken();
-        int timeout = envInt("ZIA_AGENT_TIMEOUT_SEC", 25);   // under Catalyst's ~30 s per request
+        // 25 s inside an Advanced I/O request (~30 s limit); the impl_worker job sets a longer one.
+        int timeout = timeoutSecOverride > 0 ? timeoutSecOverride : envInt("ZIA_AGENT_TIMEOUT_SEC", 25);
         RequestConfig cfg = RequestConfig.custom()
                 .setResponseTimeout(Timeout.ofSeconds(timeout))
                 .setConnectionRequestTimeout(Timeout.ofSeconds(20))

@@ -477,12 +477,98 @@
     const jobs = [];
     start.parts.forEach((p) => p.groups.forEach((g) => jobs.push({ part: p.part, label: p.label, group: g })));
 
+    // Background job (impl_worker): agent replies can take minutes; the browser only polls.
+    let sub = null, subErr = null;
+    try {
+      sub = await stage({ stage: "submit", brd, modules, answers, org_text: start.org_text, jobs }, "Queue generation");
+    } catch (e) { subErr = e; }
+    let fin;
+    if (sub && sub.job_key) {
+      await pollJob(sub.job_key);
+      progress("Merging the parts and checking them against your org…");
+      fin = await stage({ stage: "finish", brd, modules, job_key: sub.job_key, warnings: start.warnings || [] }, "Blueprint finish");
+    } else {
+      // Background jobs not set up: one request per call, fine for fast providers.
+      console.warn("Background generation unavailable, running in the browser:", subErr && subErr.message);
+      fin = await generateInBrowser(brd, modules, answers, start, jobs, stage, progress);
+      fin.warnings = ["Ran without a background job (" + (subErr ? subErr.message : "not set up")
+        + "). Long agent replies may time out; see agent/ZIA_GENERATOR.md to enable background generation."].concat(fin.warnings || []);
+    }
+    if (fin.needs_plan) {
+      progress("Writing the delivery plan…");
+      try {
+        const pl = await stage({ stage: "plan", spec: fin.spec, requirements: fin.requirements || [] }, "Plan");
+        fin.spec = pl.spec;
+        fin.warnings = (fin.warnings || []).concat(pl.warnings || []);
+        fin.counts = Object.assign({}, fin.counts, { plan: (pl.spec.plan || []).length });
+      } catch (e) {
+        fin.warnings = (fin.warnings || []).concat(["Plan step failed (" + e.message + "); Regenerate to try again."]);
+      }
+    }
+    fin.org = start.org;
+    fin.provider = start.provider;
+    return fin;
+  }
+
+  // Polls the job and shows what it is working on, step by step.
+  async function pollJob(key) {
+    const t0 = Date.now();
+    const LIMIT_MS = 16 * 60 * 1000;      // a job function may run 15 minutes
+    let last = null;
+    while (Date.now() - t0 < LIMIT_MS) {
+      try {
+        last = await post("/implement/stage", { stage: "status", job_key: key }, 30_000, "Status");
+      } catch (e) {
+        last = last || { state: "queued" };   // a missed poll isn't fatal
+      }
+      showJobProgress(last, Date.now() - t0);
+      if (last.state === "done") return last;
+      if (last.state === "failed") throw new Error(last.error || "The background job failed.");
+      if (last.state === "queued" && Date.now() - t0 > 3 * 60 * 1000) {
+        throw new Error("The background job didn't start within 3 minutes. Check that the impl_worker job function "
+          + "is deployed and the 'liftoff_jobs' job pool exists.");
+      }
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+    throw new Error("Generation is taking longer than 16 minutes; it was stopped. Try a shorter BRD or fewer modules.");
+  }
+
+  function fmtTime(ms) {
+    const s = Math.round(ms / 1000);
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  }
+
+  function showJobProgress(st, elapsed) {
+    const panel = document.getElementById("panel-blueprint");
+    const textEl = panel && panel.querySelector(".loader-text");
+    if (!textEl) return;
+    L.setTabState("blueprint", { running: true });
+    panel.querySelector(".loader").hidden = false;
+    const steps = st.steps || [];
+    const icon = { done: "✓", working: "…", failed: "✕", waiting: "○" };
+    const head = st.state === "queued" ? "Waiting for a worker to pick up the job"
+      : `Drafting the blueprint — ${st.done || 0} of ${st.total || steps.length || "?"} steps done`;
+    textEl.innerHTML = `<div class="impl-job">
+        <strong>${esc(head)}</strong> <span class="muted">· ${fmtTime(elapsed)}</span>
+        ${steps.length ? `<ul class="impl-job-steps">${steps.map((x) => `<li class="js-${esc(x.state)}" title="${esc(x.detail || "")}">
+            <span class="js-icon" aria-hidden="true">${icon[x.state] || "○"}</span>
+            <span class="js-label">${esc(x.label)}</span>
+            <span class="muted">${esc(x.state === "done" ? `${x.items || 0} item(s) · ${x.seconds || 0}s`
+              : x.state === "working" ? (x.detail || "working") : x.state === "failed" ? "failed — shown as a note" : x.detail || "")}</span>
+          </li>`).join("")}</ul>` : ""}
+        <p class="muted">Each step is one careful pass by the Zia agent over that part of the BRD; precise output takes a minute or two per step. You can keep this tab open or come back to it.</p>
+      </div>`;
+  }
+
+  // Fallback without background jobs: one request per agent call.
+  async function generateInBrowser(brd, modules, answers, start, jobs, stage, progress) {
     const results = new Array(jobs.length);
     let next = 0, done = 0;
     const GROUP = { data_model: "data model", automation: "automation", mock: "offline" };
     const worker = async () => {
       while (next < jobs.length) {
-        const j = jobs[next++];
+        const i = next++;
+        const j = jobs[i];
         const body = { stage: "part", brd, modules, answers, part: j.part, group: j.group, org_text: start.org_text };
         let r;
         for (let attempt = 1; attempt <= 2; attempt++) {
@@ -493,30 +579,15 @@
             r = { part: j.part, group: j.group, error: e.message };
           }
         }
-        results[jobs.indexOf(j)] = r;
+        results[i] = r;
         done++;
         progress(`Drafting the blueprint… ${done} of ${jobs.length} done (part ${j.part}: ${j.label}).`);
       }
     };
     progress(`Drafting the blueprint… 0 of ${jobs.length} done.`);
     await Promise.all([worker(), worker()]);
-
     progress("Merging and checking against your org…");
-    const fin = await stage({ stage: "finish", brd, modules, results, warnings: start.warnings || [] }, "Blueprint finish");
-    if (fin.needs_plan) {
-      progress("Writing the delivery plan…");
-      try {
-        const pl = await stage({ stage: "plan", spec: fin.spec, requirements: fin.requirements || [] }, "Plan");
-        fin.spec = pl.spec;
-        fin.warnings = (fin.warnings || []).concat(pl.warnings || []);
-        fin.counts = Object.assign({}, fin.counts, { plan: (pl.spec.plan || []).length });
-      } catch (e) {
-        fin.warnings = (fin.warnings || []).concat(["Plan step failed (" + e.message + "); the blueprint has no plan yet — Regenerate to try again."]);
-      }
-    }
-    fin.org = start.org;
-    fin.provider = start.provider;
-    return fin;
+    return stage({ stage: "finish", brd, modules, results, warnings: start.warnings || [] }, "Blueprint finish");
   }
 
   async function dryRun() {

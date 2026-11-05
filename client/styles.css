@@ -3576,3 +3576,13 @@ footer { display: none; }
 #impl-promote { flex-basis: 100%; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .impl-panel-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.impl-job { text-align: left; max-width: 560px; margin: 0 auto; font-size: 14px; }
+.impl-job-steps { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.impl-job-steps li { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 8px; align-items: baseline; }
+.impl-job-steps li .muted { grid-column: 2; font-size: 12px; }
+.impl-job-steps .js-icon { font-weight: 700; color: var(--text-muted); }
+.impl-job-steps .js-done .js-icon { color: var(--ok); }
+.impl-job-steps .js-working .js-icon { color: var(--accent); }
+.impl-job-steps .js-failed .js-icon { color: var(--err); }
+.impl-job-steps .js-working .js-label { font-weight: 600; }
+.impl-job p { font-size: 12px; margin: 8px 0 0; }

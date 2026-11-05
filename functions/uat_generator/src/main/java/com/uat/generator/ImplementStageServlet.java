@@ -31,6 +31,13 @@ import java.util.logging.Logger;
  *   {"stage":"plan",   spec, requirements:[{id,title}]}
  *       → {spec, warnings}                                                            one LLM call
  *
+ * Background mode (the agent's replies take longer than one request allows):
+ *   {"stage":"submit", brd, modules, answers?, org_text, jobs:[{part, group}]}
+ *       → {job_key, job_id}       queues the impl_worker job function (ImplJob), which makes
+ *                                 the part and plan calls and stores results in Cache (JobStore)
+ *   {"stage":"status", job_key}  → {state: queued|running|done|failed, done, total, label?, error?}
+ *   {"stage":"finish", brd, modules, job_key, warnings?}   reads the job's results and plan
+ *
  * Every stage is stateless: the BRD is re-chunked the same way each time (same env), and the
  * browser carries the org text and part results between calls.
  *
@@ -61,11 +68,15 @@ public class ImplementStageServlet extends HttpServlet {
                 case "part":   out = part(body); break;
                 case "finish": out = finish(req, body); break;
                 case "plan":   out = plan(body); break;
+                case "submit": out = submit(body); break;
+                case "status": out = status(body); break;
                 default:
-                    ImplementServlet.writeError(resp, 400, "Field 'stage' must be start, part, finish or plan.");
+                    ImplementServlet.writeError(resp, 400, "Field 'stage' must be start, part, submit, status, finish or plan.");
                     return;
             }
-            if (out.has("error") && !"part".equals(stage)) resp.setStatus(out.path("status").asInt(400));
+            // A part's or a job's own failure is data for the caller, not a failed request.
+            boolean reported = "part".equals(stage) || ("status".equals(stage) && out.has("state"));
+            if (out.has("error") && !reported) resp.setStatus(out.path("status").asInt(400));
             else resp.setStatus(200);
             out.remove("status");
             resp.getWriter().write(MAPPER.writeValueAsString(out));
@@ -95,7 +106,7 @@ public class ImplementStageServlet extends HttpServlet {
                 ImplementServlet.envInt("GEN_MAX_CHUNKS", 6));
     }
 
-    private static List<Requirements.Requirement> requirements(String brd) {
+    static List<Requirements.Requirement> requirements(String brd) {
         return Requirements.extract(BrdChunker.chunk(brd, ImplementServlet.envInt("IMPL_CHUNK_CHARS", 6000), 10_000).chunks);
     }
 
@@ -178,7 +189,7 @@ public class ImplementStageServlet extends HttpServlet {
         return out;
     }
 
-    private static ObjectNode part(JsonNode body) {
+    static ObjectNode part(JsonNode body) {
         String brd = body.path("brd").asText("").trim();
         List<String> modules = modules(body);
         String group = body.path("group").asText("data_model");
@@ -196,7 +207,9 @@ public class ImplementStageServlet extends HttpServlet {
                 BrdChunker.Chunk chunk = split.chunks.get(idx);
                 ImplementServlet.Task t = new ImplementServlet.Task(group, chunk);
                 List<Requirements.Requirement> reqs = requirements(brd);
-                long deadline = System.currentTimeMillis() + ImplementServlet.envInt("IMPL_CALL_DEADLINE_SEC", 26) * 1000L;
+                int sec = body.path("deadline_sec").asInt(0) > 0 ? body.path("deadline_sec").asInt()
+                        : ImplementServlet.envInt("IMPL_CALL_DEADLINE_SEC", 26);
+                long deadline = System.currentTimeMillis() + sec * 1000L;
                 p = ImplementServlet.runTask(t, split.chunks.size(), split.outline, moduleList(modules),
                         body.path("org_text").asText(""), Requirements.promptList(reqs, chunk.index + 1, 1500),
                         decisions(body), deadline);
@@ -217,19 +230,14 @@ public class ImplementStageServlet extends HttpServlet {
         return out;
     }
 
-    private static ObjectNode finish(HttpServletRequest req, JsonNode body) {
-        String brd = body.path("brd").asText("").trim();
-        List<String> modules = modules(body);
-        List<String> warnings = new ArrayList<>();
-        for (JsonNode w : body.path("warnings")) warnings.add(w.asText());
-
+    /** Merges part results (in order) into a spec; adds per-part notes to warnings. */
+    static ObjectNode merge(List<JsonNode> results, List<String> warnings) {
         ObjectNode spec = MAPPER.createObjectNode();
         Map<String, ObjectNode> seen = new HashMap<>();
         List<String> summaries = new ArrayList<>();
-        int dups = 0, calls = 0;
-        for (JsonNode r : body.path("results")) {
+        int dups = 0;
+        for (JsonNode r : results) {
             String where = "Part " + r.path("part").asInt() + " / " + r.path("group").asText("").replace('_', ' ');
-            calls++;
             if (r.hasNonNull("error") && !r.path("error").asText("").isEmpty()) {
                 warnings.add(where + " failed: " + r.path("error").asText());
             }
@@ -240,7 +248,7 @@ public class ImplementStageServlet extends HttpServlet {
             for (String s : ImplSpec.SECTIONS) {
                 List<ObjectNode> list = new ArrayList<>();
                 for (JsonNode n : items.path(s)) {
-                    // Items came back from the browser: normalise them again rather than trust them.
+                    // Items came back from the browser or the cache: normalise them again rather than trust them.
                     if (n.isObject()) {
                         ObjectNode norm = ImplSpec.normalize(s, (ObjectNode) n);
                         if (norm != null) list.add(norm);
@@ -251,16 +259,59 @@ public class ImplementStageServlet extends HttpServlet {
         }
         if (dups > 0) warnings.add(dups + " duplicate item(s) merged across BRD parts.");
         ImplSpec.finish(spec);
+        spec.put("summary", String.join(" ", summaries).trim());
+        return spec;
+    }
 
+    private static ObjectNode finish(HttpServletRequest req, JsonNode body) throws Exception {
+        String brd = body.path("brd").asText("").trim();
+        List<String> modules = modules(body);
+        List<String> warnings = new ArrayList<>();
+        for (JsonNode w : body.path("warnings")) warnings.add(w.asText());
+
+        List<JsonNode> results = new ArrayList<>();
+        JsonNode jobPlan = null;
+        String key = body.path("job_key").asText("");
+        if (!key.isEmpty()) {
+            if (!JobStore.validKey(key)) return error(400, "Invalid job_key.");
+            JsonNode in = MAPPER.readTree(orThrow(JobStore.get(ImplJob.inputKey(key)), "This generation has expired. Generate again."));
+            for (int i = 0; i < in.path("jobs").size(); i++) {
+                String r = JobStore.get(ImplJob.resultKey(key, i));
+                if (r != null) results.add(MAPPER.readTree(r));
+                else warnings.add("Part " + in.path("jobs").get(i).path("part").asInt() + " has no result.");
+            }
+            String p = JobStore.get(ImplJob.planKey(key));
+            if (p != null) jobPlan = MAPPER.readTree(p);
+        } else {
+            for (JsonNode r : body.path("results")) results.add(r);
+        }
+        int calls = results.size();
+        ObjectNode spec = merge(results, warnings);
+        Map<String, ObjectNode> seen = new HashMap<>();
+        String summary = spec.path("summary").asText("");
         CrmClient crm = Llm.mock() ? null : CrmMetadata.sessionClient(req);
         ImplOrg org = crm == null ? null : ImplOrg.read(crm, modules, false);
         ImplementServlet.markStatus(spec, org);
         ImplSpec.finish(spec);
-        spec.put("summary", String.join(" ", summaries).trim());
+        spec.put("summary", summary);
         ArrayNode scope = spec.putArray("modules_in_scope");
         modules.forEach(scope::add);
 
         boolean needsPlan = ImplementServlet.hasBuildItems(spec);
+        if (jobPlan != null) {
+            // The job already wrote the plan from these same parts.
+            List<ObjectNode> items = new ArrayList<>();
+            for (JsonNode t : jobPlan.path("items")) {
+                ObjectNode n = ImplSpec.normalize("plan", (ObjectNode) t);
+                if (n != null) items.add(n);
+            }
+            ImplSpec.merge(spec, "plan", items, seen);
+            for (JsonNode w : jobPlan.path("warnings")) warnings.add(w.asText());
+            ImplSpec.finish(spec);
+            for (JsonNode t : spec.path("plan")) ((ObjectNode) t).put("status", "todo");
+            needsPlan = false;
+            if (items.isEmpty() && ImplementServlet.hasBuildItems(spec)) needsPlan = true;
+        }
         if (Llm.mock() || !needsPlan) {
             if (needsPlan) ImplSpec.merge(spec, "plan", ImplPlan.derive(spec), seen);
             ImplSpec.finish(spec);
@@ -277,7 +328,70 @@ public class ImplementStageServlet extends HttpServlet {
         return out;
     }
 
-    private static ObjectNode plan(JsonNode body) {
+    private static String orThrow(String v, String msg) {
+        if (v == null) throw new IllegalStateException(msg);
+        return v;
+    }
+
+    private static ObjectNode submit(JsonNode body) throws Exception {
+        if (body.path("brd").asText("").trim().isEmpty()) return error(400, "Field 'brd' is required.");
+        if (!body.path("jobs").isArray() || body.path("jobs").size() == 0) return error(400, "Field 'jobs' is required.");
+        String key = JobStore.newKey();
+        ObjectNode in = MAPPER.createObjectNode();
+        in.put("brd", body.path("brd").asText(""));
+        in.set("modules", body.path("modules"));
+        in.set("answers", body.path("answers"));
+        in.put("org_text", body.path("org_text").asText(""));
+        in.set("jobs", body.path("jobs"));
+        try {
+            JobStore.put(ImplJob.inputKey(key), MAPPER.writeValueAsString(in));
+            ImplJob.status(key, "queued", 0, body.path("jobs").size() + 1, null, "Waiting for a worker");
+        } catch (Exception e) {
+            return error(503, "Couldn't save the job to Catalyst Cache (" + ImplementServlet.trim(e.getMessage(), 200)
+                    + "). Background generation needs Cache enabled on the project.");
+        }
+        if ("memory".equalsIgnoreCase(System.getenv("LIFTOFF_JOBSTORE"))) {
+            // Local tests: no Catalyst job scheduler; run the worker in this process.
+            new Thread(() -> ImplJob.run(key, () -> 15 * 60_000L), "impl-worker-local").start();
+            ObjectNode out = MAPPER.createObjectNode();
+            out.put("job_key", key);
+            return out;
+        }
+        String pool = System.getenv().getOrDefault("IMPL_JOBPOOL", "liftoff_jobs");
+        String target = System.getenv().getOrDefault("IMPL_WORKER_FUNCTION", "impl_worker");
+        try {
+            org.json.simple.JSONObject params = new org.json.simple.JSONObject();
+            params.put("job_key", key);
+            com.zc.common.ZCProject.initProject();
+            com.zc.component.jobscheduling.beans.job.ZCJobMetaDetail meta =
+                    com.zc.component.jobscheduling.beans.job.ZCJobBuilder.functionJobBuilder()
+                            .setTargetName(target)
+                            .setParams(params)
+                            .setJobName("blueprint_" + key)
+                            .setJobpoolName(pool)
+                            .build();
+            com.zc.component.jobscheduling.beans.job.ZCJobDetails job =
+                    com.zc.component.jobscheduling.ZCJobScheduling.getInstance().job.submitJob(meta);
+            ObjectNode out = MAPPER.createObjectNode();
+            out.put("job_key", key);
+            if (job != null && job.getJobId() != null) out.put("job_id", String.valueOf(job.getJobId()));
+            return out;
+        } catch (Exception e) {
+            return error(503, "Couldn't queue the background job (" + ImplementServlet.trim(e.getMessage(), 200)
+                    + "). Check that the job function '" + target + "' is deployed and a Function job pool named '"
+                    + pool + "' exists (see agent/ZIA_GENERATOR.md).");
+        }
+    }
+
+    private static ObjectNode status(JsonNode body) throws Exception {
+        String key = body.path("job_key").asText("");
+        if (!JobStore.validKey(key)) return error(400, "Invalid job_key.");
+        String s = JobStore.get(ImplJob.statusKey(key));
+        if (s == null) return error(404, "No such generation, or it has expired.");
+        return (ObjectNode) MAPPER.readTree(s);
+    }
+
+    static ObjectNode plan(JsonNode body) {
         JsonNode in = body.path("spec");
         if (!in.isObject()) return error(400, "Field 'spec' is required.");
         ObjectNode spec = (ObjectNode) in.deepCopy();
