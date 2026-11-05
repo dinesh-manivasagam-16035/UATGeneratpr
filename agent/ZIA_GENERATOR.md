@@ -138,7 +138,8 @@ from the cached job input when the run ends.
    place (see [Worker main class](#worker-main-class)), or ask Claude to.
 2. **Create the job pool:** Catalyst console → **Job Scheduling** → **Job Pools** → **Create** →
    type **Function**, name **`liftoffjobs`**.
-3. **Environment variables on `impl_worker`:** each function has its own, so copy the same
+3. **Environment variables on `impl_worker`** (set them in the console; keep `env_variables` out of
+   `functions/impl_worker/catalyst-config.json`, or every `catalyst deploy` replaces them with that list): each function has its own, so copy the same
    `ZIA_AGENT_*` and `ZIA_ACCOUNTS_BASE` values from `uat_generator` (step 4).
    Optional: `IMPL_WORKER_CALL_TIMEOUT_SEC` (default 240) per agent call.
 4. **Cache:** enabled on the project by default. To use a dedicated segment, create one in
