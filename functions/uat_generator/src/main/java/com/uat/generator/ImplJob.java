@@ -44,6 +44,10 @@ public final class ImplJob {
             String raw = JobStore.get(inputKey(key));
             if (raw == null) throw new IllegalStateException("The job's input has expired.");
             JsonNode in = MAPPER.readTree(raw);
+            // Each function has its own env vars: say so plainly if this worker has no LLM set up.
+            if (!Llm.mock() && !Llm.available()) {
+                throw new IllegalStateException("impl_worker: " + Llm.notConfiguredMessage());
+            }
             // One worker for every job kind: UAT generation and execution live in UatJob.
             String kind = in.path("kind").asText("blueprint");
             if ("uat_generate".equals(kind)) return UatJob.generate(key, in, remainingMs);
@@ -107,7 +111,8 @@ public final class ImplJob {
                 for (JsonNode w : pr.path("warnings")) planWarnings.add(w);
             }
             JobStore.put(planKey(key), MAPPER.writeValueAsString(plan));
-            steps.finish(jobs.size(), false, planItems.size());
+            if (ImplementServlet.hasBuildItems(spec)) steps.finish(jobs.size(), false, planItems.size());
+            else steps.skip(jobs.size(), "nothing to plan: no items were generated");
             status(key, "done", total, total, null, "Done", steps);
             return true;
         } catch (Throwable e) {
@@ -175,6 +180,9 @@ public final class ImplJob {
         }
         /** Adds a field to step i (e.g. a case's result). */
         synchronized void set(int i, String field, String value) { ((ObjectNode) arr.get(i)).put(field, value); }
+        synchronized void skip(int i, String why) {
+            ((ObjectNode) arr.get(i)).put("state", "skipped").put("detail", why);
+        }
         synchronized String label(int i) { return arr.get(i).path("label").asText(); }
         synchronized ArrayNode copy() { return arr.deepCopy(); }
     }

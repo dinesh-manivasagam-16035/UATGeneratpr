@@ -46,8 +46,8 @@ public final class Llm {
     public static String notConfiguredMessage() {
         java.util.List<String> miss = ZiaAgentClient.missing();
         java.util.List<String> have = ZiaAgentClient.present();
-        String setup = " Set them in Catalyst → Functions → uat_generator → Configuration → Environment Variables "
-                + "(see agent/ZIA_GENERATOR.md).";
+        String setup = " Set them in Catalyst → Serverless → Functions → this function → Configuration → Environment "
+                + "Variables; uat_generator and impl_worker each need their own copy (see agent/ZIA_GENERATOR.md).";
         if ("zia".equals(provider()) || !have.isEmpty()) {
             return "The Zia Agent isn't fully configured. Missing on this function: " + String.join(", ", miss) + "."
                     + (have.isEmpty() ? "" : " Found: " + String.join(", ", have) + ".") + setup;

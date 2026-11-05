@@ -545,7 +545,7 @@
     L.setTabState("blueprint", { running: true });
     panel.querySelector(".loader").hidden = false;
     const steps = st.steps || [];
-    const icon = { done: "✓", working: "…", failed: "✕", waiting: "○" };
+    const icon = { done: "✓", working: "…", failed: "✕", waiting: "○", skipped: "–" };
     const head = st.state === "queued" ? "Waiting for a worker to pick up the job"
       : `Drafting the blueprint — ${st.done || 0} of ${st.total || steps.length || "?"} steps done`;
     textEl.innerHTML = `<div class="impl-job">
