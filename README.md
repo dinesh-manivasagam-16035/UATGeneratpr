@@ -27,7 +27,8 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 │           ├── Modules/Functions/Creator servlets   # CRM + Creator metadata
 │           ├── Crm*Servlet.java        # /crm/* OAuth connect, callback, status, orgs
 │           ├── ClaudeClient.java       # LLM client (GitHub Models, OpenAI-compatible)
-│           ├── ZiaClient.java          # Zia LLM client (placeholder contract)
+│           ├── Llm.java                # picks the LLM provider for every generation call
+│           ├── ZiaAgentClient.java     # Zia Agent provider (Agent API, see agent/ZIA_GENERATOR.md)
 │           ├── MockLlmClient.java      # offline mock provider
 │           └── ProjectsClient.java, BugsClient.java, RunLogger.java, ...
 ├── client/                              # Catalyst Web Client (static): index.html, app.js, implement.js, styles.css
@@ -63,11 +64,13 @@ Never commit any of these values to the repo.
 |---|---|---|
 | `SESSION_SECRET` | recommended | Long random string (e.g. `openssl rand -base64 48`). Encrypts CRM sign-in sessions into the cookie so they survive restarts and scaling. Without it, sessions are kept in memory and lost on restart. Changing it signs everyone out |
 | `LIFTOFF_AGENT_ORG_IDS` | Zia Agent | CRM org IDs allowed to call `/agent/run`. Unset = agent access off |
-| `LLM_PROVIDER` | optional | `zia` or `mock`; any other value (or unset) uses GitHub Models |
-| `GITHUB_TOKEN` | default provider | Token for GitHub Models |
+| `LLM_PROVIDER` | optional | `zia` (Zia Agent), `github` (GitHub Models) or `mock`. Unset: the Zia Agent when its variables are set, else GitHub Models |
+| `GITHUB_TOKEN` | GitHub Models | Token for GitHub Models, when not using the Zia Agent |
 | `COPILOT_MODEL` | optional | GitHub Models model ID, default `gpt-4o` |
 | `COPILOT_ENDPOINT` | optional | Override the inference endpoint |
-| `ZIA_ENDPOINT`, `ZIA_OAUTH_TOKEN` | Zia mode | When `LLM_PROVIDER=zia` |
+| `ZIA_AGENT_ORG_ID`, `ZIA_AGENT_ID`, `ZIA_AGENT_VERSION_ID` | Zia Agent | From the agent's Integrate tab; the version ID changes on every redeploy. Setup: [agent/ZIA_GENERATOR.md](agent/ZIA_GENERATOR.md) |
+| `ZIA_AGENT_REFRESH_TOKEN`, `ZIA_AGENT_CLIENT_ID`, `ZIA_AGENT_CLIENT_SECRET` | Zia Agent | Self Client refresh token with scope `ZiaAgents.agents.TRIGGER` |
+| `ZIA_ACCOUNTS_BASE`, `ZIA_AGENT_URL`, `ZIA_AGENT_TIMEOUT_SEC` | optional | Accounts host (default from `ZOHO_DC`), Agent API endpoint, per-call timeout (120 s) |
 | `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` | CRM connect, Projects push | OAuth client from api-console.zoho.com |
 | `ZOHO_REDIRECT_URI` | CRM connect | Must match the OAuth client's redirect URI |
 | `ZOHO_REFRESH_TOKEN` | Projects push | Scope: `ZohoProjects.tasks.CREATE` |
@@ -277,7 +280,7 @@ results).
 
 Tunables: `IMPL_MAX_LLM_CALLS` (9: two calls per BRD part plus one for the plan),
 `CRM_SETTINGS_API_VERSION` (`v8`), plus the shared `GEN_*` settings. `LLM_PROVIDER=mock` returns a
-shallow offline spec; `zia` isn't supported for this mode yet.
+shallow offline spec. Generation uses the Zia Agent when it's configured (see [agent/ZIA_GENERATOR.md](agent/ZIA_GENERATOR.md)).
 
 ## Sessions and execution
 
@@ -331,10 +334,9 @@ Open the web client, pick the matching module, paste the BRD body, and click
 
 ## Notes / caveats
 
-- The default LLM provider is GitHub Models (`ClaudeClient.java`, name kept for
-  history). Swap to Zia by setting `LLM_PROVIDER=zia` and adjusting
-  `ZiaClient.java` to the actual Zia endpoint contract (the current call shape
-  is a placeholder).
+- Generation uses a Zia Agent through Zoho's Agent API once its variables are set
+  ([agent/ZIA_GENERATOR.md](agent/ZIA_GENERATOR.md)); otherwise GitHub Models
+  (`ClaudeClient.java`, name kept for history). Both get the same prompts (`Llm.java`).
 - Projects API uses the v3 REST endpoints (`projectsapi.zoho.com`). If you need
   the older `projectsapi.zoho.com/api/v2` shape or DC-specific hosts, change
   `ZOHO_PROJECTS_API_BASE`.

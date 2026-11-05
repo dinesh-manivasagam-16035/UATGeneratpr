@@ -101,11 +101,17 @@ public class GenerateServlet extends HttpServlet {
         resp.setContentType("application/json");
         CorsSupport.apply(req, resp);
 
-        String llmProvider = System.getenv().getOrDefault("LLM_PROVIDER", "github");
-        String model = System.getenv().getOrDefault("COPILOT_MODEL", "gpt-4o");
-        boolean mock = "mock".equalsIgnoreCase(llmProvider);
-        boolean zia = "zia".equalsIgnoreCase(llmProvider);
-        String provider = mock ? "mock" : zia ? "zia" : "GitHub Models (" + model + ")";
+        String llmProvider = Llm.provider();          // zia | github | mock
+        boolean mock = "mock".equals(llmProvider);
+        String provider = Llm.label();
+        if (!mock && !Llm.available()) {
+            writeError(resp, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "zia".equals(llmProvider)
+                    ? "The Zia Agent isn't configured. Set ZIA_AGENT_ORG_ID, ZIA_AGENT_ID, ZIA_AGENT_VERSION_ID, "
+                      + "ZIA_AGENT_REFRESH_TOKEN, ZIA_AGENT_CLIENT_ID and ZIA_AGENT_CLIENT_SECRET on the function "
+                      + "(see agent/ZIA_GENERATOR.md)."
+                    : "No LLM is configured. Set up the Zia Agent (see agent/ZIA_GENERATOR.md), or set GITHUB_TOKEN.");
+            return;
+        }
         int brdLength = 0;
         List<String> modules = new ArrayList<>();
         ExecutorService pool = null;
@@ -201,7 +207,7 @@ public class GenerateServlet extends HttpServlet {
             int bodyDeadline = body.path("deadline_sec").asInt(0);
             if (bodyDeadline > 0) deadlineSec = Math.min(deadlineSec, bodyDeadline);
 
-            List<Task> tasks = plan(modules, chunks, mock || zia, warnings, maxCalls);
+            List<Task> tasks = plan(modules, chunks, mock, warnings, maxCalls);
 
             // ---- 3. Run them in parallel inside a deadline ----
             final String fPlatform = platform;
@@ -465,10 +471,7 @@ public class GenerateServlet extends HttpServlet {
         if ("mock".equalsIgnoreCase(llmProvider)) {
             return new LlmResult(MockLlmClient.generate(fullBrd, r.module, r.moduleSchema), "stop");
         }
-        if ("zia".equalsIgnoreCase(llmProvider)) {
-            return new LlmResult(ZiaClient.generate(r.chunkText, r.module, r.moduleSchema), null);
-        }
-        return ClaudeClient.generateChunk(r);
+        return Llm.generateChunk(r);
     }
 
     @Override

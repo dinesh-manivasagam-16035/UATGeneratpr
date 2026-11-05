@@ -41,7 +41,7 @@ import java.util.logging.Logger;
  * the obvious cases ("lead routing" → Leads, "ticket SLA" → Tickets) without
  * needing an LLM round-trip.
  *
- * For LLM_PROVIDER=claude the scorer is still used and the result tagged
+ * When an LLM is available (Llm) the scorer is still used and the result tagged
  * "heuristic"; replacing this with a Claude call is a future enhancement.
  */
 public class AnalyzeServlet extends HttpServlet {
@@ -98,11 +98,11 @@ public class AnalyzeServlet extends HttpServlet {
             ObjectNode out = MAPPER.createObjectNode();
             String method = "heuristic";
 
-            // Try LLM-powered analysis first (requires GITHUB_TOKEN)
+            // Try LLM-powered analysis first (Zia Agent or GitHub Models, see Llm)
             boolean llmSucceeded = false;
-            if (System.getenv("GITHUB_TOKEN") != null && !System.getenv("GITHUB_TOKEN").isEmpty()) {
+            if (!Llm.mock() && Llm.available()) {
                 try {
-                    String llmRaw = ClaudeClient.analyze(brd, moduleNameList);
+                    String llmRaw = Llm.analyze(brd, moduleNameList);
                     // Strip markdown fencing if model wrapped it
                     String trimmed = llmRaw.trim();
                     if (trimmed.startsWith("```")) {

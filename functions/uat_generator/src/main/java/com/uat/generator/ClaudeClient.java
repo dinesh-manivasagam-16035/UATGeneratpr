@@ -32,17 +32,17 @@ public final class ClaudeClient {
 
     /** Generates cases for one BRD chunk. The response is a JSON object {"cases":[...]}. */
     public static LlmResult generateChunk(GenerationRequest r) throws Exception {
+        String[] p = chunkPrompts(r);
+        return chat(p[0], p[1], 0);
+    }
+
+    /** {system, user} prompts for one BRD chunk; shared with the Zia Agent provider (Llm). */
+    static String[] chunkPrompts(GenerationRequest r) {
         boolean creator = "creator".equalsIgnoreCase(r.platform);
-        ObjectNode payload = MAPPER.createObjectNode();
-        payload.put("model", model());
-        payload.put("max_tokens", maxTokens());
-
-        ArrayNode messages = payload.putArray("messages");
-        messages.addObject().put("role", "system").put("content",
-                creator ? creatorSystemPrompt(r.creatorOwner, r.creatorApp) : systemPrompt());
-        messages.addObject().put("role", "user").put("content", buildChunkPrompt(r, creator));
-
-        return callOpenAICompat(requireToken(), endpoint(), payload);
+        return new String[]{
+            creator ? creatorSystemPrompt(r.creatorOwner, r.creatorApp) : systemPrompt(),
+            buildChunkPrompt(r, creator)
+        };
     }
 
     /**
@@ -60,10 +60,12 @@ public final class ClaudeClient {
     }
 
     public static String analyze(String brd, String moduleNames) throws Exception {
-        String token    = requireToken();
-        String model    = model();
-        String endpoint = endpoint();
+        String[] p = analyzePrompts(brd, moduleNames);
+        return chat(p[0], p[1], 512).content;
+    }
 
+    /** {system, user} prompts for module suggestion; shared with the Zia Agent provider (Llm). */
+    static String[] analyzePrompts(String brd, String moduleNames) {
         String sysPrompt =
             "You are a Zoho CRM expert. You will receive a UAT specification document and a "
             + "list of CRM module api_names available in the org. "
@@ -78,15 +80,13 @@ public final class ClaudeClient {
             + "Document outline:\n" + BrdChunker.chunk(brd, 12000, 1).outline + "\n\n"
             + "UAT spec document:\n" + safeBrd(brd) + "\n\n"
             + "Return JSON only: {\"suggested_modules\":[...],\"analysis\":\"...\"}";
+        return new String[]{sysPrompt, userPrompt};
+    }
 
-        ObjectNode payload = MAPPER.createObjectNode();
-        payload.put("model", model);
-        payload.put("max_tokens", 512);
-        ArrayNode messages = payload.putArray("messages");
-        messages.addObject().put("role", "system").put("content", sysPrompt);
-        messages.addObject().put("role", "user").put("content", userPrompt);
-
-        return callOpenAICompat(token, endpoint, payload).content;
+    /** True when GITHUB_TOKEN is set. */
+    static boolean configured() {
+        String t = System.getenv("GITHUB_TOKEN");
+        return t != null && !t.isEmpty();
     }
 
     // ---- Helpers ----

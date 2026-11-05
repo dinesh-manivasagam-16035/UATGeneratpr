@@ -74,13 +74,14 @@ public class ImplementServlet extends HttpServlet {
         resp.setContentType("application/json");
         CorsSupport.apply(req, resp);
 
-        String llmProvider = System.getenv().getOrDefault("LLM_PROVIDER", "github");
-        String model = System.getenv().getOrDefault("COPILOT_MODEL", "gpt-4o");
-        boolean mock = "mock".equalsIgnoreCase(llmProvider);
-        String provider = mock ? "mock" : "GitHub Models (" + model + ")";
-        if ("zia".equalsIgnoreCase(llmProvider)) {
-            writeError(resp, HttpServletResponse.SC_NOT_IMPLEMENTED,
-                    "The implementation generator doesn't support LLM_PROVIDER=zia yet. Use GitHub Models or mock.");
+        boolean mock = Llm.mock();
+        String provider = Llm.label();
+        if (!Llm.available()) {
+            writeError(resp, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "zia".equals(Llm.provider())
+                    ? "The Zia Agent isn't configured. Set ZIA_AGENT_ORG_ID, ZIA_AGENT_ID, ZIA_AGENT_VERSION_ID, "
+                      + "ZIA_AGENT_REFRESH_TOKEN, ZIA_AGENT_CLIENT_ID and ZIA_AGENT_CLIENT_SECRET on the function "
+                      + "(see agent/ZIA_GENERATOR.md)."
+                    : "No LLM is configured. Set up the Zia Agent (see agent/ZIA_GENERATOR.md), or set GITHUB_TOKEN.");
             return;
         }
         ExecutorService pool = null;
@@ -212,7 +213,7 @@ public class ImplementServlet extends HttpServlet {
             boolean planned = false;
             if (!mock && deadline - System.currentTimeMillis() > MIN_TIME_FOR_PLAN_MS && hasBuildItems(spec)) {
                 try {
-                    LlmResult r = ClaudeClient.chat(ImplPrompts.planSystem(),
+                    LlmResult r = Llm.chat(ImplPrompts.planSystem(),
                             ImplPrompts.planPrompt(digest(spec, 6000), allRequirements(reqs, 1500)), 0);
                     calls++;
                     ImplSpec.Parsed p = ImplSpec.parse(r.content, List.of("plan"));
@@ -314,7 +315,7 @@ public class ImplementServlet extends HttpServlet {
                                            long deadline) throws Exception {
         String user = ImplPrompts.partPrompt(modules, orgText, outline, t.chunk.text,
                 t.chunk.index + 1, totalParts, requirements, decisions, "");
-        LlmResult r = ClaudeClient.chat(t.system(), user, 0);
+        LlmResult r = Llm.chat(t.system(), user, 0);
         ImplSpec.Parsed p = ImplSpec.parse(r.content, t.sections());
         if (p.ok() && (p.size() > 0 || !r.truncated())) {
             if (r.truncated()) p.salvaged = true;
@@ -326,7 +327,7 @@ public class ImplementServlet extends HttpServlet {
                   + "shorter Deluge, only the most important items."
                 : "Your previous answer could not be used (" + trim(p.ok() ? "no items" : p.error, 200)
                   + "). Return valid JSON exactly in the requested shape.";
-        LlmResult r2 = ClaudeClient.chat(t.system(), ImplPrompts.partPrompt(modules, orgText, outline,
+        LlmResult r2 = Llm.chat(t.system(), ImplPrompts.partPrompt(modules, orgText, outline,
                 t.chunk.text, t.chunk.index + 1, totalParts, requirements, decisions, note), 0);
         ImplSpec.Parsed p2 = ImplSpec.parse(r2.content, t.sections());
         if (r2.truncated()) p2.salvaged = true;
