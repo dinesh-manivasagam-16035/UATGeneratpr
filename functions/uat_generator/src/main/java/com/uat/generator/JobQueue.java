@@ -46,7 +46,7 @@ final class JobQueue {
                     com.zc.component.jobscheduling.beans.job.ZCJobBuilder.functionJobBuilder()
                             .setTargetName(target)
                             .setParams(params)
-                            .setJobName(jobName + "_" + key)
+                            .setJobName(jobLabel(jobName, key))
                             .setJobpoolName(pool)
                             .build();
             com.zc.component.jobscheduling.beans.job.ZCJobDetails job =
@@ -73,5 +73,16 @@ final class JobQueue {
         o.put("status", status);
         o.put("error", msg);
         return o;
+    }
+
+    /**
+     * Catalyst job names are limited to 20 characters: the kind's initials plus the key
+     * ("blueprint" → "b_jx…", "uat_generate" → "ug_jx…").
+     */
+    static String jobLabel(String kind, String key) {
+        StringBuilder sb = new StringBuilder();
+        for (String w : kind.split("_")) if (!w.isEmpty()) sb.append(w.charAt(0));
+        String name = sb + "_" + key;
+        return name.length() > 20 ? name.substring(0, 20) : name;
     }
 }
