@@ -430,7 +430,7 @@
     L.setTabState("blueprint", { locked: false });
     L.showTab("blueprint");
     L.setStatus("blueprint", "");
-    L.showLoader("blueprint", "Drafting the blueprint… this can take a couple of minutes.");
+    progressView.begin();
     impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null; impl.uat = null;
     els.run.innerHTML = "";
     els.verifyArea.innerHTML = "";
@@ -459,7 +459,7 @@
       L.setStatus("blueprint", "Blueprint generation failed: " + e.message, "err");
       L.showToast("Blueprint failed: " + String(e.message).slice(0, 80), "err", 6000);
     } finally {
-      L.hideLoader("blueprint");
+      progressView.end();
     }
   }
 
@@ -470,12 +470,13 @@
     const brd = L.state.brd;
     const modules = L.state.modulesSelected || [];
     const stage = (body, label) => post("/implement/stage", body, 60_000, label);
-    const progress = (t) => L.showLoader("blueprint", t);
+    const progress = (t) => progressView.phase(t);
 
-    progress("Reading the BRD and your org…");
+    progress("Reading the BRD and your org");
     const start = await stage({ stage: "start", brd, modules, answers }, "Blueprint start");
     const jobs = [];
     start.parts.forEach((p) => p.groups.forEach((g) => jobs.push({ part: p.part, label: p.label, group: g })));
+    progressView.plan(jobs);
 
     // Background job (impl_worker): agent replies can take minutes; the browser only polls.
     let sub = null, subErr = null;
@@ -485,7 +486,7 @@
     let fin;
     if (sub && sub.job_key) {
       await pollJob(sub.job_key);
-      progress("Merging the parts and checking them against your org…");
+      progress("Merging and checking against your org");
       fin = await stage({ stage: "finish", brd, modules, job_key: sub.job_key, warnings: start.warnings || [] }, "Blueprint finish");
     } else {
       // Background jobs not set up: one request per call, fine for fast providers.
@@ -495,7 +496,7 @@
         + "). Long agent replies may time out; see agent/ZIA_GENERATOR.md to enable background generation."].concat(fin.warnings || []);
     }
     if (fin.needs_plan) {
-      progress("Writing the delivery plan…");
+      progress("Writing the delivery plan");
       try {
         const pl = await stage({ stage: "plan", spec: fin.spec, requirements: fin.requirements || [] }, "Plan");
         fin.spec = pl.spec;
@@ -521,7 +522,7 @@
       } catch (e) {
         last = last || { state: "queued" };   // a missed poll isn't fatal
       }
-      showJobProgress(last, Date.now() - t0);
+      progressView.job(last);
       if (last.state === "done") return last;
       if (last.state === "failed") throw new Error(last.error || "The background job failed.");
       if (last.state === "queued" && Date.now() - t0 > 3 * 60 * 1000) {
@@ -538,27 +539,86 @@
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
   }
 
-  function showJobProgress(st, elapsed) {
-    const panel = document.getElementById("panel-blueprint");
-    const textEl = panel && panel.querySelector(".loader-text");
-    if (!textEl) return;
-    L.setTabState("blueprint", { running: true });
-    panel.querySelector(".loader").hidden = false;
-    const steps = st.steps || [];
-    const icon = { done: "✓", working: "…", failed: "✕", waiting: "○", skipped: "–" };
-    const head = st.state === "queued" ? "Waiting for a worker to pick up the job"
-      : `Drafting the blueprint — ${st.done || 0} of ${st.total || steps.length || "?"} steps done`;
-    textEl.innerHTML = `<div class="impl-job">
-        <strong>${esc(head)}</strong> <span class="muted">· ${fmtTime(elapsed)}</span>
-        ${steps.length ? `<ul class="impl-job-steps">${steps.map((x) => `<li class="js-${esc(x.state)}" title="${esc(x.detail || "")}">
-            <span class="js-icon" aria-hidden="true">${icon[x.state] || "○"}</span>
-            <span class="js-label">${esc(x.label)}</span>
-            <span class="muted">${esc(x.state === "done" ? `${x.items || 0} item(s) · ${x.seconds || 0}s`
-              : x.state === "working" ? (x.detail || "working") : x.state === "failed" ? "failed — shown as a note" : x.detail || "")}</span>
-          </li>`).join("")}</ul>` : ""}
-        <p class="muted">Each step is one careful pass by the Zia agent over that part of the BRD; precise output takes a minute or two per step. You can keep this tab open or come back to it.</p>
-      </div>`;
-  }
+  // Generation progress, full width in the Blueprint page: phase, overall bar, one row per step.
+  const progressView = (() => {
+    const el = () => document.getElementById("impl-progress");
+    const DETAIL = { data_model: "Modules, fields, layouts, rules, roles", automation: "Workflows, approvals, Deluge",
+                     mock: "Offline sample" };
+    const NAME = { data_model: "Data model", automation: "Automation", mock: "Sample" };
+    let t0 = 0, timer = null, phaseText = "", steps = [], job = null;
+
+    const fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+    const stateText = (x) => {
+      if (x.state === "done") return `${x.items || 0} item${x.items === 1 ? "" : "s"} · ${x.seconds || 0}s`;
+      if (x.state === "working") return x.started_at ? `Working · ${fmt(Date.now() - x.started_at)}` : "Working";
+      if (x.state === "failed") return "Failed";
+      if (x.state === "skipped") return "Skipped";
+      return "Queued";
+    };
+
+    function percent() {
+      if (job && job.state === "done") return 92;
+      if (!steps.length) return 4;
+      const done = steps.filter((x) => ["done", "failed", "skipped"].includes(x.state)).length;
+      const working = steps.filter((x) => x.state === "working").length;
+      return Math.round(8 + 82 * (done + working * 0.35) / steps.length);
+    }
+
+    function draw() {
+      const box = el();
+      if (!box) return;
+      const total = steps.length;
+      const done = steps.filter((x) => ["done", "failed", "skipped"].includes(x.state)).length;
+      const sub = job && job.state === "queued" ? "Waiting for a worker"
+        : job && job.state === "running" ? `Step ${Math.min(done + 1, total)} of ${total}`
+        : phaseText;
+      box.innerHTML = `
+        <div class="ip-head">
+          <div class="ip-title"><span class="ip-pulse" aria-hidden="true"></span><strong>Generating blueprint</strong>
+            <span class="ip-sub">${esc(sub)}</span></div>
+          <span class="ip-time" title="Elapsed">${fmt(Date.now() - t0)}</span>
+        </div>
+        <div class="ip-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent()}">
+          <span style="width:${percent()}%"></span></div>
+        ${total ? `<ol class="ip-steps">${steps.map((x) => `
+          <li class="ip-step is-${esc(x.state)}">
+            <span class="ip-icon" aria-hidden="true"></span>
+            <span class="ip-text"><span class="ip-label">${esc(x.label)}</span><span class="ip-detail">${esc(x.detail || "")}</span></span>
+            <span class="ip-state">${esc(stateText(x))}</span>
+          </li>`).join("")}</ol>` : ""}
+        <p class="ip-note">Runs in the background. You can leave this page.</p>`;
+    }
+
+    return {
+      begin() {
+        t0 = Date.now(); phaseText = "Starting"; steps = []; job = null;
+        const box = el();
+        if (box) box.hidden = false;
+        L.setTabState("blueprint", { running: true });
+        clearInterval(timer);
+        timer = setInterval(draw, 1000);          // elapsed and per-step timers tick between polls
+        draw();
+      },
+      phase(text) { phaseText = text; draw(); },
+      plan(jobs) {
+        steps = jobs.map((j) => ({ label: `Part ${j.part} · ${NAME[j.group] || j.group}`, detail: DETAIL[j.group] || "", state: "waiting" }))
+          .concat([{ label: "Delivery plan", detail: "Phases, tasks, effort", state: "waiting" }]);
+        draw();
+      },
+      job(st) {
+        job = st;
+        if (st && Array.isArray(st.steps) && st.steps.length) steps = st.steps;
+        draw();
+      },
+      step(i, patch) { if (steps[i]) Object.assign(steps[i], patch); draw(); },
+      end() {
+        clearInterval(timer); timer = null;
+        const box = el();
+        if (box) { box.hidden = true; box.innerHTML = ""; }
+        L.setTabState("blueprint", { running: false });
+      },
+    };
+  })();
 
   // Fallback without background jobs: one request per agent call.
   async function generateInBrowser(brd, modules, answers, start, jobs, stage, progress) {
@@ -570,6 +630,8 @@
         const i = next++;
         const j = jobs[i];
         const body = { stage: "part", brd, modules, answers, part: j.part, group: j.group, org_text: start.org_text };
+        progressView.step(i, { state: "working", started_at: Date.now() });
+        const began = Date.now();
         let r;
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
@@ -581,12 +643,13 @@
         }
         results[i] = r;
         done++;
-        progress(`Drafting the blueprint… ${done} of ${jobs.length} done (part ${j.part}: ${j.label}).`);
+        const items = Object.values(r.items || {}).reduce((n, list) => n + (list ? list.length : 0), 0);
+        progressView.step(i, r.error ? { state: "failed" } : { state: "done", items, seconds: Math.round((Date.now() - began) / 1000) });
       }
     };
-    progress(`Drafting the blueprint… 0 of ${jobs.length} done.`);
+    progress(`Drafting ${jobs.length} steps`);
     await Promise.all([worker(), worker()]);
-    progress("Merging and checking against your org…");
+    progress("Merging and checking against your org");
     return stage({ stage: "finish", brd, modules, results, warnings: start.warnings || [] }, "Blueprint finish");
   }
 

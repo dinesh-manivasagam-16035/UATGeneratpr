@@ -389,9 +389,9 @@
     renderJobSteps(kind, msgEl, jobStatus);
   }
 
-  const JOB_ICON = { done: "✓", working: "…", failed: "✕", waiting: "○" };
-  const RESULT_TEXT = { pass: "passed", fail: "failed", dry_run: "plan checked", skipped: "skipped" };
+  const RESULT_TEXT = { pass: "Passed", fail: "Failed", dry_run: "Plan checked", skipped: "Skipped" };
 
+  // Step rows for a background UAT job, styled like the Blueprint progress (.ip-* in styles.css).
   function renderJobSteps(kind, msgEl, st) {
     const id = kind + "-job-steps";
     let box = document.getElementById(id);
@@ -399,37 +399,36 @@
     if (!box) {
       box = document.createElement("div");
       box.id = id;
-      box.className = "impl-job uat-job";
+      box.className = "ip ip-inline uat-job";
       msgEl.insertAdjacentElement("afterend", box);
     }
     let steps = st.steps;
     let summary = "";
     if (kind === "exec") {
-      // One step per case: show the counts, the case running now and the last few finished.
+      // One step per case: the counts, the case running now and the last few finished.
       const n = {};
       steps.forEach((x) => { if (x.result) n[x.result] = (n[x.result] || 0) + 1; });
-      summary = Object.entries(n).map(([k, v]) => `${v} ${RESULT_TEXT[k] || k}`).join(" · ");
+      summary = Object.entries(n).map(([k, v]) => `${v} ${(RESULT_TEXT[k] || k).toLowerCase()}`).join(" · ");
       const working = steps.filter((x) => x.state === "working");
       const finished = steps.filter((x) => x.state === "done" || x.state === "failed").slice(-4);
       const waiting = steps.filter((x) => x.state === "waiting").length;
       steps = finished.concat(working);
-      if (waiting) steps = steps.concat([{ label: `${waiting} more case(s) waiting`, state: "waiting" }]);
+      if (waiting) steps = steps.concat([{ label: `${waiting} more case${waiting === 1 ? "" : "s"}`, state: "waiting" }]);
     }
-    const line = (x) => {
-      const note = x.result ? (RESULT_TEXT[x.result] || x.result) + (x.seconds ? ` · ${x.seconds}s` : "")
-        : x.state === "done" ? `${x.items || 0} case(s) · ${x.seconds || 0}s`
-        : x.state === "failed" ? "failed — shown as a note"
-        : x.state === "working" ? "working…" : "";
-      return `<li class="js-${escapeHtml(x.state || "waiting")}" title="${escapeHtml(x.detail || "")}">
-        <span class="js-icon" aria-hidden="true">${JOB_ICON[x.state] || "○"}</span>
-        <span class="js-label">${escapeHtml(x.label || "")}</span>
-        ${note ? `<span class="muted">${escapeHtml(note)}</span>` : ""}</li>`;
-    };
-    box.innerHTML = (summary ? `<p class="muted">${escapeHtml(summary)}</p>` : "")
-      + `<ul class="impl-job-steps">${steps.map(line).join("")}</ul>`
-      + `<p class="muted">${kind === "exec"
-        ? "Runs in the background on Zoho Catalyst; you can keep this tab open or come back to it."
-        : "Each step is one careful pass by the Zia agent over part of the spec; precise output takes a minute or two per step."}</p>`;
+    const fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+    const note = (x) => x.result ? (RESULT_TEXT[x.result] || x.result) + (x.seconds ? ` · ${x.seconds}s` : "")
+      : x.state === "done" ? `${x.items || 0} case${x.items === 1 ? "" : "s"} · ${x.seconds || 0}s`
+      : x.state === "failed" ? "Failed"
+      : x.state === "working" ? (x.started_at ? `Working · ${fmt(Date.now() - x.started_at)}` : "Working")
+      : "Queued";
+    box.innerHTML = (summary ? `<p class="ip-sub">${escapeHtml(summary)}</p>` : "")
+      + `<ol class="ip-steps">${steps.map((x) => `
+          <li class="ip-step is-${escapeHtml(x.state || "waiting")}">
+            <span class="ip-icon" aria-hidden="true"></span>
+            <span class="ip-text"><span class="ip-label">${escapeHtml(x.label || "")}</span>${x.detail ? `<span class="ip-detail">${escapeHtml(x.detail)}</span>` : ""}</span>
+            <span class="ip-state">${escapeHtml(note(x))}</span>
+          </li>`).join("")}</ol>`
+      + `<p class="ip-note">Runs in the background. You can leave this page.</p>`;
   }
 
   // ---- Push animated loader ----

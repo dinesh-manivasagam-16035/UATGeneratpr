@@ -150,9 +150,9 @@ public final class ImplJob {
     /** Per-step progress shown while the job runs: each BRD part's data model and automation, then the plan. */
     static final class Steps {
         private static final java.util.Map<String, String> WHAT = java.util.Map.of(
-                "data_model", "modules, fields, layouts, validation rules, roles",
-                "automation", "workflows, blueprints, approvals, Deluge functions",
-                "mock", "offline sample");
+                "data_model", "Modules, fields, layouts, rules, roles",
+                "automation", "Workflows, approvals, Deluge",
+                "mock", "Offline sample");
         final ArrayNode arr = MAPPER.createArrayNode();
         final long[] started;
 
@@ -165,13 +165,17 @@ public final class ImplJob {
         Steps(ArrayNode jobs) {
             for (JsonNode j : jobs) {
                 String g = j.path("group").asText();
-                arr.addObject().put("label", "Part " + j.path("part").asInt() + " · " + g.replace('_', ' '))
+                String name = g.equals("data_model") ? "Data model" : g.equals("automation") ? "Automation" : "Sample";
+                arr.addObject().put("label", "Part " + j.path("part").asInt() + " · " + name)
                         .put("detail", WHAT.getOrDefault(g, "")).put("state", "waiting");
             }
-            arr.addObject().put("label", "Delivery plan").put("detail", "phases, tasks, effort, dependencies").put("state", "waiting");
+            arr.addObject().put("label", "Delivery plan").put("detail", "Phases, tasks, effort").put("state", "waiting");
             started = new long[arr.size()];
         }
-        synchronized void start(int i) { started[i] = System.currentTimeMillis(); ((ObjectNode) arr.get(i)).put("state", "working"); }
+        synchronized void start(int i) {
+            started[i] = System.currentTimeMillis();
+            ((ObjectNode) arr.get(i)).put("state", "working").put("started_at", started[i]);   // live timer in the UI
+        }
         synchronized void finish(int i, boolean failed, int items) {
             ObjectNode o = (ObjectNode) arr.get(i);
             o.put("state", failed ? "failed" : "done");
