@@ -43,8 +43,28 @@ public final class ZiaAgentClient {
 
     /** True when the agent ids and a refresh token are set. */
     public static boolean configured() {
-        return notEmpty(env("ZIA_AGENT_ORG_ID")) && notEmpty(env("ZIA_AGENT_ID"))
-            && notEmpty(env("ZIA_AGENT_VERSION_ID")) && notEmpty(env("ZIA_AGENT_REFRESH_TOKEN"));
+        return missing().isEmpty();
+    }
+
+    /** Names (never values) of the variables a call needs but the function doesn't have. */
+    public static java.util.List<String> missing() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String k : new String[]{"ZIA_AGENT_ORG_ID", "ZIA_AGENT_ID", "ZIA_AGENT_VERSION_ID", "ZIA_AGENT_REFRESH_TOKEN"}) {
+            if (!notEmpty(env(k))) out.add(k);
+        }
+        if (!notEmpty(env("ZIA_AGENT_CLIENT_ID")) && !notEmpty(env("ZOHO_CLIENT_ID"))) out.add("ZIA_AGENT_CLIENT_ID");
+        if (!notEmpty(env("ZIA_AGENT_CLIENT_SECRET")) && !notEmpty(env("ZOHO_CLIENT_SECRET"))) out.add("ZIA_AGENT_CLIENT_SECRET");
+        return out;
+    }
+
+    /** Names of the Zia variables that are set (for setup checks; values are never shown). */
+    public static java.util.List<String> present() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String k : new String[]{"ZIA_AGENT_ORG_ID", "ZIA_AGENT_ID", "ZIA_AGENT_VERSION_ID", "ZIA_AGENT_REFRESH_TOKEN",
+                "ZIA_AGENT_CLIENT_ID", "ZIA_AGENT_CLIENT_SECRET", "ZIA_ACCOUNTS_BASE", "ZIA_AGENT_URL", "LLM_PROVIDER"}) {
+            if (notEmpty(env(k))) out.add(k);
+        }
+        return out;
     }
 
     /** One generation call: the instructions and the request go in one query. */

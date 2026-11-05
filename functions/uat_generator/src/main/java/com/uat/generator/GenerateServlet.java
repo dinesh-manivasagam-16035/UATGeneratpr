@@ -105,11 +105,7 @@ public class GenerateServlet extends HttpServlet {
         boolean mock = "mock".equals(llmProvider);
         String provider = Llm.label();
         if (!mock && !Llm.available()) {
-            writeError(resp, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "zia".equals(llmProvider)
-                    ? "The Zia Agent isn't configured. Set ZIA_AGENT_ORG_ID, ZIA_AGENT_ID, ZIA_AGENT_VERSION_ID, "
-                      + "ZIA_AGENT_REFRESH_TOKEN, ZIA_AGENT_CLIENT_ID and ZIA_AGENT_CLIENT_SECRET on the function "
-                      + "(see agent/ZIA_GENERATOR.md)."
-                    : "No LLM is configured. Set up the Zia Agent (see agent/ZIA_GENERATOR.md), or set GITHUB_TOKEN.");
+            writeError(resp, HttpServletResponse.SC_SERVICE_UNAVAILABLE, Llm.notConfiguredMessage());
             return;
         }
         int brdLength = 0;

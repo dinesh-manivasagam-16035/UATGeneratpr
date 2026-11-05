@@ -42,6 +42,20 @@ public final class Llm {
         }
     }
 
+    /** User-facing message for when no provider can run, naming any missing Zia variables. */
+    public static String notConfiguredMessage() {
+        java.util.List<String> miss = ZiaAgentClient.missing();
+        java.util.List<String> have = ZiaAgentClient.present();
+        String setup = " Set them in Catalyst → Functions → uat_generator → Configuration → Environment Variables "
+                + "(see agent/ZIA_GENERATOR.md).";
+        if ("zia".equals(provider()) || !have.isEmpty()) {
+            return "The Zia Agent isn't fully configured. Missing on this function: " + String.join(", ", miss) + "."
+                    + (have.isEmpty() ? "" : " Found: " + String.join(", ", have) + ".") + setup;
+        }
+        return "No LLM is configured: none of the Zia Agent variables are set on this function ("
+                + String.join(", ", miss) + ")." + setup + " Or set GITHUB_TOKEN to use GitHub Models.";
+    }
+
     public static LlmResult chat(String system, String user, int maxTokens) throws Exception {
         if ("zia".equals(provider())) return ZiaAgentClient.chat(system, user);
         return ClaudeClient.chat(system, user, maxTokens);
