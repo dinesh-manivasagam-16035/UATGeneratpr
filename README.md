@@ -237,6 +237,13 @@ webhook), `roles`, `functions` (Deluge), `open_questions`, `plan`. Every item ca
 lets you approve. Items already in the org are skipped. "Required" on a field is a layout setting
 and is returned as a follow-up, not applied.
 
+**Build** runs the API items as ordered steps (modules, then fields, then roles), one call per
+step (`item_ids`), with live Done / Running / Failed / Waiting counts. A run stops at the first
+failure or conflict and offers Retry, Skip, or, for a type conflict, Create new field instead; the run
+log downloads as JSON. Items the APIs can't do are listed under **Configure by hand** with their
+click paths; tick each one off (who and when is kept), and items tied to an unanswered blocking
+question show as blocked.
+
 **Verify** reports `present`, `mismatch` (type, missing picklist values, lookup target), `missing`,
 or `unverifiable` (validation rules, workflows and functions aren't read back through the APIs used
 here; check them in Setup).

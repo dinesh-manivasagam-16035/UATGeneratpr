@@ -3536,3 +3536,22 @@ footer { display: none; }
 .impl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .impl-table th, .impl-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--divider); vertical-align: top; }
 .impl-table th { color: var(--text-muted); font-weight: 600; }
+.impl-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
+@media (max-width: 600px) { .impl-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.impl-tile { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--bg-elevated);
+  display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text-secondary); }
+.impl-tile strong { font-size: 22px; color: var(--text); }
+.impl-tile.ok strong { color: var(--ok); } .impl-tile.err strong { color: var(--err); } .impl-tile.run strong { color: var(--accent); }
+.impl-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.impl-row-err { background: var(--err-bg); }
+.impl-err-text { color: var(--err); font-size: 12px; }
+.impl-step-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 6px; }
+.impl-badge.step-done { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-border); }
+.impl-badge.step-running { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+.impl-badge.step-failed, .impl-badge.step-conflict { color: var(--err); background: var(--err-bg); border-color: var(--err-border); }
+.impl-manual { list-style: none; margin: 0; padding: 0; }
+.impl-manual > li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--divider); }
+.impl-manual-body { flex: 1 1 220px; min-width: 0; }
+.impl-manual-body ol { margin: 6px 0 0 18px; padding: 0; font-size: 13px; color: var(--text-secondary); }
+.impl-done-by { font-size: 12px; color: var(--ok); font-weight: 600; }
+.impl-blocked { font-size: 12px; color: var(--warn); font-weight: 600; }

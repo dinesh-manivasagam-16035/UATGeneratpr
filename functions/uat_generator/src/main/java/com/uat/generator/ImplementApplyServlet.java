@@ -73,7 +73,8 @@ public class ImplementApplyServlet extends HttpServlet {
                 return;
             }
 
-            ImplOrg org = crm == null ? null : ImplOrg.read(crm, modulesOf(spec), false);
+            // A single-step run (item_ids) only reads the modules those items touch.
+            ImplOrg org = crm == null ? null : ImplOrg.read(crm, only.isEmpty() ? modulesOf(spec) : modulesOf(spec, only), false);
             if (!dryRun) {
                 if (!spec.path("approved").asBoolean(false)) {
                     ImplementServlet.writeError(resp, 409, "The spec hasn't been approved. Review it and click Approve before applying.");
@@ -161,6 +162,20 @@ public class ImplementApplyServlet extends HttpServlet {
             LOG.log(Level.SEVERE, "implement/apply failed", e);
             ImplementServlet.writeError(resp, 500, e.getMessage());
         }
+    }
+
+    /** Module names the given items refer to (their own module and lookup target). */
+    static Set<String> modulesOf(JsonNode spec, Set<String> ids) {
+        Set<String> out = new LinkedHashSet<>();
+        for (String section : new String[]{"modules", "fields", "layouts", "validation_rules", "workflows", "functions"}) {
+            for (JsonNode item : spec.path(section)) {
+                if (!ids.contains(item.path("id").asText())) continue;
+                out.add("modules".equals(section) ? item.path("api_name").asText() : item.path("module").asText());
+                out.add(item.path("lookup_module").asText(""));
+            }
+        }
+        out.remove("");
+        return out;
     }
 
     /** Module names a spec refers to, for reading the org. */

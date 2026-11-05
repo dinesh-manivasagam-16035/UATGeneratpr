@@ -37,7 +37,9 @@
     dryRun: null,    // last dry-run response
     applied: null,   // last real apply response
     verify: null,    // last verify response
+    build: null,     // the step-by-step build run (see renderBuild)
   };
+  let running = false;   // a build run is in progress
 
   const $ = (id) => document.getElementById(id);
   const els = {
@@ -50,14 +52,20 @@
 
   // ---- persistence (per-browser convenience only) ----
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta: impl.meta, spec: impl.spec })); } catch (e) {}
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta: impl.meta, spec: impl.spec, dryRun: impl.dryRun, build: impl.build }));
+    } catch (e) {}
   }
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
-      if (saved && saved.spec) { impl.spec = saved.spec; impl.meta = saved.meta || {}; }
+      if (saved && saved.spec) {
+        impl.spec = saved.spec; impl.meta = saved.meta || {};
+        impl.dryRun = saved.dryRun || null; impl.build = saved.build || null;
+        if (impl.build) impl.build.steps.forEach((st) => { if (st.status === "running") st.status = "waiting"; });
+      }
     } catch (e) {}
   }
 
@@ -295,7 +303,7 @@
       : impl.spec.approved ? "Approved." : "Untick anything you don't want built, edit what's wrong, then approve.";
     els.dry.disabled = !have;
     const sandbox = !!(impl.dryRun && impl.dryRun.org && impl.dryRun.org.sandbox);
-    els.apply.disabled = !(have && impl.spec.approved && impl.dryRun && impl.dryRun.org && connected && sandbox);
+    els.apply.disabled = running || !(have && impl.spec.approved && impl.dryRun && impl.dryRun.org && connected && sandbox);
     els.apply.title = !have ? "" : !impl.spec.approved ? "Approve the spec first"
       : !impl.dryRun ? "Run a dry run first" : !connected ? "Connect CRM first"
       : !sandbox ? "Apply only writes to sandbox orgs" : "";
@@ -306,7 +314,7 @@
     els.downloadRpa.disabled = !(impl.applied || impl.dryRun);
     document.querySelectorAll(".impl-steps li").forEach((li) => {
       const s = li.dataset.step;
-      const done = { extract: have, review: have && impl.spec.approved, apply: !!impl.applied,
+      const done = { extract: have, review: have && impl.spec.approved, apply: !!(impl.build && impl.build.finishedAt),
                      verify: !!impl.verify, uat: false }[s];
       li.classList.toggle("done", !!done);
     });
@@ -318,7 +326,7 @@
       setApproved(false);
       L.setStatus("build", "Spec changed — review and approve again.", "warn");
     }
-    impl.dryRun = null;
+    if (!running) { impl.dryRun = null; impl.build = null; }
     save();
   }
 
@@ -328,7 +336,7 @@
     L.showTab("build");
     L.setStatus("build", "");
     L.showLoader("build", "Extracting the implementation spec… this can take a couple of minutes.");
-    impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null;
+    impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null;
     els.run.innerHTML = "";
     render();
     try {
@@ -356,6 +364,8 @@
     try {
       impl.dryRun = await post("/implement/apply", { spec: impl.spec, dry_run: true }, 90_000, "Dry run");
       impl.applied = null;
+      impl.build = null;
+      save();
       renderRun("Dry run — nothing was changed", impl.dryRun, "apply");
       render();
       const o = impl.dryRun.org;
@@ -369,6 +379,19 @@
     }
   }
 
+  // ---- Build: ordered steps, one API call each, stop on the first problem ----
+  // impl.build = { org, steps: [{id, label, method, path, status, detail, at}], log: [] }
+  // status: waiting | running | done | failed | conflict | skipped
+  function buildSteps() {
+    return (impl.dryRun.results || [])
+      .filter((r) => r.executor === "api" && ["would_create", "would_update", "conflict", "failed"].includes(r.result))
+      .map((r) => ({
+        id: r.id, label: r.label,
+        method: r.request ? r.request.method : "", path: r.request ? r.request.path.replace(/\?.*$/, "") : "",
+        status: "waiting", detail: r.result === "failed" || r.result === "conflict" ? r.detail : "",
+      }));
+  }
+
   async function apply() {
     const org = impl.dryRun && impl.dryRun.org;
     if (!org) return;
@@ -376,30 +399,177 @@
       L.setStatus("build", `"${org.name}" isn't a sandbox. LiftOff only builds in sandbox orgs.`, "warn");
       return;
     }
-    const c0 = impl.dryRun.counts || {};
-    const writes = (c0.would_create || 0) + (c0.would_update || 0);
-    if (!window.confirm(`Write ${writes} change(s) to sandbox "${org.name}" (${org.id})?\n\n`
-        + "Conflicts and items for RPA/manual work are not changed.")) return;
-    L.setStatus("build", "Applying…");
+    const steps = buildSteps();
+    if (!steps.length) { L.setStatus("build", "Nothing for the API to build — see Configure by hand.", "ok"); renderBuild(); return; }
+    if (!window.confirm(`Run ${steps.length} build step(s) in sandbox "${org.name}" (${org.id})?\n\n`
+        + "Steps run one at a time and stop on the first problem.")) return;
+    impl.build = { org, steps, log: [], startedAt: new Date().toISOString() };
+    save();
+    await runFrom(0);
+  }
+
+  async function runFrom(start) {
+    if (running || !impl.build) return;
+    running = true;
+    const b = impl.build;
     try {
-      impl.applied = await post("/implement/apply", {
-        spec: impl.spec, dry_run: false, confirm_org_id: org.id,
-      }, 180_000, "Apply");
-      // Created items now exist; keep the spec in step with the org.
-      (impl.applied.results || []).forEach((r) => {
-        if (r.result === "created" || r.result === "updated") { const f = findItem(r.id); if (f) f.item.status = "created"; }
-      });
+      for (let i = start; i < b.steps.length; i++) {
+        const st = b.steps[i];
+        if (st.status === "done" || st.status === "skipped") continue;
+        st.status = "running"; st.detail = "";
+        renderBuild();
+        L.setStatus("build", `Step ${i + 1} of ${b.steps.length}: ${st.label}`);
+        let r;
+        try {
+          const data = await post("/implement/apply", {
+            spec: impl.spec, dry_run: false, confirm_org_id: b.org.id, item_ids: [st.id],
+          }, 90_000, "Build step");
+          r = (data.results || [])[0] || { result: "failed", detail: "No result returned." };
+        } catch (e) {
+          r = { result: "failed", detail: e.message };
+        }
+        st.at = new Date().toISOString();
+        st.detail = [r.detail, r.follow_up].filter(Boolean).join(" — ");
+        st.status = ["created", "updated", "skipped"].includes(r.result) ? "done" : r.result === "conflict" ? "conflict" : "failed";
+        b.log.push({ at: st.at, id: st.id, label: st.label, result: r.result, detail: st.detail, request: r.request || null });
+        if (st.status === "done") {
+          const f = findItem(st.id);
+          if (f && r.result !== "skipped") f.item.status = "created";
+        }
+        save();
+        renderBuild();
+        if (st.status !== "done") {
+          L.setStatus("build", `Stopped at step ${i + 1}: ${st.label}. Retry, skip, or fix it.`, "warn");
+          return;
+        }
+      }
+      b.finishedAt = new Date().toISOString();
       save();
-      renderRun("Apply results", impl.applied, "apply");
+      renderBuild();
       render();
-      const c = impl.applied.counts || {};
-      L.setStatus("build", `Applied: ${c.created || 0} created, ${c.updated || 0} updated, ${c.failed || 0} failed, `
-        + `${c.conflict || 0} conflict(s), ${c.queued_for_rpa || 0} queued for RPA. Now Verify.`,
-        (c.failed || c.conflict) ? "warn" : "ok");
-    } catch (e) {
-      L.setStatus("build", "Apply failed: " + e.message, "err");
+      L.setStatus("build", "Build steps finished. Tick off the hand-configured items, then Verify.", "ok");
+    } finally {
+      running = false;
+      refreshButtons();
     }
   }
+
+  function blockedBy(item) {
+    const ids = new Set(item.req_ids || []);
+    return blockingOpen().filter((q) => (q.req_ids || []).some((r) => ids.has(r))).map((q) => q.id);
+  }
+
+  function renderBuild() {
+    const b = impl.build;
+    const queue = (impl.dryRun && impl.dryRun.rpa_queue) || [];
+    let html = "";
+    if (b) {
+      const n = (s) => b.steps.filter((x) => x.status === s).length;
+      const tiles = [["Done", n("done") + n("skipped"), "ok"], ["Running", n("running"), "run"],
+                     ["Failed", n("failed") + n("conflict"), "err"], ["Waiting", n("waiting"), "wait"]];
+      html += `<div class="impl-run"><h3>Build steps, in order</h3>
+        <p class="muted">Sandbox "${esc(b.org.name)}" · modules first, then fields and roles · each step stops on error.</p>
+        <div class="impl-tiles">${tiles.map(([l, v, k]) => `<div class="impl-tile ${k}"><span>${l}</span><strong>${v}</strong></div>`).join("")}</div>
+        <div class="impl-table-wrap"><table class="impl-table"><thead><tr><th>Step</th><th>What</th><th>API call</th><th>Status</th></tr></thead><tbody>`
+        + b.steps.map((st, i) => {
+          const stuck = st.status === "failed" || st.status === "conflict";
+          const f = findItem(st.id);
+          const actions = stuck ? `<div class="impl-step-actions">
+              <button class="ghost small" type="button" data-step-act="retry" data-i="${i}">Retry</button>
+              ${st.status === "conflict" && f && f.section === "fields" ? `<button class="ghost small" type="button" data-step-act="newfield" data-i="${i}">Create new field instead</button>` : ""}
+              <button class="ghost small" type="button" data-step-act="skip" data-i="${i}">Skip</button></div>` : "";
+          return `<tr class="${stuck ? "impl-row-err" : ""}"><td class="muted">${i + 1}</td>
+            <td><strong>${esc(st.label)}</strong><div class="muted">${esc(st.id)}${f && (f.item.req_ids || []).length ? " · " + esc(f.item.req_ids.join(", ")) : ""}</div>
+              ${st.detail ? `<div class="${stuck ? "impl-err-text" : "muted"}">${esc(st.detail)}</div>` : ""}</td>
+            <td class="impl-mono">${esc(st.method + " " + st.path)}</td>
+            <td><span class="impl-badge step-${esc(st.status)}">${esc(st.status)}</span>${actions}</td></tr>`;
+        }).join("")
+        + `</tbody></table></div>
+        <p><button class="ghost small" type="button" data-step-act="log">Download run log</button></p></div>`;
+    }
+    if (queue.length) {
+      const doneCount = queue.filter((q) => { const f = findItem(q.id); return f && f.item.manual_done; }).length;
+      html += `<div class="impl-run"><h3>Configure by hand</h3>
+        <p class="muted">${queue.length} item(s) the APIs can't fully do · ${doneCount} done. Tick each one when it's set up.</p>
+        <ul class="impl-manual">` + queue.map((q) => {
+          const f = findItem(q.id);
+          const item = f ? f.item : {};
+          const blocked = blockedBy(item);
+          const done = item.manual_done;
+          return `<li>
+            <input type="checkbox" data-manual="${esc(q.id)}" ${done ? "checked" : ""} ${blocked.length && !done ? "disabled" : ""} aria-label="${esc(q.label)} done" />
+            <div class="impl-manual-body"><strong>${esc(q.label)}</strong>
+              <details><summary class="muted">${esc((q.steps || [])[0] || "Steps")}</summary><ol>${(q.steps || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></details></div>
+            ${done ? `<span class="impl-done-by">Done by ${esc(done.by)}</span>`
+              : blocked.length ? `<span class="impl-blocked">Blocked by ${esc(blocked.join(", "))}</span>`
+              : `<button class="ghost small" type="button" data-copy="${esc(q.id)}">Copy steps</button>`}
+          </li>`;
+        }).join("") + "</ul></div>";
+    }
+    els.run.innerHTML = html;
+    // Keep item badges in step with the run.
+    impl.applied = b ? { org: b.org, rpa_queue: queue,
+      results: b.steps.map((st) => ({ id: st.id, result: { done: "created", skipped: "skipped", running: "running",
+        waiting: "waiting", failed: "failed", conflict: "conflict" }[st.status], detail: st.detail })) } : null;
+  }
+
+  els.run.addEventListener("click", async (e) => {
+    const copy = e.target.closest("button[data-copy]");
+    if (copy) {
+      const q = ((impl.dryRun && impl.dryRun.rpa_queue) || []).find((x) => x.id === copy.dataset.copy);
+      if (q) {
+        try { await navigator.clipboard.writeText(q.label + "\n" + (q.steps || []).map((x, i) => `${i + 1}. ${x}`).join("\n")); L.showToast("Steps copied", "ok", 2000); }
+        catch (err) { L.showToast("Couldn't copy — open the steps and copy by hand", "warn", 4000); }
+      }
+      return;
+    }
+    const t = e.target.closest("button[data-step-act]");
+    if (!t || !impl.build) return;
+    const act = t.dataset.stepAct;
+    if (act === "log") {
+      download("build-run-log.json", { org: impl.build.org, started_at: impl.build.startedAt,
+        finished_at: impl.build.finishedAt || null, steps: impl.build.steps, log: impl.build.log });
+      return;
+    }
+    const i = Number(t.dataset.i);
+    const st = impl.build.steps[i];
+    if (!st) return;
+    if (act === "retry") return runFrom(i);
+    if (act === "skip") {
+      st.status = "skipped";
+      impl.build.log.push({ at: new Date().toISOString(), id: st.id, label: st.label, result: "skipped_by_user" });
+      save();
+      return runFrom(i + 1);
+    }
+    if (act === "newfield") {
+      const f = findItem(st.id);
+      if (!f) return;
+      const label = window.prompt("Label for the new field (the existing one stays as it is):",
+        `${f.item.label} (${f.item.data_type})`);
+      if (!label || !label.trim()) return;
+      f.item.label = label.trim();
+      f.item.api_name = label.trim().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50);
+      ["live_id", "live_api_name", "live_type", "missing_values"].forEach((k) => delete f.item[k]);
+      f.item.note = "New field created instead of changing the existing one's type.";
+      f.item.status = "new";
+      st.label = `field ${f.item.module}.${f.item.label} (${f.item.data_type})`;
+      st.method = "POST"; st.path = st.path.replace(/\/fields\/[^/]+$/, "/fields");
+      save();
+      render();
+      return runFrom(i);
+    }
+  });
+
+  els.run.addEventListener("change", (e) => {
+    const id = e.target.dataset && e.target.dataset.manual;
+    if (!id) return;
+    const f = findItem(id);
+    if (!f) return;
+    f.item.manual_done = e.target.checked
+      ? { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() } : null;
+    save();
+    renderBuild();
+  });
 
   async function verify() {
     L.setStatus("build", "Reading the org back…");
@@ -548,7 +718,7 @@
   window.LiftOffImpl = {
     generate,
     reset() {
-      impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null;
+      impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null;
       try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
       els.run.innerHTML = "";
       L.setStatus("build", "");
@@ -560,6 +730,7 @@
   load();
   if (impl.spec) {
     L.setTabState("build", { locked: false, done: true });
+    if (impl.build || impl.dryRun) renderBuild();
     render();
   } else {
     refreshButtons();
