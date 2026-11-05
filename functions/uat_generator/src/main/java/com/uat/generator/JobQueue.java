@@ -51,7 +51,17 @@ final class JobQueue {
                             .build();
             com.zc.component.jobscheduling.beans.job.ZCJobDetails job =
                     com.zc.component.jobscheduling.ZCJobScheduling.getInstance().job.submitJob(meta);
-            if (job != null && job.getJobId() != null) out.put("job_id", String.valueOf(job.getJobId()));
+            if (job != null && job.getJobId() != null) {
+                out.put("job_id", String.valueOf(job.getJobId()));
+                // Kept with the status so a poll can ask Catalyst whether the job died before it started writing.
+                try {
+                    ObjectNode st = (ObjectNode) MAPPER.readTree(JobStore.get(ImplJob.statusKey(key)));
+                    if ("queued".equals(st.path("state").asText())) {
+                        st.put("job_id", String.valueOf(job.getJobId()));
+                        JobStore.put(ImplJob.statusKey(key), MAPPER.writeValueAsString(st));
+                    }
+                } catch (Exception ignored) { /* the poll falls back to the 3-minute check */ }
+            }
             return out;
         } catch (Exception e) {
             return error(503, "Couldn't queue the background job (" + ImplementServlet.trim(e.getMessage(), 200)
@@ -65,7 +75,33 @@ final class JobQueue {
         if (!JobStore.validKey(key)) return error(400, "Invalid job_key.");
         String s = JobStore.get(ImplJob.statusKey(key));
         if (s == null) return error(404, "No such job, or it has expired.");
-        return (ObjectNode) MAPPER.readTree(s);
+        ObjectNode st = (ObjectNode) MAPPER.readTree(s);
+        // Still "queued" but the worker may have crashed before writing anything: ask Catalyst.
+        if ("queued".equals(st.path("state").asText()) && st.hasNonNull("job_id")) {
+            String catalyst = catalystState(st.path("job_id").asText());
+            if (catalyst != null) {
+                st.put("catalyst_state", catalyst);
+                String c = catalyst.toLowerCase();
+                if (c.contains("fail") || c.contains("error") || c.contains("success") || c.contains("complete")) {
+                    st.put("state", "failed");
+                    st.put("error", "The worker job ended (" + catalyst + ") without saving progress. Open Catalyst → "
+                            + "Job Scheduling → Jobs → the job ending in " + key + " → View Logs for the reason.");
+                }
+            }
+        }
+        return st;
+    }
+
+    /** Catalyst's own status for a job id (e.g. "Failed"), or null when it can't be read. */
+    private static String catalystState(String jobId) {
+        try {
+            com.zc.common.ZCProject.initProject();
+            com.zc.component.jobscheduling.beans.job.ZCJobDetails d =
+                    com.zc.component.jobscheduling.ZCJobScheduling.getInstance().job.getJob(Long.parseLong(jobId));
+            return d == null ? null : d.getJobStatus();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     static ObjectNode error(int status, String msg) {

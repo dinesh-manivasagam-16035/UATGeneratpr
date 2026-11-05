@@ -110,9 +110,20 @@ public final class ImplJob {
             steps.finish(jobs.size(), false, planItems.size());
             status(key, "done", total, total, null, "Done", steps);
             return true;
-        } catch (Exception e) {
-            try { status(key, "failed", 0, 0, String.valueOf(e.getMessage()), null, null); } catch (Exception ignored) {}
+        } catch (Throwable e) {
+            // Throwable, not Exception: a missing class (NoClassDefFoundError) must still be reported.
+            fail(key, e);
             return false;
+        }
+    }
+
+    /** Marks the job failed with a short reason the Blueprint/UAT tabs can show. Never throws. */
+    public static void fail(String key, Throwable e) {
+        try {
+            String why = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+            status(key, "failed", 0, 0, why, null, null);
+        } catch (Throwable ignored) {
+            // Cache unreachable: the job's own logs (Catalyst → Job Scheduling → Jobs → View Logs) have it.
         }
     }
 
