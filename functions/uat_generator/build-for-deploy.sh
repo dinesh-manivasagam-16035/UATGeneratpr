@@ -53,6 +53,32 @@ if [ -z "$found" ]; then
   exit 1
 fi
 
+# The impl_worker job function runs the same classes (com.uat.generator.ImplJob): give it the
+# same jars. Its own function-sdk jar from the CLI template is kept.
+WORKER=../impl_worker
+if [ -d "$WORKER" ]; then
+  echo "+  Preparing $WORKER (job function) with the same jars ..."
+  mkdir -p "$WORKER/lib"
+  for j in lib/*.jar; do
+    case "$(basename "$j")" in function-sdk-*) [ -n "$(ls "$WORKER"/lib/function-sdk-*.jar 2>/dev/null)" ] && continue ;; esac
+    cp "$j" "$WORKER/lib/"
+  done
+  {
+    echo '<?xml version="1.0" encoding="UTF-8"?>'
+    echo '<classpath>'
+    for j in $(cd "$WORKER" && ls lib/*.jar | sort); do
+      printf '\t<classpathentry kind="lib" path="%s"/>\n' "$j"
+    done
+    printf '\t<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>\n'
+    printf '\t<classpathentry kind="output" path=".output"/>\n'
+    echo '</classpath>'
+  } > "$WORKER/.classpath"
+fi
+
 echo
 echo "Ready: $(ls lib/*.jar | wc -l | tr -d ' ') jars in lib/, runtime in $found"
-echo "Deploy with:  catalyst deploy --only functions:uat_generator"
+if [ -d "$WORKER" ]; then
+  echo "Deploy with:  catalyst deploy --only functions:uat_generator,functions:impl_worker,client"
+else
+  echo "Deploy with:  catalyst deploy --only functions:uat_generator"
+fi

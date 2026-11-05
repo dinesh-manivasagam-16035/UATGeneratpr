@@ -108,6 +108,64 @@ Save. Catalyst applies env vars to new invocations; redeploy the function if you
 4. "Response was cut off" warnings mean the agent's model hit its output limit: pick a model
    with a larger limit, or lower `CASES_PER_CALL` / `GEN_CHUNK_CHARS`.
 
+## 6. Background generation (one-time setup)
+
+A Zia Agent reply for a real BRD takes longer than Catalyst allows one web request (about 30
+seconds), so LiftOff generates in a **job function**, `impl_worker`, which may run up to 15
+minutes. The Blueprint tab queues the job, shows each step as it runs (part, what it covers,
+items found, time taken), and fetches the result when it's done. Each user's run is its own job,
+so several people can generate different implementations at the same time.
+
+1. **Create the job function** (once), from the repo folder:
+
+   ```bash
+   cd ~/UATGeneratpr && catalyst functions:add
+   ```
+
+   Choose **Job**, **Java 11**, and name it **`impl_worker`**. Then put the worker's main class in
+   place (see [Worker main class](#worker-main-class)), or ask Claude to.
+2. **Create the job pool:** Catalyst console → **Job Scheduling** → **Job Pools** → **Create** →
+   type **Function**, name **`liftoff_jobs`**.
+3. **Environment variables on `impl_worker`:** each function has its own, so copy the same
+   `ZIA_AGENT_*` and `ZIA_ACCOUNTS_BASE` values from `uat_generator` (step 4).
+   Optional: `IMPL_WORKER_CALL_TIMEOUT_SEC` (default 240) per agent call.
+4. **Cache:** enabled on the project by default. To use a dedicated segment, create one in
+   **Cache** and set `LIFTOFF_CACHE_SEGMENT` on both functions.
+5. **Build and deploy both functions and the client:**
+
+   ```bash
+   cd ~/UATGeneratpr && functions/uat_generator/build-for-deploy.sh && catalyst deploy --only functions:uat_generator,functions:impl_worker,client
+   ```
+
+If the job pool or worker is missing, the Blueprint tab falls back to generating in the browser
+(one request per agent call) and says so in its notes; long replies may then time out.
+
+Names can be changed with `IMPL_JOBPOOL` and `IMPL_WORKER_FUNCTION` on `uat_generator`.
+
+### Worker main class
+
+`functions/impl_worker/ImplWorker.java` (set `"main": "ImplWorker"` in its `catalyst-config.json`):
+
+```java
+import com.catalyst.Context;
+import com.catalyst.job.CatalystJobHandler;
+import com.catalyst.job.JOB_STATUS;
+import com.catalyst.job.JobRequest;
+
+/** Runs one background blueprint generation queued by uat_generator (see ImplJob). */
+public class ImplWorker implements CatalystJobHandler {
+    @Override
+    public JOB_STATUS handleJobExecute(JobRequest request, Context context) throws Exception {
+        String key = String.valueOf(request.getJobParam("job_key"));
+        boolean ok = com.uat.generator.ImplJob.run(key, () -> context.getRemainingExecutionTimeMs());
+        return ok ? JOB_STATUS.SUCCESS : JOB_STATUS.FAILURE;
+    }
+}
+```
+
+The build script copies `uat_generator`'s jars (including `uat-classes.jar` with `ImplJob`) into
+`functions/impl_worker/lib/` and writes its `.classpath`.
+
 ## How LiftOff calls it
 
 ```
@@ -124,5 +182,7 @@ Authorization: Zoho-oauthtoken {access token}
 LiftOff splits a BRD into parts and makes several calls per run (two per part for a blueprint,
 plus one for the plan). Catalyst stops an Advanced I/O request at about 30 seconds, so the Blueprint
 tab sends **one agent call per request** (`POST /implement/stage`: start → parts, two at a time →
-finish → plan). Each call has to finish within `ZIA_AGENT_TIMEOUT_SEC`; if parts time out, lower
-`IMPL_CHUNK_CHARS` (default 6000) so each part is smaller.
+finish → plan), and UAT case generation does the same (`POST /generate/stage`: start → one call
+per module, part and focus → finish). Each call has to finish within `ZIA_AGENT_TIMEOUT_SEC`; if
+parts time out, lower `IMPL_CHUNK_CHARS` (default 6000) or `CASES_PER_CALL` (default 8) so each call
+is smaller.
