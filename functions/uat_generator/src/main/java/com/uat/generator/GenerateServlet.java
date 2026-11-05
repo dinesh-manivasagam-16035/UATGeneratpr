@@ -53,6 +53,11 @@ import java.util.logging.Logger;
  *      each case is linked to requirement IDs, and coverage is reported.
  * Anything skipped or failed is listed in "warnings" instead of being dropped silently.
  *
+ * This runs every call in one request, which Catalyst cuts off after ~30 s on a real BRD.
+ * The browser uses /generate/stage (GenerateStageServlet) instead, which reuses inputs(),
+ * prepare(), plan(), runTask() and assemble() one LLM call per request. /generate stays for
+ * one-shot callers (AgentRunServlet, scripts, mock mode).
+ *
  * Tunables (env vars): GEN_CHUNK_CHARS (9000), GEN_MAX_CHUNKS (6), MAX_LLM_CALLS (8),
  * CASES_PER_CALL (8), TARGET_CASES_PER_MODULE (30), GEN_CONCURRENCY (2),
  * GEN_DEADLINE_SEC (140), LLM_MAX_TOKENS (4000, in ClaudeClient).
@@ -78,7 +83,7 @@ public class GenerateServlet extends HttpServlet {
     };
 
     /** One planned LLM call. */
-    private static final class Task {
+    static final class Task {
         final int order;
         final String module;
         final BrdChunker.Chunk chunk;
@@ -90,10 +95,31 @@ public class GenerateServlet extends HttpServlet {
         }
     }
 
-    private static final class Outcome {
+    static final class Outcome {
         final List<ObjectNode> cases = new ArrayList<>();
         final List<String> notes = new ArrayList<>();
         String error;
+    }
+
+    /** A finished call, ready to merge: where it ran and what came back. */
+    static final class Done {
+        final String module, where, focus;
+        final Outcome outcome;
+        Done(String module, String where, String focus, Outcome outcome) {
+            this.module = module; this.where = where; this.focus = focus; this.outcome = outcome;
+        }
+    }
+
+    /** Everything a run needs before the first LLM call: shared by /generate and /generate/stage. */
+    static final class Prep {
+        String brd, projectKey, platform, creatorOwner, creatorApp;
+        final List<String> modules = new ArrayList<>();
+        final List<String> warnings = new ArrayList<>();
+        BrdChunker.Result split;
+        List<Requirements.Requirement> reqs;
+        final Map<Integer, String> reqTexts = new LinkedHashMap<>();
+        final Map<String, String> schemas = new LinkedHashMap<>();
+        final Map<String, String> schemaSource = new LinkedHashMap<>();
     }
 
     @Override
@@ -108,91 +134,19 @@ public class GenerateServlet extends HttpServlet {
             writeError(resp, HttpServletResponse.SC_SERVICE_UNAVAILABLE, Llm.notConfiguredMessage());
             return;
         }
-        int brdLength = 0;
-        List<String> modules = new ArrayList<>();
+        Prep p = null;
         ExecutorService pool = null;
 
         try {
             JsonNode body = MAPPER.readTree(req.getInputStream());
-            String brd = textOf(body, "brd");
-            String projectKey = textOf(body, "project_key");
-            String platform = textOf(body, "platform");
-            if (platform.isEmpty()) platform = "crm";
-            String creatorOwner = textOf(body, "creator_owner");
-            String creatorApp = textOf(body, "creator_app");
-            brdLength = brd.length();
-
-            JsonNode mArr = body.get("modules");
-            if (mArr != null && mArr.isArray()) {
-                for (JsonNode m : mArr) {
-                    String v = m.asText("").trim();
-                    if (!v.isEmpty() && !modules.contains(v)) modules.add(v);
-                }
-            }
-            if (modules.isEmpty()) {
-                String legacy = textOf(body, "module");
-                if (!legacy.isEmpty()) modules.add(legacy);
-            }
-            if (brd.isEmpty() || modules.isEmpty()) {
+            p = inputs(body);
+            if (p.brd.isEmpty() || p.modules.isEmpty()) {
                 writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
                         "Fields 'brd' and 'modules' (array of up to 3) are required.");
                 return;
             }
-
-            List<String> warnings = new ArrayList<>();
-            if (modules.size() > MAX_MODULES) {
-                warnings.add("Only the first " + MAX_MODULES + " modules were used: "
-                        + String.join(", ", modules.subList(MAX_MODULES, modules.size()))
-                        + " skipped.");
-                modules = new ArrayList<>(modules.subList(0, MAX_MODULES));
-            }
-
-            // ---- 1. Chunk the BRD (mock mode uses the whole BRD in one go) ----
-            BrdChunker.Result split = mock
-                    ? BrdChunker.chunk(brd, Integer.MAX_VALUE / 2, 1)
-                    : BrdChunker.chunk(brd, envInt("GEN_CHUNK_CHARS", 9000), envInt("GEN_MAX_CHUNKS", 6));
-            List<BrdChunker.Chunk> chunks = split.chunks;
-            if (split.truncated()) {
-                warnings.add("The BRD is longer than this run can cover. Sections not used: "
-                        + summarize(split.droppedHeadings)
-                        + ". Generate those sections separately, or raise GEN_MAX_CHUNKS.");
-            }
-
-            // ---- 1b. Requirements (from the full BRD, including parts this run can't cover) ----
-            int chunkChars = envInt("GEN_CHUNK_CHARS", 9000);
-            List<BrdChunker.Chunk> allChunks = BrdChunker.chunk(brd, chunkChars, 10_000).chunks;
-            List<Requirements.Requirement> reqs = Requirements.extract(allChunks);
-            Map<Integer, String> reqTexts = new LinkedHashMap<>();
-            if (!mock) {
-                for (BrdChunker.Chunk c : chunks) {
-                    reqTexts.put(c.index, Requirements.promptList(reqs, c.index + 1, 1500));
-                }
-            }
-
-            // ---- 1c. Field schema per module: live from CRM when connected ----
-            Map<String, String> schemas = new LinkedHashMap<>();
-            Map<String, String> schemaSource = new LinkedHashMap<>();
-            boolean crmPlatform = !"creator".equalsIgnoreCase(platform);
-            CrmClient crm = (crmPlatform && !mock) ? CrmMetadata.sessionClient(req) : null;
-            for (String m : modules) {
-                if (!crmPlatform) { schemas.put(m, ""); continue; }
-                if (crm != null) {
-                    try {
-                        schemas.put(m, CrmMetadata.describe(crm, m));
-                        schemaSource.put(m, "live");
-                        continue;
-                    } catch (Exception e) {
-                        warnings.add("Couldn't read " + m + " fields from CRM (" + trim(e.getMessage(), 160)
-                                + "); used the built-in template instead.");
-                    }
-                }
-                schemas.put(m, ModuleSchemas.forModule(m));
-                schemaSource.put(m, ModuleSchemas.has(m) ? "builtin" : "generic");
-            }
-            if (crmPlatform && !mock && crm == null) {
-                warnings.add("Not connected to Zoho CRM, so cases use generic field templates. "
-                        + "Connect CRM before generating to ground cases in your org's real fields.");
-            }
+            prepare(req, p, true);
+            List<BrdChunker.Chunk> chunks = p.split.chunks;
 
             // ---- 2. Plan the calls ----
             // Callers (the agent API) may ask for a smaller budget than the server default.
@@ -203,166 +157,272 @@ public class GenerateServlet extends HttpServlet {
             int bodyDeadline = body.path("deadline_sec").asInt(0);
             if (bodyDeadline > 0) deadlineSec = Math.min(deadlineSec, bodyDeadline);
 
-            List<Task> tasks = plan(modules, chunks, mock, warnings, maxCalls);
+            List<Task> tasks = plan(p.modules, chunks, mock, p.warnings, maxCalls);
 
             // ---- 3. Run them in parallel inside a deadline ----
-            final String fPlatform = platform;
-            final String outline = split.outline;
+            final Prep fp = p;
             long deadline = System.currentTimeMillis() + deadlineSec * 1000L;
             int concurrency = Math.max(1, Math.min(envInt("GEN_CONCURRENCY", 2), tasks.size()));
             pool = Executors.newFixedThreadPool(concurrency);
 
             List<Future<Outcome>> futures = new ArrayList<>();
             for (Task t : tasks) {
-                futures.add(pool.submit(() -> runTask(t, chunks.size(), outline, fPlatform,
-                        creatorOwner, creatorApp, brd, llmProvider, deadline,
-                        schemas.getOrDefault(t.module, ""), reqTexts.getOrDefault(t.chunk.index, ""))));
+                futures.add(pool.submit(() -> runTask(t, chunks.size(), fp.split.outline, fp.platform,
+                        fp.creatorOwner, fp.creatorApp, fp.brd, llmProvider, deadline,
+                        fp.schemas.getOrDefault(t.module, ""), fp.reqTexts.getOrDefault(t.chunk.index, ""), null)));
             }
 
-            Outcome[] outcomes = new Outcome[tasks.size()];
+            List<Done> done = new ArrayList<>();
             for (int i = 0; i < futures.size(); i++) {
                 Task t = tasks.get(i);
                 long remaining = deadline - System.currentTimeMillis();
+                Outcome o;
                 try {
-                    outcomes[i] = futures.get(i).get(Math.max(1, remaining), TimeUnit.MILLISECONDS);
+                    o = futures.get(i).get(Math.max(1, remaining), TimeUnit.MILLISECONDS);
                 } catch (TimeoutException te) {
                     futures.get(i).cancel(true);
-                    Outcome o = new Outcome();
+                    o = new Outcome();
                     o.error = "ran out of time";
-                    outcomes[i] = o;
                 } catch (Exception e) {
-                    Outcome o = new Outcome();
+                    o = new Outcome();
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     o.error = cause.getMessage();
-                    outcomes[i] = o;
                 }
+                done.add(new Done(t.module, t.module + " / " + t.chunk.label(), t.focus, o));
             }
 
-            // ---- 4. Merge, de-duplicate, report ----
-            ArrayNode allCases = MAPPER.createArrayNode();
-            Map<String, Integer> perModuleCount = new LinkedHashMap<>();
-            Map<String, List<String>> perModuleErrors = new LinkedHashMap<>();
-            for (String m : modules) {
-                perModuleCount.put(m, 0);
-                perModuleErrors.put(m, new ArrayList<>());
-            }
-            Set<String> seen = new HashSet<>();
-            int duplicates = 0;
-            String firstError = null;
-
-            for (int i = 0; i < tasks.size(); i++) {
-                Task t = tasks.get(i);
-                Outcome o = outcomes[i];
-                String where = t.module + " / " + t.chunk.label();
-                for (String note : o.notes) warnings.add(where + ": " + note);
-                if (o.error != null) {
-                    warnings.add(where + " (" + shortFocus(t.focus) + ") failed: " + o.error);
-                    perModuleErrors.get(t.module).add(o.error);
-                    if (firstError == null) firstError = o.error;
-                }
-                for (ObjectNode c : o.cases) {
-                    String key = t.module + "|" + c.path("title").asText("")
-                            .toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
-                    if (!seen.add(key)) { duplicates++; continue; }
-                    c.put("module", t.module);
-                    allCases.add(c);
-                    perModuleCount.merge(t.module, 1, Integer::sum);
-                }
-            }
-            if (duplicates > 0) warnings.add(duplicates + " duplicate case(s) removed.");
-
-            // ---- 5. Traceability: link cases to requirements, compute coverage ----
-            Set<String> knownIds = new HashSet<>();
-            for (Requirements.Requirement r : reqs) knownIds.add(r.id);
-            Map<String, Integer> casesPerReq = new LinkedHashMap<>();
-            for (Requirements.Requirement r : reqs) casesPerReq.put(r.id, 0);
-            int untraced = 0;
-            for (JsonNode n : allCases) {
-                ObjectNode c = (ObjectNode) n;
-                List<String> ids = new ArrayList<>();
-                for (JsonNode id : c.path("req_ids")) {
-                    if (knownIds.contains(id.asText()) && !ids.contains(id.asText())) ids.add(id.asText());
-                }
-                if (ids.isEmpty()) ids = Requirements.infer(c.path("spec_ref").asText(""), reqs);
-                ArrayNode idArr = c.putArray("req_ids");
-                for (String id : ids) {
-                    idArr.add(id);
-                    casesPerReq.merge(id, 1, Integer::sum);
-                }
-                if (ids.isEmpty() && !reqs.isEmpty()) untraced++;
-            }
-            List<String> uncovered = new ArrayList<>();
-            List<String> notReached = new ArrayList<>();
-            ArrayNode reqOut = MAPPER.createArrayNode();
-            for (Requirements.Requirement r : reqs) {
-                int n = casesPerReq.get(r.id);
-                boolean inRun = mock || r.part <= chunks.size();
-                ObjectNode o = reqOut.addObject();
-                o.put("id", r.id);
-                o.put("title", r.title);
-                o.put("part", r.part);
-                o.put("derived", r.derived);
-                o.put("cases", n);
-                o.put("in_run", inRun);
-                if (n == 0) { if (inRun) uncovered.add(r.id); else notReached.add(r.id); }
-            }
-            if (!mock && !uncovered.isEmpty()) {
-                warnings.add("No cases for " + uncovered.size() + " requirement(s): " + summarize(uncovered)
-                        + ". Regenerate, or check that the BRD describes testable behaviour for them.");
-            }
-            if (untraced > 0) {
-                warnings.add(untraced + " case(s) couldn't be linked to a requirement.");
-            }
-
-            for (String m : modules) {
-                int n = perModuleCount.get(m);
-                List<String> errs = perModuleErrors.get(m);
-                String status = n == 0 ? "failed" : errs.isEmpty() ? "generated" : "partial";
-                RunLogger.logGenerate(req, m, provider, brdLength, n, status,
-                        errs.isEmpty() ? null : String.join(" | ", errs));
-            }
-
-            if (allCases.size() == 0 && firstError != null) {
-                writeError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, firstError);
+            ObjectNode out = assemble(req, p, done, tasks.size(), provider, mock);
+            if (out.has("error")) {
+                writeError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, out.path("error").asText());
                 return;
             }
-
-            ObjectNode out = MAPPER.createObjectNode();
-            ArrayNode modulesOut = out.putArray("modules");
-            modules.forEach(modulesOut::add);
-            out.put("provider", provider);
-            ObjectNode counts = out.putObject("counts");
-            perModuleCount.forEach(counts::put);
-            out.put("total", allCases.size());
-            out.put("chunks", chunks.size());
-            out.put("llm_calls", tasks.size());
-            ObjectNode src = out.putObject("schema_source");
-            schemaSource.forEach(src::put);
-            out.set("requirements", reqOut);
-            ObjectNode cov = out.putObject("coverage");
-            cov.put("requirements", reqs.size());
-            cov.put("covered", reqs.size() - uncovered.size() - notReached.size());
-            ArrayNode unc = cov.putArray("uncovered");
-            uncovered.forEach(unc::add);
-            ArrayNode nr = cov.putArray("not_in_run");
-            notReached.forEach(nr::add);
-            cov.put("untraced_cases", untraced);
-            ArrayNode warnOut = out.putArray("warnings");
-            warnings.forEach(warnOut::add);
-            out.set("cases", allCases);
-            out.set("projects_payload", ProjectsPayloadBuilder.build(allCases, projectKey));
-
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.getWriter().write(MAPPER.writeValueAsString(out));
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "generate failed", e);
-            for (String m : modules) {
-                RunLogger.logGenerate(req, m, provider, brdLength, 0, "failed", e.getMessage());
+            if (p != null) {
+                for (String m : p.modules) {
+                    RunLogger.logGenerate(req, m, provider, p.brd.length(), 0, "failed", e.getMessage());
+                }
             }
             writeError(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, e.getMessage());
         } finally {
             if (pool != null) pool.shutdownNow();
         }
+    }
+
+    /** Reads the request fields; caps the module list (with a warning). */
+    static Prep inputs(JsonNode body) {
+        Prep p = new Prep();
+        p.brd = textOf(body, "brd");
+        p.projectKey = textOf(body, "project_key");
+        p.platform = textOf(body, "platform");
+        if (p.platform.isEmpty()) p.platform = "crm";
+        p.creatorOwner = textOf(body, "creator_owner");
+        p.creatorApp = textOf(body, "creator_app");
+
+        JsonNode mArr = body.get("modules");
+        if (mArr != null && mArr.isArray()) {
+            for (JsonNode m : mArr) {
+                String v = m.asText("").trim();
+                if (!v.isEmpty() && !p.modules.contains(v)) p.modules.add(v);
+            }
+        }
+        if (p.modules.isEmpty()) {
+            String legacy = textOf(body, "module");
+            if (!legacy.isEmpty()) p.modules.add(legacy);
+        }
+        if (p.modules.size() > MAX_MODULES) {
+            p.warnings.add("Only the first " + MAX_MODULES + " modules were used: "
+                    + String.join(", ", p.modules.subList(MAX_MODULES, p.modules.size()))
+                    + " skipped.");
+            p.modules.subList(MAX_MODULES, p.modules.size()).clear();
+        }
+        return p;
+    }
+
+    /** The BRD parts this run covers (mock mode uses the whole BRD in one go). Deterministic for a given BRD and env. */
+    static BrdChunker.Result split(String brd, boolean mock) {
+        return mock
+                ? BrdChunker.chunk(brd, Integer.MAX_VALUE / 2, 1)
+                : BrdChunker.chunk(brd, envInt("GEN_CHUNK_CHARS", 9000), envInt("GEN_MAX_CHUNKS", 6));
+    }
+
+    /** Requirements from the full BRD, including parts this run can't cover. */
+    static List<Requirements.Requirement> requirements(String brd) {
+        return Requirements.extract(BrdChunker.chunk(brd, envInt("GEN_CHUNK_CHARS", 9000), 10_000).chunks);
+    }
+
+    /**
+     * Chunks the BRD, extracts requirements and (when readSchemas) reads each module's field
+     * schema — live from CRM when connected. No LLM call.
+     */
+    static void prepare(HttpServletRequest req, Prep p, boolean readSchemas) {
+        boolean mock = Llm.mock();
+        // ---- 1. Chunk the BRD ----
+        p.split = split(p.brd, mock);
+        if (p.split.truncated()) {
+            p.warnings.add("The BRD is longer than this run can cover. Sections not used: "
+                    + summarize(p.split.droppedHeadings)
+                    + ". Generate those sections separately, or raise GEN_MAX_CHUNKS.");
+        }
+
+        // ---- 1b. Requirements ----
+        p.reqs = requirements(p.brd);
+        if (!mock) {
+            for (BrdChunker.Chunk c : p.split.chunks) {
+                p.reqTexts.put(c.index, Requirements.promptList(p.reqs, c.index + 1, 1500));
+            }
+        }
+        if (!readSchemas) return;
+
+        // ---- 1c. Field schema per module: live from CRM when connected ----
+        boolean crmPlatform = !"creator".equalsIgnoreCase(p.platform);
+        CrmClient crm = (crmPlatform && !mock) ? CrmMetadata.sessionClient(req) : null;
+        for (String m : p.modules) {
+            if (!crmPlatform) { p.schemas.put(m, ""); continue; }
+            if (crm != null) {
+                try {
+                    p.schemas.put(m, CrmMetadata.describe(crm, m));
+                    p.schemaSource.put(m, "live");
+                    continue;
+                } catch (Exception e) {
+                    p.warnings.add("Couldn't read " + m + " fields from CRM (" + trim(e.getMessage(), 160)
+                            + "); used the built-in template instead.");
+                }
+            }
+            p.schemas.put(m, ModuleSchemas.forModule(m));
+            p.schemaSource.put(m, ModuleSchemas.has(m) ? "builtin" : "generic");
+        }
+        if (crmPlatform && !mock && crm == null) {
+            p.warnings.add("Not connected to Zoho CRM, so cases use generic field templates. "
+                    + "Connect CRM before generating to ground cases in your org's real fields.");
+        }
+    }
+
+    /**
+     * Merges finished calls (de-duplicated per module by title), links cases to requirements,
+     * computes coverage and builds the /generate response. Logs one run per module. When no
+     * case came back and a call failed, the result holds only "error".
+     */
+    static ObjectNode assemble(HttpServletRequest req, Prep p, List<Done> done, int llmCalls,
+                               String provider, boolean mock) {
+        List<String> warnings = p.warnings;
+        List<Requirements.Requirement> reqs = p.reqs;
+        int chunkCount = p.split.chunks.size();
+
+        // ---- 4. Merge, de-duplicate, report ----
+        ArrayNode allCases = MAPPER.createArrayNode();
+        Map<String, Integer> perModuleCount = new LinkedHashMap<>();
+        Map<String, List<String>> perModuleErrors = new LinkedHashMap<>();
+        for (String m : p.modules) {
+            perModuleCount.put(m, 0);
+            perModuleErrors.put(m, new ArrayList<>());
+        }
+        Set<String> seen = new HashSet<>();
+        int duplicates = 0;
+        String firstError = null;
+
+        for (Done d : done) {
+            Outcome o = d.outcome;
+            if (!perModuleCount.containsKey(d.module)) continue;     // not one of this run's modules
+            for (String note : o.notes) warnings.add(d.where + ": " + note);
+            if (o.error != null) {
+                warnings.add(d.where + " (" + shortFocus(d.focus) + ") failed: " + o.error);
+                perModuleErrors.get(d.module).add(o.error);
+                if (firstError == null) firstError = o.error;
+            }
+            for (ObjectNode c : o.cases) {
+                String key = d.module + "|" + c.path("title").asText("")
+                        .toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
+                if (!seen.add(key)) { duplicates++; continue; }
+                c.put("module", d.module);
+                allCases.add(c);
+                perModuleCount.merge(d.module, 1, Integer::sum);
+            }
+        }
+        if (duplicates > 0) warnings.add(duplicates + " duplicate case(s) removed.");
+
+        // ---- 5. Traceability: link cases to requirements, compute coverage ----
+        Set<String> knownIds = new HashSet<>();
+        for (Requirements.Requirement r : reqs) knownIds.add(r.id);
+        Map<String, Integer> casesPerReq = new LinkedHashMap<>();
+        for (Requirements.Requirement r : reqs) casesPerReq.put(r.id, 0);
+        int untraced = 0;
+        for (JsonNode n : allCases) {
+            ObjectNode c = (ObjectNode) n;
+            List<String> ids = new ArrayList<>();
+            for (JsonNode id : c.path("req_ids")) {
+                if (knownIds.contains(id.asText()) && !ids.contains(id.asText())) ids.add(id.asText());
+            }
+            if (ids.isEmpty()) ids = Requirements.infer(c.path("spec_ref").asText(""), reqs);
+            ArrayNode idArr = c.putArray("req_ids");
+            for (String id : ids) {
+                idArr.add(id);
+                casesPerReq.merge(id, 1, Integer::sum);
+            }
+            if (ids.isEmpty() && !reqs.isEmpty()) untraced++;
+        }
+        List<String> uncovered = new ArrayList<>();
+        List<String> notReached = new ArrayList<>();
+        ArrayNode reqOut = MAPPER.createArrayNode();
+        for (Requirements.Requirement r : reqs) {
+            int n = casesPerReq.get(r.id);
+            boolean inRun = mock || r.part <= chunkCount;
+            ObjectNode o = reqOut.addObject();
+            o.put("id", r.id);
+            o.put("title", r.title);
+            o.put("part", r.part);
+            o.put("derived", r.derived);
+            o.put("cases", n);
+            o.put("in_run", inRun);
+            if (n == 0) { if (inRun) uncovered.add(r.id); else notReached.add(r.id); }
+        }
+        if (!mock && !uncovered.isEmpty()) {
+            warnings.add("No cases for " + uncovered.size() + " requirement(s): " + summarize(uncovered)
+                    + ". Regenerate, or check that the BRD describes testable behaviour for them.");
+        }
+        if (untraced > 0) {
+            warnings.add(untraced + " case(s) couldn't be linked to a requirement.");
+        }
+
+        for (String m : p.modules) {
+            int n = perModuleCount.get(m);
+            List<String> errs = perModuleErrors.get(m);
+            String status = n == 0 ? "failed" : errs.isEmpty() ? "generated" : "partial";
+            RunLogger.logGenerate(req, m, provider, p.brd.length(), n, status,
+                    errs.isEmpty() ? null : String.join(" | ", errs));
+        }
+
+        ObjectNode out = MAPPER.createObjectNode();
+        if (allCases.size() == 0 && firstError != null) {
+            out.put("error", firstError);
+            return out;
+        }
+        ArrayNode modulesOut = out.putArray("modules");
+        p.modules.forEach(modulesOut::add);
+        out.put("provider", provider);
+        ObjectNode counts = out.putObject("counts");
+        perModuleCount.forEach(counts::put);
+        out.put("total", allCases.size());
+        out.put("chunks", chunkCount);
+        out.put("llm_calls", llmCalls);
+        ObjectNode src = out.putObject("schema_source");
+        p.schemaSource.forEach(src::put);
+        out.set("requirements", reqOut);
+        ObjectNode cov = out.putObject("coverage");
+        cov.put("requirements", reqs.size());
+        cov.put("covered", reqs.size() - uncovered.size() - notReached.size());
+        ArrayNode unc = cov.putArray("uncovered");
+        uncovered.forEach(unc::add);
+        ArrayNode nr = cov.putArray("not_in_run");
+        notReached.forEach(nr::add);
+        cov.put("untraced_cases", untraced);
+        ArrayNode warnOut = out.putArray("warnings");
+        warnings.forEach(warnOut::add);
+        out.set("cases", allCases);
+        out.set("projects_payload", ProjectsPayloadBuilder.build(allCases, p.projectKey));
+        return out;
     }
 
     /**
@@ -371,7 +431,7 @@ public class GenerateServlet extends HttpServlet {
      * passes. Pairs that don't fit the budget are reported, chunk by chunk, so
      * every module covers the start of the BRD first.
      */
-    private static List<Task> plan(List<String> modules, List<BrdChunker.Chunk> chunks,
+    static List<Task> plan(List<String> modules, List<BrdChunker.Chunk> chunks,
                                    boolean singlePass, List<String> warnings, int maxCalls) {
         int perCall = Math.max(3, envInt("CASES_PER_CALL", 8));
         int target = Math.max(perCall, envInt("TARGET_CASES_PER_MODULE", 30));
@@ -406,10 +466,14 @@ public class GenerateServlet extends HttpServlet {
         return tasks;
     }
 
-    private static Outcome runTask(Task t, int totalParts, String outline, String platform,
-                                   String creatorOwner, String creatorApp, String fullBrd,
-                                   String llmProvider, long deadline,
-                                   String moduleSchema, String requirements) {
+    /**
+     * One planned call, parsed. Retries once (with fewer cases) only when the deadline leaves
+     * room; retryNote, when given, is a caller-side retry: smaller budget from the first call.
+     */
+    static Outcome runTask(Task t, int totalParts, String outline, String platform,
+                           String creatorOwner, String creatorApp, String fullBrd,
+                           String llmProvider, long deadline,
+                           String moduleSchema, String requirements, String retryNote) {
         Outcome o = new Outcome();
         GenerationRequest r = new GenerationRequest();
         r.platform = platform;
@@ -424,6 +488,11 @@ public class GenerateServlet extends HttpServlet {
         r.totalParts = totalParts;
         r.focus = t.focus;
         r.wantedCases = t.wanted;
+        if (retryNote != null) {
+            r.wantedCases = Math.max(3, t.wanted / 2);
+            r.retryNote = retryNote + " Return valid JSON exactly in the requested shape, at most "
+                    + r.wantedCases + " cases with short descriptions and compact execution plans.";
+        }
 
         try {
             LlmResult res = call(r, llmProvider, fullBrd);
@@ -475,33 +544,33 @@ public class GenerateServlet extends HttpServlet {
         CorsSupport.applyOptions(req, resp);
     }
 
-    private static int envInt(String name, int def) {
+    static int envInt(String name, int def) {
         String v = System.getenv(name);
         if (v == null || v.trim().isEmpty()) return def;
         try { return Integer.parseInt(v.trim()); } catch (NumberFormatException e) { return def; }
     }
 
-    private static String summarize(List<String> items) {
+    static String summarize(List<String> items) {
         if (items.size() <= 5) return String.join(", ", items);
         return String.join(", ", items.subList(0, 5)) + " and " + (items.size() - 5) + " more";
     }
 
-    private static String shortFocus(String focus) {
+    static String shortFocus(String focus) {
         int comma = focus.indexOf(',');
         return comma > 0 ? focus.substring(0, comma) : focus;
     }
 
-    private static String trim(String s, int max) {
+    static String trim(String s, int max) {
         if (s == null) return "";
         return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 
-    private static String textOf(JsonNode body, String field) {
+    static String textOf(JsonNode body, String field) {
         JsonNode n = body.get(field);
         return n == null || n.isNull() ? "" : n.asText("").trim();
     }
 
-    private static void writeError(HttpServletResponse resp, int status, String message) throws IOException {
+    static void writeError(HttpServletResponse resp, int status, String message) throws IOException {
         resp.setStatus(status);
         ObjectNode err = MAPPER.createObjectNode();
         err.put("error", message == null ? "unknown" : message);

@@ -29,7 +29,14 @@ import java.util.logging.Logger;
  * }
  *
  * Returns each case with an `execution_result` field appended.
- * If CRM credentials are missing, executor runs in simulated mode.
+ * Without CRM credentials only an explicit "dry_run": true runs (plans are checked, nothing is sent).
+ *
+ * Batches: Catalyst stops a request after ~30 s, so the browser sends a few cases at a time with
+ * "batch": true. A batch stops starting new cases after EXEC_BATCH_SEC (22) and always runs at
+ * least one; cases it didn't reach come back with execution_result.not_reached = true (counted in
+ * "not_reached", not "skipped") for the caller to send again. Cases run independently, so a
+ * run split into batches gives the same results as one request.
+ * "deadline_ms" (absolute epoch ms) caps any run the same way.
  */
 public class ExecuteServlet extends HttpServlet {
 
@@ -105,16 +112,28 @@ public class ExecuteServlet extends HttpServlet {
 
             // Optional absolute deadline (epoch ms): remaining cases are skipped, not dropped.
             long deadlineMs = body.path("deadline_ms").asLong(0);
+            boolean batch = body.path("batch").asBoolean(false);
+            if (batch) {
+                long batchEnd = System.currentTimeMillis() + envInt("EXEC_BATCH_SEC", 22) * 1000L;
+                deadlineMs = deadlineMs > 0 ? Math.min(deadlineMs, batchEnd) : batchEnd;
+            }
+            int notReached = 0, ran = 0;
             for (JsonNode tc : cases) {
                 ObjectNode caseCopy = tc.deepCopy();
                 ObjectNode result;
-                if (deadlineMs > 0 && System.currentTimeMillis() > deadlineMs) {
+                if (deadlineMs > 0 && System.currentTimeMillis() > deadlineMs && !(batch && ran == 0)) {
                     result = MAPPER.createObjectNode();
                     result.put("status", "skipped");
                     result.put("reason", "Time budget used up before this case ran.");
-                } else {
-                    result = CrmExecutor.execute(tc, client);
+                    result.put("not_reached", true);
+                    caseCopy.set("execution_result", result);
+                    out.add(caseCopy);
+                    notReached++;
+                    if (!batch) skipped++;      // one-shot callers keep counting these as skipped
+                    continue;
                 }
+                ran++;
+                result = CrmExecutor.execute(tc, client);
                 caseCopy.set("execution_result", result);
                 out.add(caseCopy);
                 String status = result.path("status").asText("");
@@ -134,6 +153,7 @@ public class ExecuteServlet extends HttpServlet {
             resBody.put("passed", passed);
             resBody.put("failed", failed);
             resBody.put("skipped", skipped);
+            resBody.put("not_reached", notReached);
             resBody.put("dry_run", simulated);
             if (simulated) {
                 resBody.put("plans_ok", plansOk);
@@ -158,6 +178,12 @@ public class ExecuteServlet extends HttpServlet {
         ObjectNode err = MAPPER.createObjectNode();
         err.put("error", message == null ? "unknown" : message);
         resp.getWriter().write(MAPPER.writeValueAsString(err));
+    }
+
+    private static int envInt(String name, int def) {
+        String v = System.getenv(name);
+        if (v == null || v.trim().isEmpty()) return def;
+        try { return Integer.parseInt(v.trim()); } catch (NumberFormatException e) { return def; }
     }
 
     private static String cookieValue(HttpServletRequest req, String name) {

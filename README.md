@@ -15,7 +15,8 @@ Zoho Projects as tasks. Java AdvancedIO function on Catalyst + a static web clie
 │       ├── pom.xml
 │       └── src/main/java/com/uat/generator/
 │           ├── AnalyzeServlet.java     # POST /analyze   — suggest modules for a BRD
-│           ├── GenerateServlet.java    # POST /generate  — UAT cases per module
+│           ├── GenerateServlet.java    # POST /generate  — UAT cases per module (one request)
+│           ├── GenerateStageServlet.java # POST /generate/stage — the same, one LLM call per request
 │           ├── ImplementServlet.java   # POST /implement — BRD → implementation spec
 │           ├── ImplementApplyServlet.java  # POST /implement/apply  — dry run / create in CRM
 │           ├── ImplementVerifyServlet.java # POST /implement/verify — org vs spec diff
@@ -86,15 +87,23 @@ Generation splits the BRD into section-aligned chunks and makes several small LL
 calls instead of one large one, so responses fit the provider's output limit and
 nothing is silently truncated. Anything skipped is returned in `warnings`.
 
+Catalyst stops an Advanced I/O request at about 30 seconds (`EXECUTION_TIME_EXCEEDED`,
+HTTP 408), and one LLM call takes 10–15 s, so the app never makes a whole run in one
+request: the Cases and Verify tabs drive `POST /generate/stage` (one LLM call per
+request, see [Staged generation and batched execution](#staged-generation-and-batched-execution)).
+`GEN_CONCURRENCY` and `GEN_DEADLINE_SEC` apply only to one-shot `/generate` callers.
+
 | Variable | Default | What it controls |
 |---|---|---|
 | `GEN_CHUNK_CHARS` | `9000` | Max characters of BRD per call |
 | `GEN_MAX_CHUNKS` | `6` | Max chunks per run; extra sections are reported, not dropped silently |
-| `MAX_LLM_CALLS` | `8` | Call budget per `/generate` request |
+| `MAX_LLM_CALLS` | `8` | Call budget per run (one-shot or staged) |
 | `CASES_PER_CALL` | `8` | Case budget per call |
 | `TARGET_CASES_PER_MODULE` | `30` | Used to decide how many focused passes each chunk gets |
 | `GEN_CONCURRENCY` | `2` | Parallel LLM calls (GitHub Models allows ~2 concurrent on most plans) |
-| `GEN_DEADLINE_SEC` | `140` | Stop and return partial results after this long (client waits 180s) |
+| `GEN_DEADLINE_SEC` | `140` | One-shot `/generate` only: stop and return partial results after this long |
+| `GEN_CALL_DEADLINE_SEC` | `26` | Staged: time for one part's call (no in-request retry; the browser retries once with fewer cases) |
+| `EXEC_BATCH_SEC` | `22` | `/execute` with `"batch": true`: stop starting new cases after this long |
 | `LLM_MAX_TOKENS` | `4000` | Output tokens per call |
 
 ## Catalyst Datastore: `uat_runs` table
@@ -194,6 +203,32 @@ Response (abridged):
 }
 ```
 
+### Staged generation and batched execution
+
+`POST /server/uat_generator/generate/stage` is `/generate` in requests that each fit
+Catalyst's ~30 s limit. Every stage is stateless (the BRD is re-chunked the same way each
+time); the browser carries the plan and the part results:
+
+| Stage | Body | Returns | LLM calls |
+|---|---|---|---|
+| `start` | `brd`, `modules`, `platform`, `creator_owner`, `creator_app` | `calls: [{module, part, label, focus, wanted}]`, `schemas` (field schema text per module, live from CRM when connected), `requirements` (prompt list per part), `schema_source`, `warnings` | 0 |
+| `part` | `brd`, `module`, `part`, `focus`, `wanted`, `schema`, `requirements`, `retry?` | `{module, part, focus, cases, notes, error?}` (always HTTP 200; a failure is in `error`) | 1 |
+| `finish` | `brd`, `modules`, `results` (the parts), `warnings`, `schema_source`, `project_key` | the `/generate` response: merged and de-duplicated (module + title) cases, `counts`, `requirements`, `coverage`, `projects_payload` | 0 |
+
+The client runs two parts at a time and sends a failed part once more with `"retry": true`
+(fewer cases); a part that still fails becomes a warning. `finish` re-validates every case
+it gets back. `/generate` itself still runs the whole thing in one request for one-shot
+callers (`/agent/run`, scripts, mock mode).
+
+`/execute` accepts any subset of cases. With `"batch": true` it stops starting new cases
+after `EXEC_BATCH_SEC` (always running at least one); cases it didn't reach come back with
+`execution_result.not_reached: true`, counted in `not_reached` rather than `skipped`.
+The Fly and Verify tabs send 4 cases per request against CRM (40 for a dry run) and
+resend unreached cases, so a run is never cut off; each case runs on its own, so
+batching gives the same results. A batch that fails marks its cases "not run" and the run
+continues (it stops after two failed batches in a row). Progress ("Writing cases… 3 of
+6 done", "Ran 12 of 40 case(s)…") shows in the loader or the Verify status line.
+
 ### `POST /server/uat_generator/push`
 
 ```json
@@ -269,7 +304,7 @@ has: `present`, `mismatch` (type, missing picklist values, lookup target), `miss
 `unverifiable` (validation rules, workflows and functions aren't read back through the APIs used here).
 Missing items and missing picklist values have **Fix in sandbox**; an unverifiable item counts once
 it's ticked in Configure by hand. **UAT cases** are then written from the approved blueprint
-(`/generate`) and run against the sandbox (`/execute`; a dry run when the org isn't a sandbox), and
+(`/generate/stage`) and run against the sandbox in batches (`/execute`; a dry run when the org isn't a sandbox), and
 can be pushed to Zoho Projects with their failures.
 
 **Promote to production** unlocks only when every check matches (or is confirmed by hand) and a live

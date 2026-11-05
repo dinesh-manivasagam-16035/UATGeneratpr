@@ -367,6 +367,24 @@
     if (fillEl) { fillEl.style.transition = "width 0.3s ease"; fillEl.style.width = "100%"; }
   }
 
+  // Real progress replaces the cycling messages and the creeping bar once a staged run reports it.
+  function loaderProgress(kind, text, fraction) {
+    const ids = kind === "exec"
+      ? { msg: "exec-gen-message", fill: "exec-bar-fill" }
+      : { msg: "gen-message", fill: "gen-bar-fill" };
+    if (kind === "exec") {
+      clearInterval(_execMsgTimer); clearInterval(_execProgressTimer);
+      _execMsgTimer = null; _execProgressTimer = null;
+    } else {
+      clearInterval(_genMsgTimer); clearInterval(_genProgressTimer);
+      _genMsgTimer = null; _genProgressTimer = null;
+    }
+    const msgEl = document.getElementById(ids.msg);
+    if (msgEl) { msgEl.classList.remove("fading"); msgEl.textContent = text; }
+    const fillEl = document.getElementById(ids.fill);
+    if (fillEl && typeof fraction === "number") fillEl.style.width = Math.min(95, Math.round(fraction * 100)) + "%";
+  }
+
   // ---- Push animated loader ----
 
   const PUSH_MESSAGES = [
@@ -1442,6 +1460,131 @@
     return tests;
   }
 
+  // ---- UAT generation and execution in short requests ----
+  // Catalyst stops a function call after ~30 s. Generation therefore makes one LLM call per
+  // request (POST /generate/stage: start → parts, two at a time, retried once → finish), and
+  // execution sends a few cases per /execute request (batch: true), resending any case the
+  // server didn't reach before its per-batch time limit.
+
+  // withCredentials mirrors the one-shot calls: /execute sent cookies cross-origin, /generate didn't.
+  async function postJson(path, body, ms, label, withCredentials) {
+    const res = await fetchWithTimeout(FUNCTION_BASE + path, {
+      method: "POST", ...(withCredentials ? { credentials: "include" } : {}),
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }, ms, label);
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  }
+
+  // body: the /generate body. Resolves to the /generate response.
+  async function generateCasesStaged(body, onProgress) {
+    const progress = onProgress || (() => {});
+    const stage = async (b, label) => {
+      const { res, data } = await postJson("/generate/stage", b, 60_000, label);
+      if (!res.ok) throw new Error(data.error || `${label} failed (HTTP ${res.status})`);
+      return data;
+    };
+    const common = { brd: body.brd, platform: body.platform || "crm",
+      creator_owner: body.creator_owner || "", creator_app: body.creator_app || "" };
+
+    progress("Reading the spec and your CRM fields…", 0.03);
+    const start = await stage({ ...common, modules: body.modules, stage: "start" }, "Case generation start");
+    const calls = start.calls || [];
+    const results = new Array(calls.length);
+    let next = 0, done = 0;
+    const worker = async () => {
+      while (next < calls.length) {
+        const i = next++;
+        const c = calls[i];
+        const partBody = { ...common, stage: "part", module: c.module, part: c.part, focus: c.focus, wanted: c.wanted,
+          schema: (start.schemas || {})[c.module] || "", requirements: (start.requirements || {})[String(c.part)] || "" };
+        let r;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            r = await stage(attempt === 1 ? partBody : { ...partBody, retry: true }, `${c.module} part ${c.part}`);
+            if (!r.error) break;
+          } catch (e) {
+            r = { module: c.module, part: c.part, focus: c.focus, error: e.message };
+          }
+        }
+        results[i] = r;
+        done++;
+        progress(`Writing cases… ${done} of ${calls.length} done (${c.module}, ${c.label}).`,
+          0.05 + 0.85 * done / calls.length);
+      }
+    };
+    progress(`Writing cases… 0 of ${calls.length} done.`, 0.05);
+    await Promise.all([worker(), worker()]);
+
+    progress("Merging cases and checking coverage…", 0.93);
+    return stage({ ...common, stage: "finish", modules: body.modules, project_key: body.project_key || "",
+      results, warnings: start.warnings || [], schema_source: start.schema_source || {} }, "Case generation finish");
+  }
+
+  const EXEC_BATCH_LIVE = 4;     // cases per /execute request against CRM (the server also stops at ~22 s)
+  const EXEC_BATCH_DRY = 40;     // a dry run sends nothing to CRM, so batches can be large
+
+  // opts: the /execute body without cases. Resolves to the /execute response for all cases.
+  // A 409 (not connected) on the first batch throws an Error with .status and .data.
+  async function executeBatched(cases, opts, onProgress) {
+    const progress = onProgress || (() => {});
+    const size = opts.dry_run ? EXEC_BATCH_DRY : EXEC_BATCH_LIVE;
+    const out = cases.slice();
+    const totals = { passed: 0, failed: 0, skipped: 0, plans_ok: 0, plans_with_issues: 0 };
+    let meta = { dry_run: !!opts.dry_run, simulated: !!opts.dry_run };
+    let pending = cases.map((_, i) => i);
+    let done = 0, failedBatches = 0;
+    const notRun = (i, reason) => {
+      out[i] = { ...cases[i], execution_result: { status: "skipped", reason } };
+      totals.skipped++;
+      done++;
+    };
+
+    progress(`Running ${cases.length} case(s)…`, 0.02);
+    while (pending.length) {
+      const idx = pending.slice(0, size);
+      let rest = pending.slice(size);
+      let res, data;
+      try {
+        ({ res, data } = await postJson("/execute", { ...opts, cases: idx.map((i) => cases[i]), batch: true },
+          60_000, "Execution", true));
+      } catch (e) {
+        res = null; data = { error: e.message };
+      }
+      if (res && res.status === 409 && done === 0) {
+        const err = new Error(data.error || "Not connected to Zoho CRM.");
+        err.status = 409; err.data = data;
+        throw err;
+      }
+      if (!res || !res.ok) {
+        // Don't lose the cases that already ran: mark this batch as not run and carry on,
+        // unless the server keeps failing.
+        const reason = "Not run: " + (data.error || `HTTP ${res && res.status}`);
+        idx.forEach((i) => notRun(i, reason));
+        if (++failedBatches >= 2) { rest.forEach((i) => notRun(i, "Not run: execution stopped after repeated errors.")); rest = []; }
+        pending = rest;
+        progress(`Ran ${done} of ${cases.length} case(s)…`, done / cases.length);
+        continue;
+      }
+      failedBatches = 0;
+      meta = { dry_run: !!data.dry_run, simulated: !!data.simulated };
+      ["passed", "failed", "skipped", "plans_ok", "plans_with_issues"].forEach((k) => { totals[k] += data[k] || 0; });
+      const back = [];
+      (data.cases || []).forEach((c, j) => {
+        if (j >= idx.length) return;
+        if (c.execution_result && c.execution_result.not_reached) back.push(idx[j]);
+        else { out[idx[j]] = c; done++; }
+      });
+      if (back.length === idx.length) {          // no progress (shouldn't happen): don't loop forever
+        back.forEach((i) => notRun(i, "Not run: the server ran out of time before this case."));
+        back.length = 0;
+      }
+      pending = back.concat(rest);
+      progress(`Ran ${done} of ${cases.length} case(s)…`, done / cases.length);
+    }
+    return { cases: out, ...totals, ...meta };
+  }
+
   // ---- Actions ----
 
   async function generate() {
@@ -1489,14 +1632,7 @@
         const fieldSpec = buildCreatorFieldSpec();
         if (fieldSpec) body.brd = fieldSpec + "\n\n---\n\n" + state.brd;
       }
-      const res = await fetchWithTimeout(
-        FUNCTION_BASE + "/generate",
-        { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body) },
-        180_000, "Case generation" // server stops at GEN_DEADLINE_SEC (140s) and returns partial results
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generation failed");
+      const data = await generateCasesStaged(body, (text, f) => loaderProgress("gen", text, f));
 
       const aiCases = Array.isArray(data.cases) ? data.cases : [];
       const defaultTests = buildDefaultApiTests(state.modulesSelected);
@@ -2217,6 +2353,8 @@
     FUNCTION_BASE,
     state,
     fetchWithTimeout,
+    generateCasesStaged,
+    executeBatched,
     showToast: (...a) => showToast(...a),
     escapeHtml: (s) => escapeHtml(s),
     showTab,
@@ -2356,31 +2494,32 @@
       // Without a CRM session (local dev), ask for a dry run explicitly: the server
       // checks the plans and sends nothing to CRM. It no longer fakes results.
       const dryRun = !state.crmAuthorized;
-      const execBody = { cases: state.cases, platform: state.platform, dry_run: dryRun };
+      const cases = state.cases;
+      const execBody = { platform: state.platform, dry_run: dryRun };
       if (state.platform === "creator") {
         execBody.creator_owner = state.creatorOwner;
         execBody.creator_app   = state.creatorApp;
       }
-      const callExecute = (body) => fetchWithTimeout(
-        FUNCTION_BASE + "/execute",
-        { method: "POST", headers: { "Content-Type": "application/json" },
-          credentials: "include", body: JSON.stringify(body) },
-        180_000, "Execution"
-      );
-      let res = await callExecute(execBody);
-      if (res.status === 409 && isLocal && !execBody.dry_run) {
-        // Local mode pretends to be signed in; with no real CRM session, dry-run instead.
-        execBody.dry_run = true;
-        res = await callExecute(execBody);
+      const run = () => executeBatched(cases, execBody, (text, f) => loaderProgress("exec", text, f));
+      let data;
+      try {
+        try {
+          data = await run();
+        } catch (e) {
+          if (e.status !== 409 || !isLocal || execBody.dry_run) throw e;
+          // Local mode pretends to be signed in; with no real CRM session, dry-run instead.
+          execBody.dry_run = true;
+          data = await run();
+        }
+      } catch (e) {
+        if (e.status === 409 && e.data && e.data.needs_auth) {
+          state.crmAuthorized = false;
+          showCrmRequiredModal();
+          setStatus("execute", e.data.error, "warn");
+          return;
+        }
+        throw e;
       }
-      const data = await res.json();
-      if (res.status === 409 && data.needs_auth) {
-        state.crmAuthorized = false;
-        showCrmRequiredModal();
-        setStatus("execute", data.error, "warn");
-        return;
-      }
-      if (!res.ok) throw new Error(data.error || "Execute failed");
 
       state.cases = Array.isArray(data.cases) ? data.cases : state.cases;
       state.executed = true;

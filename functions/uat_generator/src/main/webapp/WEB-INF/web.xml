@@ -197,4 +197,13 @@
     <url-pattern>/implement/stage</url-pattern>
   </servlet-mapping>
 
+  <servlet>
+    <servlet-name>generate-stage</servlet-name>
+    <servlet-class>com.uat.generator.GenerateStageServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>generate-stage</servlet-name>
+    <url-pattern>/generate/stage</url-pattern>
+  </servlet-mapping>
+
 </web-app>

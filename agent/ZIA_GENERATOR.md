@@ -124,5 +124,7 @@ Authorization: Zoho-oauthtoken {access token}
 LiftOff splits a BRD into parts and makes several calls per run (two per part for a blueprint,
 plus one for the plan). Catalyst stops an Advanced I/O request at about 30 seconds, so the Blueprint
 tab sends **one agent call per request** (`POST /implement/stage`: start → parts, two at a time →
-finish → plan). Each call has to finish within `ZIA_AGENT_TIMEOUT_SEC`; if parts time out, lower
-`IMPL_CHUNK_CHARS` (default 6000) so each part is smaller.
+finish → plan), and UAT case generation does the same (`POST /generate/stage`: start → one call
+per module, part and focus → finish). Each call has to finish within `ZIA_AGENT_TIMEOUT_SEC`; if
+parts time out, lower `IMPL_CHUNK_CHARS` (default 6000) or `CASES_PER_CALL` (default 8) so each call
+is smaller.
