@@ -128,7 +128,7 @@ public final class ZiaAgentClient {
                 if (code >= 500) {
                     return new Transient("Zia Agent error " + code + " (query " + String.format("%,d", queryChars) + " chars): "
                             + trim(text, 240) + " If this keeps happening, the request may be too long for the agent: "
-                            + "lower IMPL_CHUNK_CHARS (default 6000) on uat_generator.");
+                            + "lower IMPL_CHUNK_CHARS (default 6000) on uat_generator (background jobs use the same value).");
                 }
                 if (code >= 400) {
                     String hint = code == 401 ? " Called " + agentUrl() + " with a token from " + accountsBase()

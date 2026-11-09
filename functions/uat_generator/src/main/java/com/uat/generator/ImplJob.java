@@ -52,6 +52,7 @@ public final class ImplJob {
             String kind = in.path("kind").asText("blueprint");
             if ("uat_generate".equals(kind)) return UatJob.generate(key, in, remainingMs);
             if ("uat_execute".equals(kind))  return UatJob.execute(key, in, remainingMs);
+            ImplementStageServlet.chunkCharsOverride = in.path("chunk_chars").asInt(0);
             ArrayNode jobs = (ArrayNode) in.path("jobs");
             int total = jobs.size() + 1;                         // + the plan
             Steps steps = new Steps(jobs);

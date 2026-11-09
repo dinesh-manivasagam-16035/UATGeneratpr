@@ -101,13 +101,23 @@ public class ImplementStageServlet extends HttpServlet {
         return modules.isEmpty() ? "(none picked — infer them from the BRD)" : String.join(", ", modules);
     }
 
+    /**
+     * BRD part size. The impl_worker job uses uat_generator's value (sent with the job), so both
+     * functions split the BRD into the same parts whatever each one's own env vars say.
+     */
+    static volatile int chunkCharsOverride = 0;
+
+    static int chunkChars() {
+        return chunkCharsOverride > 0 ? chunkCharsOverride : ImplementServlet.envInt("IMPL_CHUNK_CHARS", 6000);
+    }
+
     private static BrdChunker.Result split(String brd) {
-        return BrdChunker.chunk(brd, ImplementServlet.envInt("IMPL_CHUNK_CHARS", 6000),
+        return BrdChunker.chunk(brd, chunkChars(),
                 ImplementServlet.envInt("GEN_MAX_CHUNKS", 6));
     }
 
     static List<Requirements.Requirement> requirements(String brd) {
-        return Requirements.extract(BrdChunker.chunk(brd, ImplementServlet.envInt("IMPL_CHUNK_CHARS", 6000), 10_000).chunks);
+        return Requirements.extract(BrdChunker.chunk(brd, chunkChars(), 10_000).chunks);
     }
 
     private static String decisions(JsonNode body) {
@@ -189,6 +199,60 @@ public class ImplementStageServlet extends HttpServlet {
         return out;
     }
 
+    /**
+     * Runs one part; if the Zia Agent answers 5xx even after its retries (seen with ~10k-char queries),
+     * splits the part's text in two and runs each half, up to {@code depth} times.
+     */
+    static ImplSpec.Parsed runHalving(ImplementServlet.Task t, int totalParts, String outline, String modules,
+                                      String orgText, String reqs, String decisions, long deadline, int depth) throws Exception {
+        try {
+            return ImplementServlet.runTask(t, totalParts, outline, modules, orgText, reqs, decisions, deadline);
+        } catch (RuntimeException e) {
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            String[] halves = halves(t.chunk.text);
+            if (depth <= 0 || !msg.startsWith("Zia Agent error 5") || halves == null) throw e;
+            ImplSpec.Parsed out = null;
+            List<String> errors = new ArrayList<>();
+            for (String h : halves) {
+                ImplementServlet.Task half = new ImplementServlet.Task(t.group,
+                        new BrdChunker.Chunk(t.chunk.index, h, t.chunk.headings));
+                ImplSpec.Parsed p;
+                try {
+                    p = runHalving(half, totalParts, outline, modules, orgText, reqs, decisions, deadline, depth - 1);
+                } catch (RuntimeException e2) {
+                    errors.add(ImplementServlet.trim(e2.getMessage(), 200));
+                    continue;
+                }
+                if (out == null) { out = p; continue; }
+                for (java.util.Map.Entry<String, List<com.fasterxml.jackson.databind.node.ObjectNode>> en : p.items.entrySet()) {
+                    out.items.computeIfAbsent(en.getKey(), k -> new ArrayList<>()).addAll(en.getValue());
+                }
+                out.dropped += p.dropped;
+                out.salvaged |= p.salvaged;
+                if (!p.summary.isEmpty()) out.summary = out.summary.isEmpty() ? p.summary : out.summary + " " + p.summary;
+                if (out.error == null) out.error = p.error;
+            }
+            if (out == null) throw new RuntimeException(errors.isEmpty() ? msg : errors.get(0));
+            if (!errors.isEmpty() && out.error == null) {
+                out.error = "Half of this part failed even when split: " + errors.get(0);
+            }
+            return out;
+        }
+    }
+
+    /** Splits text in two at the paragraph (or line) break nearest the middle; null if too short to split. */
+    static String[] halves(String text) {
+        if (text == null || text.length() < 1500) return null;
+        int mid = text.length() / 2, cut = -1;
+        for (String sep : new String[]{"\n\n", "\n", ". "}) {
+            int a = text.lastIndexOf(sep, mid), b = text.indexOf(sep, mid);
+            int best = a < 0 ? b : b < 0 ? a : (mid - a <= b - mid ? a : b);
+            if (best > text.length() / 5 && best < text.length() * 4 / 5) { cut = best + sep.length(); break; }
+        }
+        if (cut < 0) cut = mid;
+        return new String[]{text.substring(0, cut), text.substring(cut)};
+    }
+
     static ObjectNode part(JsonNode body) {
         String brd = body.path("brd").asText("").trim();
         List<String> modules = modules(body);
@@ -210,9 +274,11 @@ public class ImplementStageServlet extends HttpServlet {
                 int sec = body.path("deadline_sec").asInt(0) > 0 ? body.path("deadline_sec").asInt()
                         : ImplementServlet.envInt("IMPL_CALL_DEADLINE_SEC", 26);
                 long deadline = System.currentTimeMillis() + sec * 1000L;
-                p = ImplementServlet.runTask(t, split.chunks.size(), split.outline, moduleList(modules),
+                // In the background job (deadline_sec set), a part the agent keeps failing on is retried in halves.
+                int halving = body.has("deadline_sec") ? 2 : 0;
+                p = runHalving(t, split.chunks.size(), split.outline, moduleList(modules),
                         body.path("org_text").asText(""), Requirements.promptList(reqs, chunk.index + 1, 1500),
-                        decisions(body), deadline);
+                        decisions(body), deadline, halving);
             }
         } catch (Exception e) {
             out.put("error", ImplementServlet.trim(e.getMessage(), 300));
@@ -344,6 +410,7 @@ public class ImplementStageServlet extends HttpServlet {
         in.set("answers", body.path("answers"));
         in.put("org_text", body.path("org_text").asText(""));
         in.set("jobs", body.path("jobs"));
+        in.put("chunk_chars", chunkChars());   // the worker splits the BRD the same way
         return JobQueue.submit(key, "blueprint", in, body.path("jobs").size() + 1);
     }
 
