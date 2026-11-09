@@ -583,7 +583,7 @@
         ${total ? `<ol class="ip-steps">${steps.map((x) => `
           <li class="ip-step is-${esc(x.state)}">
             <span class="ip-icon" aria-hidden="true"></span>
-            <span class="ip-text"><span class="ip-label">${esc(x.label)}</span><span class="ip-detail">${esc(x.detail || "")}</span></span>
+            <span class="ip-text"><span class="ip-label">${esc(x.label)}</span><span class="ip-detail">${esc(x.state === "failed" && x.error ? x.error : (x.detail || ""))}</span></span>
             <span class="ip-state">${esc(stateText(x))}</span>
           </li>`).join("")}</ol>` : ""}
         <p class="ip-note">Runs in the background. You can leave this page.</p>`;
@@ -644,7 +644,7 @@
         results[i] = r;
         done++;
         const items = Object.values(r.items || {}).reduce((n, list) => n + (list ? list.length : 0), 0);
-        progressView.step(i, r.error ? { state: "failed" } : { state: "done", items, seconds: Math.round((Date.now() - began) / 1000) });
+        progressView.step(i, r.error ? { state: "failed", error: r.error } : { state: "done", items, seconds: Math.round((Date.now() - began) / 1000) });
       }
     };
     progress(`Drafting ${jobs.length} steps`);

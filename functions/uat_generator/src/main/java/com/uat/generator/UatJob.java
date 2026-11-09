@@ -68,6 +68,7 @@ final class UatJob {
                     ObjectNode r = part(in, c, split, remainingMs);
                     JobStore.put(ImplJob.resultKey(key, n), MAPPER.writeValueAsString(r));
                     steps.finish(n, r.has("error"), r.path("cases").size());
+                    if (r.has("error")) steps.set(n, "error", ImplementServlet.trim(r.path("error").asText(""), 300));
                     synchronized (done) {
                         done[0]++;
                         ImplJob.status(key, "running", done[0], total, null, steps.label(n), steps);

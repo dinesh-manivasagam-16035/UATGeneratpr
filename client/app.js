@@ -425,7 +425,7 @@
       + `<ol class="ip-steps">${steps.map((x) => `
           <li class="ip-step is-${escapeHtml(x.state || "waiting")}">
             <span class="ip-icon" aria-hidden="true"></span>
-            <span class="ip-text"><span class="ip-label">${escapeHtml(x.label || "")}</span>${x.detail ? `<span class="ip-detail">${escapeHtml(x.detail)}</span>` : ""}</span>
+            <span class="ip-text"><span class="ip-label">${escapeHtml(x.label || "")}</span>${(x.state === "failed" && x.error) || x.detail ? `<span class="ip-detail">${escapeHtml(x.state === "failed" && x.error ? x.error : x.detail)}</span>` : ""}</span>
             <span class="ip-state">${escapeHtml(note(x))}</span>
           </li>`).join("")}</ol>`
       + `<p class="ip-note">Runs in the background. You can leave this page.</p>`;

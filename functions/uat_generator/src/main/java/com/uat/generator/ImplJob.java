@@ -77,7 +77,9 @@ public final class ImplJob {
                         body.put("deadline_sec", 200);
                         ObjectNode r = ImplementStageServlet.part(body);
                         JobStore.put(resultKey(key, n), MAPPER.writeValueAsString(r));
-                        steps.finish(n, r.hasNonNull("error") && !r.path("error").asText("").isEmpty(), count(r));
+                        String err = r.path("error").asText("");
+                        steps.finish(n, !err.isEmpty(), count(r));
+                        if (!err.isEmpty()) steps.set(n, "error", ImplementServlet.trim(err, 300));
                         synchronized (done) {
                             done[0]++;
                             status(key, "running", done[0], total, null, steps.label(n), steps);
