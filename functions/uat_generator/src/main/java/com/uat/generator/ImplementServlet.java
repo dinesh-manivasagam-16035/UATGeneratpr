@@ -11,6 +11,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -313,13 +314,71 @@ public class ImplementServlet extends HttpServlet {
         return out;
     }
 
+    /**
+     * Section groups per agent call. The Zia Agent API drops a call whose reply takes longer than
+     * roughly 30-40 s (HTTP 500 "Error while processing the request"), however short the BRD, so a
+     * part is asked for in several short replies instead of one long one. Other providers answer
+     * one call per part as before. Override with IMPL_SPLIT_SECTIONS=0|1.
+     */
+    static List<List<String>> callGroups(Task t) {
+        String env = System.getenv("IMPL_SPLIT_SECTIONS");
+        boolean split = env == null || env.isEmpty() ? "zia".equals(Llm.provider()) : !"0".equals(env) && !"false".equalsIgnoreCase(env);
+        if (!split) return java.util.Collections.singletonList(t.sections());
+        if ("automation".equals(t.group)) {
+            return Arrays.asList(
+                    Arrays.asList("workflows", "open_questions"),
+                    Arrays.asList("functions"));
+        }
+        return Arrays.asList(
+                Arrays.asList("modules", "roles", "open_questions"),
+                Arrays.asList("fields"),
+                Arrays.asList("layouts", "validation_rules"));
+    }
+
+    /** System prompt for one call that returns only some of the part's sections. */
+    private static String systemFor(Task t, List<String> keys, boolean whole) {
+        if (whole) return t.system();
+        return t.system() + "\n\nIN THIS CALL return ONLY these keys: summary, " + String.join(", ", keys)
+                + ". Leave every other key out entirely (other calls cover them). Be brief so the reply "
+                + "finishes quickly: one-sentence descriptions, no repetition, compact Deluge.";
+    }
+
     static ImplSpec.Parsed runTask(Task t, int totalParts, String outline, String modules,
                                            String orgText, String requirements, String decisions,
                                            long deadline) throws Exception {
+        List<List<String>> groups = callGroups(t);
+        ImplSpec.Parsed all = null;
+        List<String> errors = new ArrayList<>();
+        for (List<String> keys : groups) {
+            ImplSpec.Parsed p = callOnce(systemFor(t, keys, groups.size() == 1), keys, totalParts, outline, modules,
+                    orgText, requirements, decisions, t, deadline);
+            if (!p.ok()) errors.add(String.join("/", keys) + ": " + p.error);
+            if (all == null) { all = p; continue; }
+            for (Map.Entry<String, List<ObjectNode>> en : p.items.entrySet()) {
+                all.items.computeIfAbsent(en.getKey(), k -> new ArrayList<>()).addAll(en.getValue());
+            }
+            all.dropped += p.dropped;
+            all.salvaged |= p.salvaged;
+            if (all.summary.isEmpty()) all.summary = p.summary;
+        }
+        // One failed call out of several isn't fatal: keep what the others produced.
+        all.error = all.size() == 0 && !errors.isEmpty() ? String.join(" · ", errors) : null;
+        if (all.size() > 0 && !errors.isEmpty()) {
+            all.items.computeIfAbsent("open_questions", k -> new ArrayList<>()).add(MAPPER.createObjectNode()
+                    .put("question", "Part of this section could not be generated; Regenerate to retry.")
+                    .put("context", trim(String.join(" · ", errors), 300)).put("blocking", false));
+        }
+        return all;
+    }
+
+    /** One agent call for the given sections, with one retry on an unusable or cut-off reply. */
+    private static ImplSpec.Parsed callOnce(String system, List<String> sections, int totalParts, String outline,
+                                            String modules, String orgText, String requirements, String decisions,
+                                            Task t, long deadline) throws Exception {
         String user = ImplPrompts.partPrompt(modules, orgText, outline, t.chunk.text,
                 t.chunk.index + 1, totalParts, requirements, decisions, "");
-        LlmResult r = Llm.chat(t.system(), user, 0);
-        ImplSpec.Parsed p = ImplSpec.parse(r.content, t.sections());
+        LlmResult r = Llm.chat(system, user, 0);
+        ImplSpec.Parsed p = ImplSpec.parse(r.content, sections);
         if (p.ok() && (p.size() > 0 || !r.truncated())) {
             if (r.truncated()) p.salvaged = true;
             return p;
@@ -330,9 +389,9 @@ public class ImplementServlet extends HttpServlet {
                   + "shorter Deluge, only the most important items."
                 : "Your previous answer could not be used (" + trim(p.ok() ? "no items" : p.error, 200)
                   + "). Return valid JSON exactly in the requested shape.";
-        LlmResult r2 = Llm.chat(t.system(), ImplPrompts.partPrompt(modules, orgText, outline,
+        LlmResult r2 = Llm.chat(system, ImplPrompts.partPrompt(modules, orgText, outline,
                 t.chunk.text, t.chunk.index + 1, totalParts, requirements, decisions, note), 0);
-        ImplSpec.Parsed p2 = ImplSpec.parse(r2.content, t.sections());
+        ImplSpec.Parsed p2 = ImplSpec.parse(r2.content, sections);
         if (r2.truncated()) p2.salvaged = true;
         return p2;
     }
