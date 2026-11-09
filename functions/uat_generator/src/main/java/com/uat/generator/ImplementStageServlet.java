@@ -388,10 +388,23 @@ public class ImplementStageServlet extends HttpServlet {
         out.put("needs_plan", needsPlan);
         if (!ImplementServlet.hasAnyItems(spec)) {
             out.put("status", 502);
-            out.put("error", warnings.isEmpty() ? "No implementation items were produced."
-                    : warnings.get(warnings.size() - 1));
+            out.put("error", noItemsReason(warnings));
         }
         return out;
+    }
+
+    /**
+     * Why a blueprint came back empty: the parts' own failures ("Part 1 / data_model failed: …"),
+     * not the follow-on "Nothing in the spec delivers…" warning that only says nothing was made.
+     */
+    static String noItemsReason(List<String> warnings) {
+        List<String> causes = new ArrayList<>();
+        for (String w : warnings) if (w.contains(" failed: ") || w.contains("has no result")) causes.add(w);
+        if (causes.isEmpty()) {
+            return "The agent answered but returned no implementation items. Check the Zia Agent's own logs, "
+                    + "or Regenerate." + (warnings.isEmpty() ? "" : " (" + warnings.get(warnings.size() - 1) + ")");
+        }
+        return ImplementServlet.trim(String.join(" · ", causes), 900);
     }
 
     private static String orThrow(String v, String msg) {
