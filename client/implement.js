@@ -467,7 +467,7 @@
   // call after ~30 s, and a whole blueprint takes several LLM calls. start → parts (two at a
   // time, one LLM call each) → finish → plan.
   async function generateStaged(answers) {
-    const brd = L.state.brd;
+    const brd = L.plainBrd ? L.plainBrd(L.state.brd) : L.state.brd;
     const modules = L.state.modulesSelected || [];
     const stage = (body, label) => post("/implement/stage", body, 60_000, label);
     const progress = (t) => progressView.phase(t);

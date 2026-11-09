@@ -722,6 +722,10 @@
     }
     return out.replace(/ /g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   }
+  /** The BRD as plain text: a BRD loaded before RTF support may still be RTF markup. */
+  function plainBrd(text) {
+    return /^\s*\{\\rtf/.test(text || "") ? rtfToText(text) : (text || "");
+  }
   function detectKind(file) {
     const name = (file.name || "").toLowerCase();
     if (name.endsWith(".pdf") || file.type === "application/pdf") return "pdf";
@@ -1802,7 +1806,7 @@
 
     try {
       const body = {
-        brd: state.brd,
+        brd: plainBrd(state.brd),
         modules: state.modulesSelected,
         project_key: "",
         platform: state.platform,
@@ -2280,7 +2284,7 @@
       const res = await fetchWithTimeout(
         FUNCTION_BASE + "/analyze",
         { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brd: state.brd, modules: list }) },
+          body: JSON.stringify({ brd: plainBrd(state.brd), modules: list }) },
         30_000, "Spec analysis"
       );
       const data = await res.json();
@@ -2536,6 +2540,7 @@
 
   // Hooks for implement.js (kept small on purpose).
   window.LiftOff = {
+    plainBrd,
     FUNCTION_BASE,
     state,
     fetchWithTimeout,
