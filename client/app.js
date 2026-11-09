@@ -665,13 +665,71 @@
     const result = await window.mammoth.extractRawText({ arrayBuffer: buf });
     return result.value || "";
   }
+  // A .txt saved by TextEdit in rich-text mode (or a .rtf) is RTF markup: font and list tables,
+  // control words and \'hh escapes. Sent as is, that markup crowds out the BRD and the Zia Agent
+  // rejects it, so keep only the document's text.
+  function rtfToText(rtf) {
+    const SKIP = /^(fonttbl|colortbl|expandedcolortbl|stylesheet|listtable|listoverridetable|info|pict|header|footer|headerl|headerr|footerl|footerr|themedata|colorschememapping|latentstyles|datastore|xmlnstbl|rsidtbl|generator|filetbl|revtbl|object|fldinst)$/;
+    const CP1252 = { 0x80: 8364, 0x82: 8218, 0x83: 402, 0x84: 8222, 0x85: 8230, 0x86: 8224, 0x87: 8225, 0x88: 710,
+      0x89: 8240, 0x8a: 352, 0x8b: 8249, 0x8c: 338, 0x8e: 381, 0x91: 8216, 0x92: 8217, 0x93: 8220, 0x94: 8221,
+      0x95: 8226, 0x96: 8211, 0x97: 8212, 0x98: 732, 0x99: 8482, 0x9a: 353, 0x9b: 8250, 0x9c: 339, 0x9e: 382, 0x9f: 376 };
+    const stack = [];
+    let skip = false, uc = 1, pendingSkip = 0, out = "", i = 0;
+    const emit = (t) => {
+      if (skip) return;
+      if (pendingSkip > 0) { pendingSkip -= t.length; return; }   // fallback chars after \uN
+      out += t;
+    };
+    while (i < rtf.length) {
+      const c = rtf[i];
+      if (c === "{") {
+        stack.push({ skip, uc });
+        if (rtf.startsWith("{\\*", i)) skip = true;                 // unknown destination
+        i++;
+      } else if (c === "}") {
+        const st = stack.pop() || { skip: false, uc: 1 };
+        skip = st.skip; uc = st.uc; i++;
+      } else if (c === "\\") {
+        const n = rtf[i + 1];
+        if (n === "\\" || n === "{" || n === "}") { emit(n); i += 2; }
+        else if (n === "\n" || n === "\r") { emit("\n"); i += 2; }
+        else if (n === "~") { emit(" "); i += 2; }
+        else if (n === "-" || n === "_") { emit(n === "_" ? "-" : ""); i += 2; }
+        else if (n === "'") {
+          const code = parseInt(rtf.substr(i + 2, 2), 16);
+          if (!isNaN(code)) emit(String.fromCharCode(code === 0xa0 ? 32 : (CP1252[code] || code)));
+          i += 4;
+        } else {
+          const m = /^([a-zA-Z]+)(-?\d+)? ?/.exec(rtf.slice(i + 1, i + 40));
+          if (!m) { i += 2; continue; }
+          i += 1 + m[0].length;
+          const w = m[1], arg = m[2] === undefined ? null : parseInt(m[2], 10);
+          if (SKIP.test(w)) skip = true;
+          else if (w === "par" || w === "line" || w === "row") emit("\n");
+          else if (w === "tab" || w === "cell") emit("\t");
+          else if (w === "uc" && arg !== null) uc = arg;
+          else if (w === "u" && arg !== null) { emit(String.fromCharCode(arg < 0 ? arg + 65536 : arg)); pendingSkip = uc; }
+          else if (w === "bullet") emit("•");
+          else if (w === "emdash") emit("—");
+          else if (w === "endash") emit("–");
+          else if (w === "lquote" || w === "rquote") emit("'");
+          else if (w === "ldblquote" || w === "rdblquote") emit('"');
+        }
+      } else {
+        if (c !== "\n" && c !== "\r") emit(c);
+        i++;
+      }
+    }
+    return out.replace(/ /g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
   function detectKind(file) {
     const name = (file.name || "").toLowerCase();
     if (name.endsWith(".pdf") || file.type === "application/pdf") return "pdf";
     if (name.endsWith(".docx") ||
         file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
     if (name.endsWith(".md") || name.endsWith(".markdown")) return "md";
-    if (name.endsWith(".txt") || (file.type || "").startsWith("text/")) return "txt";
+    if (name.endsWith(".txt") || name.endsWith(".rtf") || (file.type || "").startsWith("text/")
+        || file.type === "application/rtf") return "txt";
     return null;
   }
 
@@ -679,7 +737,7 @@
     if (!file) return;
     const kind = detectKind(file);
     if (!kind) {
-      setStatus("input", "Unsupported file type. Use .txt, .md, .pdf, or .docx.", "err");
+      setStatus("input", "Unsupported file type. Use .txt, .md, .rtf, .pdf, or .docx.", "err");
       els.fileMeta.textContent = "";
       state.brd = "";
       state.fileName = "";
@@ -694,6 +752,7 @@
       if (kind === "pdf") text = await parsePdf(file);
       else if (kind === "docx") text = await parseDocx(file);
       else text = await readFileAsText(file);
+      if (/^\s*\{\\rtf/.test(text || "")) text = rtfToText(text);
       text = (text || "").trim();
       if (!text) throw new Error("File parsed but no text was extracted.");
       state.brd = text;
