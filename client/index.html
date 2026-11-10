@@ -152,25 +152,25 @@
 
       <nav class="tabs" role="tablist" aria-label="LiftOff workflow" hidden>
         <button class="tab active" data-tab="input" data-step="1" id="tab-input" role="tab" aria-selected="true" aria-controls="panel-input">
-          <span class="tab-num">1</span><span class="tab-label">Brief</span><span class="tab-state"></span>
+          <span class="tab-num">1</span><span class="tab-label">Brief<small class="tab-sub" id="tab-sub-input"></small></span><span class="tab-state"></span>
         </button>
         <button class="tab locked" data-tab="cases" data-step="2" id="tab-cases" role="tab" aria-selected="false" aria-controls="panel-cases">
-          <span class="tab-num">2</span><span class="tab-label">Cases</span><span class="tab-state"></span>
+          <span class="tab-num">2</span><span class="tab-label">Cases<small class="tab-sub" id="tab-sub-cases"></small></span><span class="tab-state"></span>
         </button>
         <button class="tab locked" data-tab="execute" data-step="3" id="tab-execute" role="tab" aria-selected="false" aria-controls="panel-execute">
-          <span class="tab-num">3</span><span class="tab-label">Run</span><span class="tab-state"></span>
+          <span class="tab-num">3</span><span class="tab-label">Run<small class="tab-sub" id="tab-sub-execute"></small></span><span class="tab-state"></span>
         </button>
         <button class="tab locked" data-tab="push" data-step="4" id="tab-push" role="tab" aria-selected="false" aria-controls="panel-push">
-          <span class="tab-num">4</span><span class="tab-label">Hand off</span><span class="tab-state"></span>
+          <span class="tab-num">4</span><span class="tab-label">Hand off<small class="tab-sub" id="tab-sub-push"></small></span><span class="tab-state"></span>
         </button>
         <button class="tab locked" data-tab="blueprint" data-step="2" id="tab-blueprint" role="tab" aria-selected="false" aria-controls="panel-blueprint" hidden>
-          <span class="tab-num">2</span><span class="tab-label">Blueprint</span><span class="tab-state"></span>
+          <span class="tab-num">2</span><span class="tab-label">Blueprint<small class="tab-sub" id="tab-sub-blueprint"></small></span><span class="tab-state"></span>
         </button>
         <button class="tab locked" data-tab="build" data-step="3" id="tab-build" role="tab" aria-selected="false" aria-controls="panel-build" hidden>
-          <span class="tab-num">3</span><span class="tab-label">Build</span><span class="tab-state"></span>
+          <span class="tab-num">3</span><span class="tab-label">Build<small class="tab-sub" id="tab-sub-build"></small></span><span class="tab-state"></span>
         </button>
         <button class="tab locked" data-tab="verify" data-step="4" id="tab-verify" role="tab" aria-selected="false" aria-controls="panel-verify" hidden>
-          <span class="tab-num">4</span><span class="tab-label">Verify</span><span class="tab-state"></span>
+          <span class="tab-num">4</span><span class="tab-label">Verify<small class="tab-sub" id="tab-sub-verify"></small></span><span class="tab-state"></span>
         </button>
       </nav>
 
@@ -225,6 +225,12 @@
           </div>
         </div>
 
+        <section class="now" id="now-input" aria-label="What to do now"></section>
+        <section class="card readiness" id="ready-input" aria-label="Readiness"></section>
+
+        <details class="fold" id="fold-input">
+          <summary><span class="pill mute">details</span> Connection, output options, requirements and modules <span class="chev">Show details</span></summary>
+          <div class="fold-body">
         <div class="tiles tiles-3">
           <!-- CRM connection -->
           <div class="tile auth-panel" id="auth-panel">
@@ -248,7 +254,6 @@
                 </div>
               </div>
               <div class="crm-info-actions">
-                <button id="auth-switch-org-btn" class="ghost small">Switch org</button>
                 <button id="auth-logout-btn" class="ghost small">Disconnect</button>
               </div>
             </div>
@@ -349,6 +354,9 @@
 
           </section>
         </div>
+
+          </div>
+        </details>
 
         <p id="status-input" class="status" aria-live="polite"></p>
       </div>
@@ -561,11 +569,20 @@
             <button id="impl-run-all" class="primary" disabled>Run everything &rarr;</button>
           </div>
         </div>
+        <section class="now" id="now-blueprint" aria-label="What to do now"></section>
+        <section id="needs-blueprint" aria-label="Needs you"></section>
+        <section id="plain-blueprint" aria-label="What will be built"></section>
         <section id="impl-progress" class="ip" hidden aria-live="polite" aria-label="Blueprint generation progress"></section>
+
+        <details class="fold" id="fold-blueprint">
+          <summary><span class="pill mute">details</span> Full tables — data model, automation, questions, plan — with IDs, API names and editing <span class="chev">Show details</span></summary>
+          <div class="fold-body">
         <div id="impl-org" class="impl-org" hidden></div>
         <div id="impl-warnings"></div>
         <div id="impl-toolbar" class="impl-toolbar" hidden></div>
         <div id="impl-spec"></div>
+          </div>
+        </details>
 
         <div class="impl-review-bar card" id="impl-review-bar" hidden>
           <label class="impl-approve">
@@ -601,7 +618,13 @@
             <button id="impl-to-verify" class="primary" disabled>Continue to Verify &rarr;</button>
           </div>
         </div>
-        <div id="impl-run"></div>
+        <section class="now" id="now-build" aria-label="What to do now"></section>
+        <section id="timeline-build" aria-label="Progress"></section>
+        <section id="needs-build" aria-label="Needs you"></section>
+        <details class="fold" id="fold-build">
+          <summary><span class="pill mute">details</span> Every API call, dry-run table, run log, retry and skip controls <span class="chev">Show details</span></summary>
+          <div class="fold-body"><div id="impl-run"></div></div>
+        </details>
         <div class="actions page-foot">
           <button id="impl-back-blueprint" class="ghost">&larr; Back</button>
         </div>
@@ -625,7 +648,14 @@
             <button id="impl-verify" class="primary" disabled>Check the org</button>
           </div>
         </div>
-        <div id="impl-verify-area"></div>
+        <section class="now" id="now-verify" aria-label="What to do now"></section>
+        <section id="score-verify" aria-label="Results"></section>
+        <section id="needs-verify" aria-label="Needs you"></section>
+        <section id="plain-verify" aria-label="What passed"></section>
+        <details class="fold" id="fold-verify">
+          <summary><span class="pill mute">details</span> Full check table, every UAT case, hand-off and promotion <span class="chev">Show details</span></summary>
+          <div class="fold-body"><div id="impl-verify-area"></div></div>
+        </details>
         <div class="actions page-foot">
           <button id="impl-back-build" class="ghost">&larr; Back</button>
         </div>

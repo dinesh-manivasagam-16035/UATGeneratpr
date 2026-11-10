@@ -218,6 +218,7 @@
       els.warnings.innerHTML = "";
       els.meta.textContent = "";
       refreshButtons();
+      renderGuideBlueprint();
       return;
     }
     const m = impl.meta || {};
@@ -250,6 +251,7 @@
     els.reviewBar.hidden = false;
     els.approve.checked = !!impl.spec.approved;
     refreshButtons();
+    renderGuideBlueprint();
   }
 
   function needsAttention(section, o) {
@@ -470,6 +472,7 @@
     els.run.innerHTML = tiles + `<section class="card impl-plan"><div class="card-head"><h3>${esc(title)}</h3><span class="muted">Order: modules → fields → roles → rules</span></div>
       <div class="table-wrap"><table class="lo-table"><thead><tr><th class="col-narrow">#</th><th class="col-narrow">Item</th><th>What</th><th>API call</th><th>Result</th><th>Detail</th></tr></thead>
       <tbody>${rows}</tbody></table></div>${warn}</section>` + rpaQueueHtml(rpa);
+    renderGuideBuild();
   }
 
   // The click-path queue for items without a create API, with the "done" tick per item.
@@ -496,6 +499,202 @@
       }).join("") + "</ul></section>";
   }
 
+
+  // ---- Guided layer: one "Now" card, exceptions only, plain language (tables stay under "Show details") ----
+  const G = L.guide;
+
+  function plainItem(section, o) {
+    const t = (o.data_type || "") + (o.length ? `, ${o.length} characters` : "");
+    switch (section) {
+      case "fields": return { title: o.label, sub: `${t} field on ${o.module}${o.required ? ", required" : ", optional"}${(o.picklist_values || []).length ? " · values: " + o.picklist_values.join(", ") : ""}` };
+      case "modules": return { title: `${o.plural_label} module`, sub: o.kind === "standard" ? "standard module, already present" : "new custom module" + (o.purpose ? " · " + o.purpose : "") };
+      case "workflows": {
+        const when = o.trigger || o.trigger_type || "";
+        const cond = o.criteria || (o.conditions || []).map((c) => `${c.field} ${String(c.comparator || "").replace(/_/g, " ")} ${c.value || ""}`.trim()).join(" and ");
+        const acts = [].concat((o.field_updates || []).map((f) => `set ${f.field} to “${Array.isArray(f.value) ? f.value.join(", ") : f.value}”`),
+          (o.tasks || []).map((x) => `create task “${x.subject}”`), (o.other_actions || []), (!(o.field_updates || []).length && !(o.tasks || []).length ? (o.actions || []) : []));
+        return { title: `${when}${cond && !/all records/i.test(cond) ? `, when ${cond.replace(/^when\s+/i, "")}` : ""}: ${acts.join("; ") || o.name}`, sub: `${o.type || "workflow"} rule “${o.name}” on ${o.module}` };
+      }
+      case "validation_rules": return { title: `Reject a ${o.module} record when ${o.condition}`, sub: `validation rule “${o.name}”${o.error_message ? ` · “${o.error_message}”` : ""}` };
+      case "functions": return { title: o.purpose || o.name, sub: `Deluge function ${o.name}${o.trigger ? " · " + o.trigger : ""}` };
+      case "roles": return { title: `Role “${o.name}”`, sub: `${o.reports_to ? "reports to " + o.reports_to : ""}${(o.permissions || []).length ? " · " + o.permissions.join(", ") : ""}` };
+      case "layouts": return { title: `Layout “${o.name}” for ${o.module}`, sub: (o.sections || []).map((x) => x.name).join(", ") };
+      default: return { title: describe(section, o), sub: section };
+    }
+  }
+  function laneTag(o) {
+    if (o.include === false) return { tag: "excluded", tone: "mute", off: true };
+    if (o.status === "exists") return { tag: "already there", tone: "ok" };
+    if (o.executor === "api") return { tag: "API", tone: "info" };
+    if (o.executor === "partial") return { tag: "API + you", tone: "warn" };
+    if (o.executor === "rpa") return { tag: "you, in Setup", tone: "warn" };
+    return { tag: "—", tone: "mute" };
+  }
+
+  function renderGuideBlueprint() {
+    if (!impl.spec) {
+      G.now("blueprint", { tone: "wait", kicker: "First", title: "No blueprint yet", text: "Go back to Brief and generate one from the BRD.", primary: { label: "← Back to Brief", href: "input" } });
+      G.needs("blueprint", []); G.plain("blueprint", []); G.sub("blueprint", ""); return;
+    }
+    const spec = impl.spec;
+    const connected = !!(impl.meta && impl.meta.org && impl.meta.org.connected) || !!L.state.crmAuthorized;
+    const qs = (spec.open_questions || []).filter((q) => q.include !== false);
+    const open = qs.filter((q) => !(q.answer || "").trim());
+    const blocking = open.filter((q) => q.blocking);
+    const conflicts = [];
+    for (const [sct] of SECTIONS) if (sct !== "plan" && sct !== "open_questions") (spec[sct] || []).forEach((o) => { if (o.include !== false && o.status === "conflict") conflicts.push([sct, o]); });
+    const dupes = (spec.functions || []).filter((f) => f.include === false && /duplicat/i.test(f.note || ""));
+    // Needs you: unanswered questions (inline answer), conflicts, excluded duplicates
+    const needs = [];
+    open.forEach((q) => needs.push({ title: q.question, text: `${esc(q.context || "")}${q.blocking ? ' <span class="pill err">blocking</span>' : ""}`,
+      html: `<div class="needs-answer"><input type="text" class="impl-answer" data-id="${esc(q.id)}" placeholder="Your answer" aria-label="Answer ${esc(q.id)}" /><button type="button" class="ghost small" data-guide-act="skip-q" data-id="${esc(q.id)}" title="Leave it out of the build">Skip</button></div>` }));
+    conflicts.forEach(([sct, o]) => needs.push({ title: `${describe(sct, o)} conflicts with the org`, text: esc(o.note || "The org already has something with this name but a different shape."),
+      html: `<button type="button" class="ghost small" data-open-fold="fold-blueprint">Open in table</button>` }));
+    dupes.forEach((f) => needs.push({ title: `Deluge function “${f.name}” duplicates a workflow rule`, text: "LiftOff excluded it. Keep it excluded unless you want code instead of a rule.",
+      html: `<button type="button" class="ghost small" data-guide-act="include" data-id="${esc(f.id)}">Include anyway</button>` }));
+    if (!guideSkipNeeds) G.needs("blueprint", needs);
+    // Plain list of what will be built
+    const rows = [];
+    for (const [sct] of SECTIONS) if (sct !== "plan" && sct !== "open_questions") (spec[sct] || []).forEach((o) => {
+      if (sct === "modules" && o.status === "exists") return;
+      const pi = plainItem(sct, o), lane = laneTag(o);
+      rows.push({ tag: lane.tag, tone: lane.tone, off: lane.off, title: pi.title, sub: pi.sub, right: (o.req_ids || []).join(", ") });
+    });
+    const cov = impl.meta && impl.meta.coverage;
+    G.plain("blueprint", rows, "What will be built · in plain words", cov && cov.requirements ? { text: cov.covered === cov.requirements ? `covers all ${cov.requirements} requirement(s)` : `covers ${cov.covered} of ${cov.requirements} requirement(s)`, tone: cov.covered === cov.requirements ? "ok" : "warn" } : null);
+    // Now
+    const api = rows.filter((r) => !r.off && (r.tag === "API" || r.tag === "API + you")).length;
+    const ui = rows.filter((r) => !r.off && r.tag !== "API" && r.tag !== "already there").length;
+    const canRun = !blocking.length && connected;
+    if (spec.approved) {
+      G.now("blueprint", { tone: "act", kicker: "Approved", title: "Run everything",
+        text: `Dry run, then build ${api} item(s) through the API, read the org back and run the acceptance tests. You'll confirm once before anything is written.${ui ? ` ${ui} item(s) have no API and will wait for you in Setup.` : ""}`,
+        primary: { label: "Run everything →", proxy: "impl-run-all", disabled: !connected, title: connected ? "" : "Connect CRM first" },
+        secondary: { label: "Un-approve", act: "unapprove" } });
+    } else {
+      G.now("blueprint", { tone: open.length || conflicts.length ? "wait" : "act", kicker: "Now",
+        title: open.length ? `Answer ${open.length} question(s), then approve and run` : conflicts.length ? `Resolve ${conflicts.length} conflict(s), then approve and run` : "Approve and run",
+        text: `The blueprint has ${rows.filter((r) => !r.off).length} item(s): ${api} built through the API${ui ? `, ${ui} for you in Setup` : ""}. Approving starts the run; you confirm once before anything is written to ${esc((impl.meta && impl.meta.org && impl.meta.org.name) || "the org")}.`,
+        primary: { label: "Approve & run everything →", act: "approve-run", disabled: !canRun, title: blocking.length ? `${blocking.length} blocking question(s) first` : !connected ? "Connect CRM first" : "" },
+        secondary: { label: "Approve only", act: "approve", disabled: !!blocking.length },
+        note: blocking.length ? `${blocking.length} blocking question(s) must be answered` : open.length ? "Unanswered questions aren't blocking — you can still approve" : "" });
+    }
+    G.sub("blueprint", spec.approved ? "approved" : open.length ? `${open.length} question(s) open` : `${rows.filter((r) => !r.off).length} items`);
+  }
+
+  function renderGuideBuild() {
+    const el = document.getElementById("timeline-build");
+    const dry = impl.dryRun, b = impl.build;
+    const org = (dry && dry.org) || null;
+    if (!impl.spec || !impl.spec.approved) {
+      G.now("build", { tone: "wait", kicker: "First", title: "Approve the blueprint", text: "Build starts from an approved blueprint.", primary: { label: "← Blueprint", href: "blueprint" } });
+      if (el) el.innerHTML = ""; G.needs("build", []); G.sub("build", ""); return;
+    }
+    const steps = dry ? buildSteps() : [];
+    const queue = (dry && dry.rpa_queue) || [];
+    const pending = queue.filter((q) => { const f = findItem(q.id); return !(f && f.item.manual_done); });
+    const conflicts = dry ? (dry.results || []).filter((r) => r.result === "conflict" || r.result === "failed") : [];
+    const done = b ? b.steps.filter((x) => x.status === "done" || x.status === "skipped").length : 0;
+    const stuck = b ? b.steps.find((x) => x.status === "failed" || x.status === "conflict") : null;
+    // Timeline
+    const rows = [];
+    const row = (state, title, sub, right) => rows.push({ state, title, sub, right });
+    if (!dry) row("wait", "Dry run", "Compare every item with the org and preview the API calls. Nothing is written.", "next");
+    else row("ok", "Dry run", conflicts.length ? `${conflicts.length} conflict(s) — see below` : `${(dry.results || []).length} item(s) compared · no conflicts`, "done");
+    if (dry && org) row(org.sandbox ? (b ? "ok" : "wait") : "fail", "Confirmed by you", org.sandbox ? (b ? `allowed writing to ${org.name}` : "you'll type the org name or id") : `${org.name} can't be written to`, b ? "done" : "");
+    if (b) b.steps.forEach((st) => row(st.status === "done" ? "ok" : st.status === "running" ? "run" : st.status === "failed" || st.status === "conflict" ? "fail" : st.status === "skipped" ? "skip" : "wait", (st.status === "done" ? "Created " : st.status === "running" ? "Creating " : "Create ") + st.label, st.detail || `${st.method} ${st.path.replace(/^\/crm\/v\d+/, "")}`, st.at ? "done" : st.status));
+    else steps.forEach((st) => row("wait", "Create " + st.label, `${st.method} ${st.path.replace(/^\/crm\/v\d+/, "")}`, "next"));
+    row(impl.verify ? "ok" : "wait", "Read the org back", "Confirms each item exists as specified.", impl.verify ? "done" : "next");
+    row(impl.uat ? "ok" : "wait", "Run UAT", "Test records are created, checked and deleted.", impl.uat ? "done" : "next");
+    if (el) el.innerHTML = `<div class="card"><ul class="tl">${rows.map((r) => `<li><span class="dot ${r.state}">${r.state === "ok" ? "✓" : r.state === "fail" ? "!" : ""}</span><div class="t"><strong>${esc(r.title)}</strong><span>${esc(r.sub || "")}</span></div><span class="r">${esc(r.right || "")}</span></li>`).join("")}</ul></div>`;
+    // Needs you
+    const needs = [];
+    if (stuck) needs.push({ title: `Step failed: ${stuck.label}`, text: esc(stuck.detail || ""), html: `<button type="button" class="ghost small" data-open-fold="fold-build">Retry or skip</button>` });
+    if (dry && org && !org.sandbox) needs.push({ title: `${org.name} can't be written to`, text: `Not a sandbox. Add id <code>${esc(org.id)}</code>${org.zgid ? ` or <code>${esc(org.zgid)}</code>` : ""} to IMPL_BUILD_ORG_IDS, or set IMPL_ALLOW_PRODUCTION=1 on uat_generator, redeploy, then dry-run again.` });
+    conflicts.forEach((r) => needs.push({ title: `${r.label} conflicts with the org`, text: esc(r.detail || ""), html: `<button type="button" class="ghost small" data-open-fold="fold-build">Open in table</button>` }));
+    pending.forEach((q) => needs.push({ title: q.label, text: "No API for this — do it in CRM Setup:", steps: q.steps || [],
+      html: `<button type="button" class="ghost small" data-rpa="script">Guided runner</button><button type="button" class="primary small" data-guide-act="manual-done" data-id="${esc(q.id)}">I've done this</button>` }));
+    G.needs("build", needs, { title: needs.length && pending.length === needs.length ? "Needs you · in CRM Setup" : "Needs you" });
+    // Now
+    if (!dry) G.now("build", { tone: "act", kicker: "Now", title: "Run everything", text: "Dry run, build via API, verify and UAT in one go. You confirm once before anything is written.", primary: { label: "Run everything →", proxy: "impl-run-all" }, secondary: { label: "Dry run only", proxy: "impl-dry-run" } });
+    else if (running) G.now("build", { tone: "run", kicker: `Running · ${done} of ${b.steps.length}`, title: "Building…", text: "Creating items through the CRM API, one at a time." });
+    else if (stuck) G.now("build", { tone: "fail", kicker: "Paused", title: `Step ${b.steps.indexOf(stuck) + 1} failed`, text: esc(stuck.detail || ""), primary: { label: "Open the table to retry or skip", act: "open-fold", disabled: false }, note: "Then continue from Verify." });
+    else if (b && b.finishedAt) G.now("build", { tone: "ok", kicker: "Built", title: `${done} item(s) created in ${esc(b.org.name)}${pending.length ? ` · ${pending.length} for you in Setup` : ""}`, text: pending.length ? "Do the Setup item(s) below, tick them, then verify." : "Everything the API can do is done.", primary: { label: "Continue to Verify →", proxy: "impl-to-verify" } });
+    else if (conflicts.length || (org && !org.sandbox)) G.now("build", { tone: "wait", kicker: "Paused", title: conflicts.length ? `${conflicts.length} conflict(s) to resolve` : "This org can't be written to", text: "See “Needs you” below, then dry-run again.", primary: { label: "Dry run again", proxy: "impl-dry-run" } });
+    else G.now("build", { tone: "act", kicker: "Ready", title: `Apply ${steps.length} item(s) to ${esc(org ? org.name : "the org")}`, text: "You'll confirm once; then each item is created through the API and the run continues to Verify and UAT.", primary: { label: "Apply & continue →", proxy: "impl-run-all" }, secondary: { label: "Apply only", proxy: "impl-apply" } });
+    if (stuck) { const bt = document.querySelector('#now-build .btn-now.primary'); if (bt) bt.dataset.openFold = "fold-build"; }
+    G.sub("build", b ? `${done} built${pending.length ? ` · ${pending.length} for you` : ""}` : dry ? `${steps.length} to build` : "");
+  }
+
+  function renderGuideVerify() {
+    const score = document.getElementById("score-verify");
+    if (!impl.verify && !impl.uat) {
+      G.now("verify", { tone: impl.build && impl.build.finishedAt ? "act" : "wait", kicker: "Now", title: "Check the org and run the acceptance tests", text: "Reads the org back against the blueprint, then writes UAT cases from the acceptance criteria and runs them.", primary: { label: "Check & run UAT →", act: "verify-uat", disabled: !(impl.spec && impl.spec.approved) } });
+      if (score) score.innerHTML = ""; G.needs("verify", []); G.plain("verify", []); G.sub("verify", ""); return;
+    }
+    const c = impl.verify ? verifyCounts() : null;
+    const u = uatCounts();
+    const total = u.passed + u.failed + u.notRun;
+    const checksTotal = impl.verify ? (impl.verify.results || []).length : 0;
+    const ready = checksOk() && uatOk();
+    if (score) score.innerHTML = `<div class="score">
+      <div class="s"><b style="color:${!c ? "#5B6B7F" : c.differ || c.missing ? "var(--err)" : "var(--ok)"}">${c ? `${c.match + (c.byHand || 0)} / ${checksTotal}` : "—"}</b><span>items match the blueprint${c && c.byHand ? ` (${c.byHand} confirmed by you)` : ""}</span></div>
+      <div class="s"><b style="color:${!impl.uat ? "#5B6B7F" : u.failed ? "var(--err)" : "var(--ok)"}">${impl.uat ? `${u.passed} / ${total}` : "—"}</b><span>acceptance tests passed${impl.uat && !impl.uat.live ? " (dry run)" : ""}</span></div>
+      <div class="s"><b style="color:${ready ? "var(--ok)" : "var(--warn)"}">${ready ? "Ready" : "Locked"}</b><span>${ready ? "sign-off can be handed over" : "sign-off unlocks when every check and test passes"}</span></div></div>`;
+    // Needs you: failed tests, missing/different items, unverifiable
+    const needs = [];
+    if (impl.verify) (impl.verify.results || []).forEach((r) => {
+      const v = effectiveVerdict(r);
+      if (v === "missing" || v === "mismatch") needs.push({ title: `${r.label} ${v === "missing" ? "is missing from the org" : "differs from the blueprint"}`, text: `${esc(r.expected || "")}${r.actual ? " → found: " + esc(r.actual) : ""}`,
+        html: r.fixable && verifyOrg() && verifyOrg().sandbox ? `<button type="button" class="primary small" data-fix="${esc(r.id)}">Fix in org</button>` : `<button type="button" class="ghost small" data-open-fold="fold-verify">Details</button>` });
+      else if (v === "unverifiable") needs.push({ title: `${r.label} can't be read through the API`, text: "Confirm it exists in Setup.", html: `<button type="button" class="primary small" data-guide-act="manual-done" data-id="${esc(r.id)}">I've checked it</button>` });
+    });
+    if (impl.uat) impl.uat.cases.forEach((tc, i) => { const er = tc.execution_result || {}; if (er.status === "fail") needs.push({ title: `${tc.id || "UAT-" + (i + 1)} · ${tc.title}`, text: esc(typeof (er.first_failure || er.reason) === "string" ? (er.first_failure || er.reason) : JSON.stringify(er.first_failure || er.reason || "")), html: `<button type="button" class="ghost small" data-verify-act="uat-push">Report as bug</button>` }); });
+    G.needs("verify", needs, { title: needs.length ? "Needs a decision" : "", tone: "err" });
+    // Plain: what passed
+    const rows = [];
+    if (impl.uat) impl.uat.cases.forEach((tc) => { const er = tc.execution_result || {}; if (er.status === "pass") rows.push({ tag: "pass", tone: "ok", title: tc.title, sub: (tc.req_ids || []).join(", ") }); });
+    if (impl.verify) (impl.verify.results || []).forEach((r) => { const v = effectiveVerdict(r); if (v === "present" || v === "confirmed") rows.push({ tag: v === "confirmed" ? "confirmed" : "match", tone: "ok", title: r.label, sub: v === "confirmed" ? "confirmed by you" : "exists in the org as specified" }); });
+    G.plain("verify", rows, "What passed", impl.uat && impl.uat.live ? { text: "test records were deleted afterwards", tone: "ok" } : null);
+    // Now
+    if (ready) G.now("verify", { tone: "ok", kicker: "Done", title: "Everything matches and all tests pass", text: "Hand the package over for Zoho's sandbox deployment, or push the cases to Zoho Projects for the team.", primary: { label: "Promote to production", act: "promote" }, secondary: { label: "Push to Zoho Projects", act: "uat-push" } });
+    else G.now("verify", { tone: "fail", kicker: "Needs a decision", title: `${u.failed ? `${u.failed} of ${total} acceptance test(s) failed` : c && (c.differ || c.missing) ? `${c.differ + c.missing} item(s) don't match the org` : `${needs.length} item(s) to confirm`}`, text: "Fix the items below and run again, or report them to the team.", primary: { label: impl.uat ? "Run UAT again" : "Check again", act: impl.uat ? "uat-run" : "recheck" }, secondary: { label: "Push to Zoho Projects", act: "uat-push", disabled: !impl.uat } });
+    G.sub("verify", impl.uat ? `${u.passed}/${total} tests pass` : impl.verify ? `${c.match}/${checksTotal} match` : "");
+  }
+
+  // Guide actions (buttons inside Now / Needs cards)
+  document.addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-guide-act]");
+    if (!t || !impl.spec) return;
+    const act = t.dataset.guideAct, id = t.dataset.id;
+    if (act === "approve" || act === "approve-run") {
+      if (blockingOpen().length) return;
+      setApproved(true); els.approve.checked = true; render();
+      if (act === "approve-run") runAll();
+    } else if (act === "unapprove") { setApproved(false); els.approve.checked = false; render(); }
+    else if (act === "skip-q" && id) { const f = findItem(id); if (f) { f.item.include = false; changed(); render(); } }
+    else if (act === "include" && id) { const f = findItem(id); if (f) { f.item.include = true; f.item.note = ""; changed(); render(); } }
+    else if (act === "manual-done" && id) { const f = findItem(id); if (f) { f.item.manual_done = { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() }; save(); renderBuild(); renderVerify(); refreshButtons(); } }
+    else if (act === "verify-uat") { L.showTab("verify"); if (await verify()) await runUat(); }
+    else if (act === "uat-run") runUat();
+    else if (act === "recheck") verify();
+    else if (act === "uat-push") pushUat();
+    else if (act === "promote") { const b = document.querySelector('#impl-verify-area [data-verify-act="promote"]'); if (b) b.click(); }
+  });
+  // Answers typed in the Needs card update the spec (same class as the table's textareas)
+  document.addEventListener("input", (e) => {
+    const t = e.target;
+    if (!t.classList || !t.classList.contains("impl-answer") || t.closest("#impl-spec")) return;
+    const f = findItem(t.dataset.id);
+    if (!f) return;
+    f.item.answer = t.value; if (impl.spec.approved) changed(); save();
+    els.toolbar.innerHTML = toolbarHtml(); refreshButtons();
+    // keep focus: only refresh the Now card, not the Needs list
+    renderGuideNowOnly();
+  });
+  let guideSkipNeeds = false;
+  function renderGuideNowOnly() { guideSkipNeeds = true; try { renderGuideBlueprint(); } finally { guideSkipNeeds = false; } }
+
   function refreshButtons() {
     const have = !!impl.spec;
     const connected = !!(impl.meta && impl.meta.org && impl.meta.org.connected) || !!L.state.crmAuthorized;
@@ -521,6 +720,7 @@
     L.setTabState("blueprint", { locked: !have, done: approved });
     L.setTabState("build", { locked: !approved, done: buildDone });
     L.setTabState("verify", { locked: !dryDone, done: checksOk() && uatOk() });
+    if (!impl.dryRun && !impl.build) renderGuideBuild();
     els.toBuild.disabled = !approved;
     els.toVerify.disabled = !dryDone || running;
     if (els.runAll) {
@@ -1030,6 +1230,7 @@
     impl.applied = b ? { org: b.org, rpa_queue: queue,
       results: b.steps.map((st) => ({ id: st.id, result: { done: "created", skipped: "skipped", running: "running",
         waiting: "waiting", failed: "failed", conflict: "conflict" }[st.status], detail: st.detail })) } : null;
+    renderGuideBuild();
   }
 
   els.run.addEventListener("click", async (e) => {
@@ -1168,6 +1369,7 @@
     skipped: "Skipped during build", unverifiable: "Check by hand" };
 
   function renderVerify() {
+    renderGuideVerify();
     if (!impl.verify && !impl.uat) { els.verifyArea.innerHTML = ""; return; }
     let html = "";
     const org = verifyOrg();
@@ -1263,6 +1465,7 @@
         </div>
         <div id="impl-promote" hidden></div></section>`;
     els.verifyArea.innerHTML = html;
+    renderGuideVerify();
   }
 
   function rank(tc) {

@@ -344,6 +344,87 @@
     };
   })();
 
+  // ---- Guide: one "Now" card, exceptions-only "Needs you", plain-language lists, sidebar sub-status ----
+  // Buttons inside guide cards proxy the real (hidden) controls: data-proxy="<element id>".
+  const guide = {
+    now(panel, o) {
+      const el = document.getElementById("now-" + panel);
+      if (!el) return;
+      if (!o) { el.hidden = true; el.innerHTML = ""; return; }
+      el.hidden = false;
+      el.className = "now tone-" + (o.tone || "act");
+      const btn = (b, primary) => !b ? "" : `<button type="button" class="btn-now ${primary ? "primary" : "ghost"}" ${b.proxy ? `data-proxy="${escapeHtml(b.proxy)}"` : ""} ${b.act ? `data-guide-act="${escapeHtml(b.act)}"` : ""} ${b.href ? `data-tab="${escapeHtml(b.href)}"` : ""} ${b.disabled ? "disabled" : ""} ${b.title ? `title="${escapeHtml(b.title)}"` : ""}>${escapeHtml(b.label)}</button>`;
+      el.innerHTML = `<div class="now-text"><div class="now-k">${escapeHtml(o.kicker || "Now")}</div><h2>${escapeHtml(o.title || "")}</h2>${o.text ? `<p>${o.text}</p>` : ""}</div>
+        <div class="now-actions">${btn(o.primary, true)}${btn(o.secondary, false)}${o.note ? `<span class="now-note">${escapeHtml(o.note)}</span>` : ""}</div>`;
+    },
+    needs(panel, items, opts) {
+      const el = document.getElementById("needs-" + panel);
+      if (!el) return;
+      if (!items || !items.length) { el.hidden = true; el.innerHTML = ""; return; }
+      el.hidden = false;
+      const tone = (opts && opts.tone) || "warn";
+      el.innerHTML = `<div class="needs tone-${tone}"><div class="needs-hd"><span class="pill ${tone}">${items.length}</span> ${escapeHtml((opts && opts.title) || "Needs you")}</div>
+        ${items.map((it) => `<div class="needs-row"><div class="needs-q"><strong>${escapeHtml(it.title)}</strong>${it.text ? `<span>${it.text}</span>` : ""}${it.steps ? `<ol>${it.steps.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ol>` : ""}</div><div class="needs-act">${it.html || ""}</div></div>`).join("")}</div>`;
+    },
+    readiness(panel, checks) {
+      const el = document.getElementById("ready-" + panel);
+      if (!el) return;
+      el.innerHTML = checks.map((c) => `<div class="check"><span class="tick ${c.ok ? "ok" : "todo"}">${c.ok ? "✓" : ""}</span><span class="check-text"><strong>${escapeHtml(c.label)}</strong>${c.text ? " — " + c.text : ""}</span>${c.action ? `<button type="button" class="ghost small" data-proxy="${escapeHtml(c.action.proxy || "")}" data-open-fold="${escapeHtml(c.action.fold || "")}">${escapeHtml(c.action.label)}</button>` : ""}</div>`).join("");
+    },
+    plain(panel, rows, title, badge) {
+      const el = document.getElementById("plain-" + panel);
+      if (!el) return;
+      if (!rows || !rows.length) { el.hidden = true; el.innerHTML = ""; return; }
+      el.hidden = false;
+      el.innerHTML = `<div class="card"><div class="card-head"><h3>${escapeHtml(title)}</h3>${badge ? `<span class="pill ${badge.tone || "mute"}">${escapeHtml(badge.text)}</span>` : ""}</div>
+        <ul class="plain">${rows.map((r) => `<li class="${r.off ? "is-off" : ""}"><span class="pill ${r.tone || "mute"}">${escapeHtml(r.tag)}</span><div class="what"><strong>${escapeHtml(r.title)}</strong>${r.sub ? `<span>${escapeHtml(r.sub)}</span>` : ""}</div>${r.right ? `<span class="pill mute">${escapeHtml(r.right)}</span>` : ""}</li>`).join("")}</ul></div>`;
+    },
+    sub(tab, text) { const el = document.getElementById("tab-sub-" + tab); if (el) el.textContent = text || ""; },
+  };
+  // Proxy clicks from guide cards to the real controls; "Show details" links open the fold.
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-proxy], [data-open-fold], [data-tab]");
+    if (!t || t.closest(".tab")) return;
+    if (t.dataset.openFold) { const d = document.getElementById(t.dataset.openFold); if (d) { d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); } }
+    if (t.dataset.proxy) { const real = document.getElementById(t.dataset.proxy); if (real && !real.disabled) real.click(); }
+    if (t.dataset.tab && !t.dataset.proxy) showTab(t.dataset.tab);
+  });
+
+  // Brief: readiness + the one thing to do.
+  function renderGuideBrief() {
+    const crmOk = !!state.crmAuthorized;
+    const brdOk = !!state.brd;
+    const impl = state.mode === "impl";
+    const scopeOk = impl ? true : state.platform === "creator" ? !!getCreatorFormLink() : state.modulesSelected.length > 0;
+    const reqs = brdOk ? extractRequirements(state.brd).filter((r) => r.id !== "ACCEPT") : [];
+    guide.readiness("input", [
+      { ok: crmOk, label: crmOk ? "CRM connected" : "CRM not connected",
+        text: crmOk ? `${escapeHtml(state.crmOrgName || "Zoho CRM")}${state.modulesAvailable.length ? ` · ${state.modulesAvailable.length} modules loaded` : ""}` : "needed to compare with the org and to build",
+        action: crmOk ? null : { label: "Connect", proxy: "auth-login-btn" } },
+      { ok: brdOk, label: brdOk ? "BRD loaded" : "No BRD yet",
+        text: brdOk ? `${escapeHtml(state.fileName || "document")}${reqs.length ? " · " + reqs.slice(0, 3).map((r) => escapeHtml(r.id + (r.title ? " " + r.title : ""))).join(" · ") + (reqs.length > 3 ? ` · +${reqs.length - 3} more` : "") : ""}` : "drop a .txt, .md, .rtf, .pdf or .docx below",
+        action: { label: brdOk ? "Replace" : "Choose file", proxy: "brd-file" } },
+      { ok: scopeOk, label: "Scope",
+        text: (state.modulesSelected.length ? escapeHtml(state.modulesSelected.join(", ")) : impl ? "modules inferred from the BRD" : "pick up to 5 modules") + ` · Output: ${impl ? "Implementation blueprint" : "UAT cases"}`,
+        action: { label: "Edit", fold: "fold-input" } },
+    ]);
+    const ready = brdOk && scopeOk && !els.generate.disabled;
+    guide.now("input", {
+      tone: ready ? "act" : "wait",
+      kicker: ready ? "Now" : "First",
+      title: ready ? (impl ? `Generate the blueprint from ${state.fileName || "the BRD"}` : `Write UAT cases from ${state.fileName || "the BRD"}`)
+        : !brdOk ? "Load the requirements document" : !crmOk && impl ? "Connect CRM, then generate the blueprint" : "Pick the modules in scope",
+      text: ready ? (impl
+          ? `LiftOff reads ${reqs.length ? reqs.length + " requirement(s)" : "the BRD"}, asks the agent for the data model and automation, and checks every item against ${escapeHtml(state.crmOrgName || "the org")}. About a minute. Nothing is written to CRM.`
+          : `Cases are written per module from the BRD's requirements and acceptance criteria. Nothing is sent to CRM until you run them.`)
+        : !brdOk ? "Drop the BRD file into the box below, or build one with the template builder." : "",
+      primary: ready ? { label: impl ? "Generate blueprint →" : "Generate UAT cases →", proxy: "generate-btn" } : (!brdOk ? { label: "Choose file", proxy: "brd-file" } : { label: "Show options", act: "", disabled: false, proxy: "", title: "" }),
+      note: ready && !crmOk && impl ? "CRM isn't connected: items won't be compared with the org and nothing can be built." : "",
+    });
+    if (!ready && brdOk) { const b = document.querySelector('#now-input .btn-now.primary'); if (b) b.dataset.openFold = "fold-input"; }
+    guide.sub("input", brdOk ? (state.fileName || "BRD loaded") : "");
+  }
+
   const PANEL_BUSY_TITLE = {
     input: "Reading the document", cases: "Writing UAT cases", execute: "Running cases in Zoho CRM",
     push: "Pushing to Zoho Projects", blueprint: "Drafting the implementation blueprint", build: "Building", verify: "Verifying",
@@ -2055,7 +2136,6 @@
         state.crmOrgName = data.current.org_name || "";
         if (!state.crmEmail && data.current.email) state.crmEmail = data.current.email;
       }
-      if (!wasAuthorized) offerOrgPickerIfNeeded();
       // Auto-load modules whenever CRM is authorized (page load or first connect).
       if (state.platform === "creator") {
         loadCreatorForms();
@@ -2068,6 +2148,7 @@
   }
 
   function updateAuthUI() {
+    setTimeout(renderGuideBrief, 0);
     const loggedIn  = !!state.authUser;
     const loginScreen = document.getElementById("login-screen");
     const tabsNav     = document.querySelector("nav.tabs");
@@ -2105,14 +2186,12 @@
       if (els.authUserInfo)     els.authUserInfo.hidden     = false;
       if (els.authOrgName)      els.authOrgName.textContent = "Zoho Creator";
       if (els.authEmail)        els.authEmail.textContent   = state.authEmailId || state.authUser || "";
-      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = true;
       if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = true;
     } else {
       if (els.authOrgName) els.authOrgName.textContent = state.crmOrgName || "Zoho CRM";
       if (els.authEmail)   els.authEmail.textContent   = state.crmEmail   || state.authUser || "";
       if (els.authLoginArea) els.authLoginArea.hidden = state.crmAuthorized;
       if (els.authUserInfo)  els.authUserInfo.hidden  = !state.crmAuthorized;
-      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = false;   // an org id can always be entered by hand
       if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = false;
     }
 
@@ -2297,14 +2376,6 @@
       });
     }
 
-    // "Switch org" — open org picker (orgs were loaded in checkAuthStatus).
-    if (els.authSwitchOrgBtn) {
-      els.authSwitchOrgBtn.addEventListener("click", async () => {
-        // Refresh org list in case it's stale.
-        if (!state.crmOrgList.length) await fetchOrgList();
-        openOrgPicker();
-      });
-    }
 
     // Disconnect CRM (clears CRM token only, does not sign out of Catalyst)
     if (els.authLogoutBtn) {
@@ -2483,6 +2554,7 @@
   }
 
   function refreshGenerateAvailability() {
+    setTimeout(renderGuideBrief, 0);
     if (state.mode === "impl") {
       els.generate.disabled = !state.brd;   // modules are optional: the spec can propose new ones
     } else if (state.platform === "creator") {
@@ -2769,6 +2841,7 @@
   window.LiftOff = {
     plainBrd,
     busy,
+    guide,
     FUNCTION_BASE,
     state,
     fetchWithTimeout,
@@ -3499,6 +3572,7 @@
 
   // First-paint
   renderModuleChips();
+  renderGuideBrief();
 
   if (isLocal) {
     console.info("UAT Generator running in local mode. API base: " + FUNCTION_BASE);
