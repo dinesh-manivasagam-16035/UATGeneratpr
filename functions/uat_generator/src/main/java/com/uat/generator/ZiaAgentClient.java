@@ -97,6 +97,34 @@ public final class ZiaAgentClient {
         }
     }
 
+    /**
+     * Sends a query exactly as given (no INSTRUCTIONS/REQUEST wrapper, no retries) and returns the
+     * reply text. For the /zia/probe diagnostic. Throws with the API's own error text on failure.
+     */
+    public static String raw(String query) throws Exception {
+        if (!configured()) throw new IllegalStateException("Zia Agent isn't configured (ZIA_AGENT_* variables).");
+        ObjectNode body = MAPPER.createObjectNode();
+        body.put("query", query);
+        body.putObject("systemArgs");
+        try {
+            return post(body, query.length(), false).content;
+        } catch (Transient t) {
+            throw new RuntimeException(t.getMessage());
+        }
+    }
+
+    /** Where calls go and which ids are set, for diagnostics (no secrets). */
+    static ObjectNode describe() {
+        ObjectNode o = MAPPER.createObjectNode();
+        o.put("url", agentUrl());
+        o.put("accounts", accountsBase());
+        o.put("org_id_set", notEmpty(env("ZIA_AGENT_ORG_ID")));
+        o.put("agent_id_set", notEmpty(env("ZIA_AGENT_ID")));
+        String v = env("ZIA_AGENT_VERSION_ID");
+        o.put("version_id", notEmpty(v) ? v.trim().substring(0, Math.min(6, v.trim().length())) + "…(" + v.trim().length() + " chars)" : "(not set)");
+        return o;
+    }
+
     /** Waits (seconds) between retries of a transient error; set by the impl_worker job. null = no retries. */
     static volatile int[] retrySecOverride = null;
 

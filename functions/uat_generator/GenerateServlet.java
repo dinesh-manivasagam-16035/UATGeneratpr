@@ -54,6 +54,7 @@ public class GenerateServlet implements CatalystAdvancedIOHandler {
         if (path.startsWith("/functions/list")) return new com.uat.generator.FunctionsListServlet();
         if (path.startsWith("/functions/run"))  return new com.uat.generator.FunctionRunServlet();
         if (path.startsWith("/health"))        return new com.uat.generator.HealthServlet();
+        if (path.startsWith("/zia/probe"))     return new com.uat.generator.ZiaProbeServlet();
         return null;
     }
 }
