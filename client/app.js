@@ -259,6 +259,26 @@
   // ---- Busy overlay: one blocking progress panel for every long action ----
   // start(title, detail) → update({title?, detail?, fraction?, steps?}) → end().
   // While shown, the app is inert (no clicks, no keyboard) so a job can't be disturbed.
+  // Orbit loader: a progress ring around a pulsing core with two satellites.
+  // orbitHtml(size) → markup; orbitSet(el, fraction | null | "done") → state.
+  const RING_C = 150.8; // 2π · r24 in the 56-unit viewBox
+  function orbitHtml(size) {
+    return `<span class="lo-orbit indeterminate" style="--sz:${size || 56}px" aria-hidden="true">
+      <svg class="ring" viewBox="0 0 56 56"><circle class="track" cx="28" cy="28" r="24"/><circle class="prog" cx="28" cy="28" r="24"/></svg>
+      <span class="halo"></span><span class="core"></span><span class="sat"></span><span class="sat s2"></span><span class="pct"></span></span>`;
+  }
+  function orbitSet(el, v) {
+    if (!el) return;
+    el.classList.remove("is-done");
+    if (v === "done") { el.classList.remove("indeterminate", "has-pct"); el.classList.add("is-done"); return; }
+    if (typeof v === "number") {
+      const f = Math.max(0, Math.min(1, v));
+      el.classList.remove("indeterminate"); el.classList.add("has-pct");
+      el.querySelector(".prog").style.strokeDashoffset = String(RING_C * (1 - f));
+      el.querySelector(".pct").textContent = Math.round(f * 100) + "%";
+    } else { el.classList.add("indeterminate"); el.classList.remove("has-pct"); el.querySelector(".prog").style.strokeDashoffset = ""; }
+  }
+
   const busy = (() => {
     let el = null, t0 = 0, timer = null, depth = 0;
     const fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -271,10 +291,10 @@
       el.setAttribute("aria-live", "polite");
       el.hidden = true;
       el.innerHTML = `<div class="busy-card">
-          <div class="busy-head"><span class="busy-spinner" aria-hidden="true"></span>
+          <div class="busy-head">${orbitHtml(64)}
             <div><h3 class="busy-title"></h3><p class="busy-detail"></p></div>
             <span class="busy-time" title="Elapsed">0:00</span></div>
-          <div class="busy-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+          <div class="busy-barrow"><div class="busy-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div><span class="busy-pct"></span></div>
           <ol class="busy-steps" hidden></ol>
           <p class="busy-note">Working in the background. Other controls are locked until this finishes.</p>
         </div>`;
@@ -284,16 +304,24 @@
     function render(o) {
       const b = ensure();
       if (o.title !== undefined) b.querySelector(".busy-title").textContent = o.title;
-      if (o.detail !== undefined) b.querySelector(".busy-detail").textContent = o.detail || "";
-      const bar = b.querySelector(".busy-bar");
+      if (o.detail !== undefined) {
+        const d = b.querySelector(".busy-detail");
+        if (d.textContent !== (o.detail || "")) { d.classList.add("swap"); setTimeout(() => { d.textContent = o.detail || ""; d.classList.remove("swap"); }, 160); }
+      }
+      const bar = b.querySelector(".busy-bar"), orbit = b.querySelector(".lo-orbit"), pct = b.querySelector(".busy-pct");
       if (typeof o.fraction === "number") {
         bar.classList.remove("indeterminate");
-        bar.setAttribute("aria-valuenow", String(Math.round(o.fraction * 100)));
-        bar.firstElementChild.style.width = Math.max(3, Math.min(100, Math.round(o.fraction * 100))) + "%";
+        const p = Math.round(o.fraction * 100);
+        bar.setAttribute("aria-valuenow", String(p));
+        bar.firstElementChild.style.width = Math.max(3, Math.min(100, p)) + "%";
+        pct.textContent = p + "%";
+        orbitSet(orbit, o.fraction);
       } else if (o.fraction === null) {
         bar.classList.add("indeterminate");
         bar.removeAttribute("aria-valuenow");
         bar.firstElementChild.style.width = "";
+        pct.textContent = "";
+        orbitSet(orbit, null);
       }
       if (o.steps !== undefined) {
         const list = b.querySelector(".busy-steps");
@@ -302,8 +330,8 @@
         list.innerHTML = steps.map((st) => {
           const state = st.state || st.status || "waiting";
           const right = state === "done" ? (st.items != null ? `${st.items} item(s)` : st.result || "done")
-            : state === "working" || state === "running" ? "working…" : state === "failed" ? "failed" : state === "skipped" ? "skipped" : "queued";
-          return `<li class="is-${escapeHtml(state)}"><span class="busy-dot"></span><span class="busy-step-label">${escapeHtml(st.label || st.title || "")}</span>
+            : state === "working" || state === "running" ? "working" : state === "failed" ? "failed" : state === "skipped" ? "skipped" : "queued";
+          return `<li class="is-${escapeHtml(state)}"><span class="lo-dot is-${escapeHtml(state)}"></span><span class="busy-step-label">${escapeHtml(st.label || st.title || "")}</span>
             <span class="busy-step-state">${escapeHtml(right)}</span>${st.error ? `<span class="busy-step-err">${escapeHtml(st.error)}</span>` : ""}</li>`;
         }).join("");
         const done = steps.filter((st) => ["done", "failed", "skipped"].includes(st.state || st.status)).length;
@@ -731,6 +759,27 @@
   function getPanel(name) {
     return Array.from(els.panels).find((p) => p.dataset.panel === name);
   }
+  // Sidebar collapse: icons only, remembered per browser.
+  (function initSidebarToggle() {
+    const app = document.querySelector(".app"), btn = document.getElementById("side-toggle");
+    if (!app || !btn) return;
+    const apply = (collapsed) => {
+      app.classList.toggle("side-collapsed", collapsed);
+      btn.setAttribute("aria-expanded", String(!collapsed));
+      btn.title = btn.ariaLabel = collapsed ? "Expand sidebar" : "Collapse sidebar";
+      document.querySelectorAll(".sidebar .tab").forEach((t) => {
+        const lbl = t.querySelector(".tab-label");
+        const name = lbl ? (lbl.childNodes[0] && lbl.childNodes[0].textContent || "").trim() : "";
+        if (collapsed && name) t.title = name; else t.removeAttribute("title");
+      });
+      try { localStorage.setItem("liftoff.sideCollapsed", collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+    };
+    let saved = false;
+    try { saved = localStorage.getItem("liftoff.sideCollapsed") === "1"; } catch (e) { /* ignore */ }
+    apply(saved);
+    btn.addEventListener("click", () => apply(!app.classList.contains("side-collapsed")));
+  })();
+
   function setTabState(name, opts) {
     const btn = getTabBtn(name);
     if (!btn) return;
@@ -2067,7 +2116,27 @@
   //   5. CRM status shown in Brief tab auth panel (Connect / Connected)
   // Local dev bypasses auth entirely.
 
+  // Sign-in page boot sequence: orbit loader + three ticking steps.
+  const boot = {
+    init() {
+      const o = document.getElementById("login-orbit");
+      if (o && !o.firstElementChild) { o.innerHTML = orbitHtml(52); }
+    },
+    step(name, state, note) {
+      const li = document.querySelector(`#boot-steps li[data-boot="${name}"]`);
+      if (!li) return;
+      const dot = li.querySelector(".lo-dot");
+      dot.className = "lo-dot" + (state ? " is-" + state : "");
+      li.className = state ? "is-" + state : "";
+      li.querySelector("small").textContent = note || (state === "working" ? "checking" : state === "done" ? "ok" : state === "failed" ? "failed" : "");
+      const done = document.querySelectorAll("#boot-steps li.is-done").length;
+      orbitSet(document.querySelector("#login-orbit .lo-orbit"), done >= 3 ? "done" : done ? done / 3 : null);
+    },
+    msg(t) { const m = document.getElementById("login-msg"); if (m) m.textContent = t; },
+  };
+
   async function checkAuthStatus() {
+    boot.init();
     if (isLocal) {
       state.authUser      = "dev@localhost (local)";
       state.authFullName  = "Local Dev";
@@ -2078,15 +2147,24 @@
       return;
     }
     try {
+      boot.step("session", "working"); boot.msg("Checking your session…");
       const result = await window.catalyst.auth.isUserAuthenticated();
       const u = result.content;
       state.authEmailId  = u.email_id || "";
       state.authFullName = ((u.first_name || "") + " " + (u.last_name || "")).trim();
       state.authUser = state.authEmailId || state.authFullName || "Zoho User";
+      boot.step("session", "done", state.authEmailId || "signed in");
+      boot.step("crm", "working"); boot.msg("Checking the CRM connection…");
       await checkCrmStatus();
+      boot.step("crm", "done", state.crmAuthorized ? "connected" : "not connected yet");
+      boot.step("org", "working"); boot.msg(state.crmAuthorized ? "Loading your org and modules…" : "Opening LiftOff…");
       // Also pull the org list so the picker is ready without an extra round-trip.
       await fetchOrgList();
+      boot.step("org", "done", state.crmOrgName || (state.crmAuthorized ? "ready" : "connect in Brief"));
+      boot.msg("Ready");
+      await new Promise((r) => setTimeout(r, 350));
     } catch {
+      boot.step("session", "failed", "sign in");
       // Not authenticated — hide spinner, show sign-in button.
       state.authUser      = null;
       state.crmAuthorized = false;
@@ -2378,22 +2456,64 @@
 
 
     // Disconnect CRM (clears CRM token only, does not sign out of Catalyst)
-    if (els.authLogoutBtn) {
-      els.authLogoutBtn.addEventListener("click", async () => {
-        try {
-          if (!isLocal) {
-            await fetch(FUNCTION_BASE + "/crm/disconnect", { method: "POST", credentials: "include" });
+    async function disconnectCrm() {
+      try {
+        if (!isLocal) {
+          await fetch(FUNCTION_BASE + "/crm/disconnect", { method: "POST", credentials: "include" });
+        }
+      } catch (e) { /* best-effort */ }
+      state.crmAuthorized = false;
+      state.crmOrgName = "";
+      state.crmEmail = "";
+      state.crmOrgList = [];
+      state.modulesAvailable = [];
+      state.orgChosen = false;
+      updateAuthUI();
+      renderModuleChips();
+      if (els.modulesStatus) els.modulesStatus.textContent = "";
+    }
+    if (els.authLogoutBtn) els.authLogoutBtn.addEventListener("click", disconnectCrm);
+
+    // Account menu on the sidebar chip: who is connected, change org, disconnect & reconnect.
+    if (els.headerUserChip) {
+      const chip = els.headerUserChip;
+      chip.setAttribute("role", "button"); chip.setAttribute("tabindex", "0"); chip.setAttribute("aria-haspopup", "menu"); chip.setAttribute("aria-expanded", "false");
+      const menu = document.createElement("div");
+      menu.className = "acct-menu"; menu.hidden = true; menu.setAttribute("role", "menu");
+      chip.appendChild(menu);
+      const close = () => { menu.hidden = true; chip.setAttribute("aria-expanded", "false"); };
+      const open = () => {
+        const org = state.crmOrgName || "Zoho CRM";
+        const cur = (state.crmOrgList || []).find((o) => o.org_name === state.crmOrgName) || {};
+        menu.innerHTML = `<div class="acct-head"><strong>${escapeHtml(org)}</strong><span>${escapeHtml(state.crmEmail || state.authEmailId || state.authUser || "")}</span>${cur.id ? `<span style="margin-top:4px">Org ID <code>${escapeHtml(String(cur.id))}</code>${cur.zgid ? ` · ZGID <code>${escapeHtml(String(cur.zgid))}</code>` : ""}</span>` : ""}</div>
+          <button type="button" role="menuitem" data-acct="org"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg><span>Change org<small>Enter another Org ID on the same connection</small></span></button>
+          <button type="button" role="menuitem" data-acct="reconnect"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg><span>Disconnect &amp; reconnect<small>Sign in to CRM again and choose the org</small></span></button>
+          <button type="button" role="menuitem" class="danger" data-acct="disconnect"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18.4 5.6a9 9 0 1 1-12.8 0M12 2v10"/></svg><span>Disconnect CRM<small>Clears the CRM token; you stay signed in to LiftOff</small></span></button>`;
+        menu.hidden = false; chip.setAttribute("aria-expanded", "true");
+      };
+      chip.addEventListener("click", async (e) => {
+        const item = e.target.closest("[data-acct]");
+        if (item) {
+          e.stopPropagation(); close();
+          const act = item.dataset.acct;
+          if (act === "org") {
+            if (!state.crmAuthorized) { showToast("Connect CRM first", "warn", 3000); return; }
+            renderOrgList(); openOrgPicker(); return;
           }
-        } catch (e) { /* best-effort */ }
-        state.crmAuthorized = false;
-        state.crmOrgName = "";
-        state.crmEmail = "";
-        state.crmOrgList = [];
-        state.modulesAvailable = [];
-        updateAuthUI();
-        renderModuleChips();
-        if (els.modulesStatus) els.modulesStatus.textContent = "";
+          if (act === "disconnect") { await disconnectCrm(); showToast("CRM disconnected", "ok", 2500); showTab("input"); return; }
+          if (act === "reconnect") {
+            busy.start("Reconnecting to Zoho CRM", "Clearing the current connection, then opening Zoho sign-in…");
+            await disconnectCrm();
+            if (isLocal) { busy.end(); showToast("Local mode: nothing to reconnect", "info", 3000); return; }
+            window.location.href = FUNCTION_BASE + "/crm/auth";
+            return;
+          }
+          return;
+        }
+        if (menu.hidden) open(); else close();
       });
+      chip.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chip.click(); } if (e.key === "Escape") close(); });
+      document.addEventListener("click", (e) => { if (!chip.contains(e.target)) close(); });
     }
 
     initOrgPicker();
@@ -2839,6 +2959,7 @@
 
   // Hooks for implement.js (kept small on purpose).
   window.LiftOff = {
+    orbitHtml, orbitSet,
     plainBrd,
     busy,
     guide,

@@ -66,9 +66,15 @@
       <p class="login-tagline">Your UAT, on autopilot.</p>
 
       <!-- Spinner while isUserAuthenticated() checks the session -->
-      <div id="login-auth-loader" class="login-loader">
+      <div id="login-auth-loader" class="login-loader" aria-live="polite">
         <div class="mini-spinner"></div>
-        <span>Checking your session…</span>
+        <span id="login-orbit"></span>
+        <span class="login-msg" id="login-msg">Checking your session…</span>
+        <ol class="boot-steps" id="boot-steps">
+          <li data-boot="session"><span class="lo-dot is-working"></span>Zoho session<small>checking</small></li>
+          <li data-boot="crm"><span class="lo-dot"></span>CRM connection<small></small></li>
+          <li data-boot="org"><span class="lo-dot"></span>Your org &amp; modules<small></small></li>
+        </ol>
       </div>
 
       <!-- Sign-in button — shown after auth check fails -->
@@ -107,6 +113,7 @@
 
   <div class="app" id="app">
     <aside class="sidebar" aria-label="LiftOff">
+      <button class="side-toggle" id="side-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg></button>
       <div class="brand">
         <span class="brand-mark liftoff-icon-wrap" aria-hidden="true">
         <svg class="liftoff-svg" viewBox="0 0 44 44" width="36" height="36" xmlns="http://www.w3.org/2000/svg">

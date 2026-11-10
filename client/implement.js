@@ -602,14 +602,18 @@
     if (!dry) row("wait", "Dry run", "Compare every item with the org and preview the API calls. Nothing is written.", "next");
     else row("ok", "Dry run", conflicts.length ? `${conflicts.length} conflict(s) — see below` : `${(dry.results || []).length} item(s) compared · no conflicts`, "done");
     if (dry && org) row(org.sandbox ? (b ? "ok" : "wait") : "fail", "Confirmed by you", org.sandbox ? (b ? `allowed writing to ${org.name}` : "you'll type the org name or id") : `${org.name} can't be written to`, b ? "done" : "");
-    if (b) b.steps.forEach((st) => row(st.status === "done" ? "ok" : st.status === "running" ? "run" : st.status === "failed" || st.status === "conflict" ? "fail" : st.status === "skipped" ? "skip" : "wait", (st.status === "done" ? "Created " : st.status === "running" ? "Creating " : "Create ") + st.label, st.detail || `${st.method} ${st.path.replace(/^\/crm\/v\d+/, "")}`, st.at ? "done" : st.status));
+    if (b) b.steps.forEach((st) => row(st.status === "done" ? "ok" : st.status === "running" ? "run" : st.status === "failed" || st.status === "conflict" ? "fail" : st.status === "skipped" ? "skip" : "wait", (st.status === "done" ? "Created " : st.status === "running" ? "Creating " : "Create ") + st.label, (st.status === "failed" || st.status === "conflict") && st.failure && st.failure.cause ? st.failure.cause : (st.detail || `${st.method} ${st.path.replace(/^\/crm\/v\d+/, "")}`), st.status === "done" ? "done" : st.status));
     else steps.forEach((st) => row("wait", "Create " + st.label, `${st.method} ${st.path.replace(/^\/crm\/v\d+/, "")}`, "next"));
     row(impl.verify ? "ok" : "wait", "Read the org back", "Confirms each item exists as specified.", impl.verify ? "done" : "next");
     row(impl.uat ? "ok" : "wait", "Run UAT", "Test records are created, checked and deleted.", impl.uat ? "done" : "next");
     if (el) el.innerHTML = `<div class="card"><ul class="tl">${rows.map((r) => `<li><span class="dot ${r.state}">${r.state === "ok" ? "✓" : r.state === "fail" ? "!" : ""}</span><div class="t"><strong>${esc(r.title)}</strong><span>${esc(r.sub || "")}</span></div><span class="r">${esc(r.right || "")}</span></li>`).join("")}</ul></div>`;
     // Needs you
     const needs = [];
-    if (stuck) needs.push({ title: `Step failed: ${stuck.label}`, text: esc(stuck.detail || ""), html: `<button type="button" class="ghost small" data-open-fold="fold-build">Retry or skip</button>` });
+    if (stuck) {
+      const f = stuck.failure || {};
+      needs.push({ title: `Step failed: ${stuck.label}`, text: esc(f.cause || stuck.detail || ""), steps: f.checks || [],
+        html: `<button type="button" class="primary small" data-guide-act="retry-stuck">Retry</button><button type="button" class="ghost small" data-open-fold="fold-build">See the log</button><button type="button" class="ghost small" data-guide-act="skip-stuck">Skip</button>` });
+    }
     if (dry && org && !org.sandbox) needs.push({ title: `${org.name} can't be written to`, text: `Not a sandbox. Add id <code>${esc(org.id)}</code>${org.zgid ? ` or <code>${esc(org.zgid)}</code>` : ""} to IMPL_BUILD_ORG_IDS, or set IMPL_ALLOW_PRODUCTION=1 on uat_generator, redeploy, then dry-run again.` });
     conflicts.forEach((r) => needs.push({ title: `${r.label} conflicts with the org`, text: esc(r.detail || ""), html: `<button type="button" class="ghost small" data-open-fold="fold-build">Open in table</button>` }));
     pending.forEach((q) => needs.push({ title: q.label, text: "No API for this — do it in CRM Setup:", steps: q.steps || [],
@@ -618,11 +622,11 @@
     // Now
     if (!dry) G.now("build", { tone: "act", kicker: "Now", title: "Run everything", text: "Dry run, build via API, verify and UAT in one go. You confirm once before anything is written.", primary: { label: "Run everything →", proxy: "impl-run-all" }, secondary: { label: "Dry run only", proxy: "impl-dry-run" } });
     else if (running) G.now("build", { tone: "run", kicker: `Running · ${done} of ${b.steps.length}`, title: "Building…", text: "Creating items through the CRM API, one at a time." });
-    else if (stuck) G.now("build", { tone: "fail", kicker: "Paused", title: `Step ${b.steps.indexOf(stuck) + 1} failed`, text: esc(stuck.detail || ""), primary: { label: "Open the table to retry or skip", act: "open-fold", disabled: false }, note: "Then continue from Verify." });
+    else if (stuck) G.now("build", { tone: "fail", kicker: "Paused", title: `Step ${b.steps.indexOf(stuck) + 1} failed: ${stuck.label}`, text: esc((stuck.failure && stuck.failure.cause) || stuck.detail || ""), primary: { label: "Retry this step", act: "retry-stuck" }, secondary: { label: "See why & the log", act: "open-fold" }, note: "Or skip it in “Needs you” and continue." });
     else if (b && b.finishedAt) G.now("build", { tone: "ok", kicker: "Built", title: `${done} item(s) created in ${esc(b.org.name)}${pending.length ? ` · ${pending.length} for you in Setup` : ""}`, text: pending.length ? "Do the Setup item(s) below, tick them, then verify." : "Everything the API can do is done.", primary: { label: "Continue to Verify →", proxy: "impl-to-verify" } });
     else if (conflicts.length || (org && !org.sandbox)) G.now("build", { tone: "wait", kicker: "Paused", title: conflicts.length ? `${conflicts.length} conflict(s) to resolve` : "This org can't be written to", text: "See “Needs you” below, then dry-run again.", primary: { label: "Dry run again", proxy: "impl-dry-run" } });
     else G.now("build", { tone: "act", kicker: "Ready", title: `Apply ${steps.length} item(s) to ${esc(org ? org.name : "the org")}`, text: "You'll confirm once; then each item is created through the API and the run continues to Verify and UAT.", primary: { label: "Apply & continue →", proxy: "impl-run-all" }, secondary: { label: "Apply only", proxy: "impl-apply" } });
-    if (stuck) { const bt = document.querySelector('#now-build .btn-now.primary'); if (bt) bt.dataset.openFold = "fold-build"; }
+    if (stuck) { const bt = document.querySelector('#now-build .btn-now.ghost'); if (bt) bt.dataset.openFold = "fold-build"; }
     G.sub("build", b ? `${done} built${pending.length ? ` · ${pending.length} for you` : ""}` : dry ? `${steps.length} to build` : "");
   }
 
@@ -675,6 +679,12 @@
     else if (act === "skip-q" && id) { const f = findItem(id); if (f) { f.item.include = false; changed(); render(); } }
     else if (act === "include" && id) { const f = findItem(id); if (f) { f.item.include = true; f.item.note = ""; changed(); render(); } }
     else if (act === "manual-done" && id) { const f = findItem(id); if (f) { f.item.manual_done = { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() }; save(); renderBuild(); renderVerify(); refreshButtons(); } }
+    else if (act === "retry-stuck" || act === "skip-stuck") {
+      const b = impl.build; const i = b ? b.steps.findIndex((x) => x.status === "failed" || x.status === "conflict") : -1;
+      if (i < 0) return;
+      if (act === "skip-stuck") { b.steps[i].status = "skipped"; b.log.push({ at: new Date().toISOString(), id: b.steps[i].id, label: b.steps[i].label, result: "skipped_by_user" }); save(); return runFrom(i + 1); }
+      return runFrom(i);
+    }
     else if (act === "verify-uat") { L.showTab("verify"); if (await verify()) await runUat(); }
     else if (act === "uat-run") runUat();
     else if (act === "recheck") verify();
@@ -1160,8 +1170,10 @@
         }
         st.at = new Date().toISOString();
         st.detail = [r.detail, r.follow_up].filter(Boolean).join(" — ");
+        st.failure = r.failure || null;
+        st.requests = r.requests || (r.request ? [r.request] : null);
         st.status = ["created", "updated", "skipped"].includes(r.result) ? "done" : r.result === "conflict" ? "conflict" : "failed";
-        b.log.push({ at: st.at, id: st.id, label: st.label, result: r.result, detail: st.detail, request: r.request || null });
+        b.log.push({ at: st.at, id: st.id, label: st.label, result: r.result, detail: st.detail, request: r.request || null, requests: r.requests || null, failure: r.failure || null });
         if (st.status === "done") {
           const f = findItem(st.id);
           if (f && r.result !== "skipped") f.item.status = "created";
@@ -1191,6 +1203,27 @@
     return blockingOpen().filter((q) => (q.req_ids || []).some((r) => ids.has(r))).map((q) => q.id);
   }
 
+  // "Why it failed": plain cause, what to check, and the exact request/response for the log.
+  function failurePanel(st, i) {
+    const f = st.failure || {};
+    const reqs = st.requests || (f.request ? [f.request] : []);
+    const last = reqs.length ? reqs[reqs.length - 1] : f.request;
+    const checks = (f.checks || []).map((c) => `<li>${esc(c)}</li>`).join("");
+    const code = (v) => `<pre class="fail-code">${esc(typeof v === "string" ? v : JSON.stringify(v, null, 2))}</pre>`;
+    return `<details class="fail-why" ${f.cause ? "open" : ""}>
+      <summary><span class="pill err">why it failed</span> ${esc(f.cause || "See the response from CRM")}<span class="chev">Show ▾</span></summary>
+      <div class="fail-body">
+        ${checks ? `<div class="fail-sec"><div class="fail-k">What to check</div><ol>${checks}</ol></div>` : ""}
+        ${last ? `<div class="fail-sec"><div class="fail-k">Request sent</div><div class="muted mono">${esc((last.method || "") + " " + (last.path || ""))}</div>${last.body ? code(last.body) : ""}</div>` : ""}
+        ${f.response ? `<div class="fail-sec"><div class="fail-k">Response · HTTP ${esc(String(f.response.status || ""))}</div>${code(f.response.body)}</div>` : ""}
+        ${reqs.length > 1 ? `<div class="muted" style="font-size:12.5px">${reqs.length - 1} earlier call(s) in this step succeeded${reqs.slice(0, -1).some((r) => r.created_id) ? ` (ids ${esc(reqs.slice(0, -1).map((r) => r.created_id).filter(Boolean).join(", "))}) — they are kept; Retry re-uses or re-creates them` : ""}.</div>` : ""}
+        <div class="cell-actions" style="margin-top:8px">
+          <button class="ghost small" type="button" data-step-act="copyfail" data-i="${i}">Copy details for support</button>
+          ${f.api_docs ? `<span class="muted" style="font-size:12.5px">Reference: ${esc(f.api_docs)}</span>` : ""}
+        </div>
+      </div></details>`;
+  }
+
   function renderBuild() {
     const b = impl.build;
     if (!b && impl.dryRun) { renderRun("Dry run — nothing was changed", impl.dryRun, "apply"); return; }
@@ -1218,7 +1251,7 @@
               <button class="ghost small" type="button" data-step-act="skip" data-i="${i}">Skip</button></div>` : "";
           return `<tr class="${stuck ? "is-err" : ""}"><td class="muted">${i + 1}</td>
             <td><strong>${esc(st.label)}</strong><div class="muted">${esc(st.id)}${f && (f.item.req_ids || []).length ? " · " + esc(f.item.req_ids.join(", ")) : ""}</div>
-              ${st.detail ? `<div class="${stuck ? "impl-err-text" : "muted"}">${esc(st.detail)}</div>` : ""}</td>
+              ${st.detail ? `<div class="${stuck ? "impl-err-text" : "muted"}">${esc(st.detail)}</div>` : ""}${stuck ? failurePanel(st, i) : ""}</td>
             <td><code>${esc(st.method + " " + st.path.replace(/^\/crm\/v\d+/, ""))}</code>${st.calls > 1 ? `<div class="muted">+ ${st.calls - 1} action call(s) first</div>` : ""}</td>
             <td>${pill("step-" + st.status, st.status)}${actions}</td></tr>`;
         }).join("")
@@ -1256,6 +1289,15 @@
     const i = Number(t.dataset.i);
     const st = impl.build.steps[i];
     if (!st) return;
+    if (act === "copyfail") {
+      const f = st.failure || {};
+      const txt = [`LiftOff build step failed: ${st.label} (${st.id})`, `Org: ${impl.build.org.name} (${impl.build.org.id})`, `At: ${st.at}`, `Error: ${st.detail}`,
+        f.cause ? `Cause: ${f.cause}` : "", (f.checks || []).length ? "Checks:\n" + f.checks.map((c, k) => `  ${k + 1}. ${c}`).join("\n") : "",
+        "Requests:", JSON.stringify(st.requests || f.request || null, null, 2), "Response:", JSON.stringify(f.response || null, null, 2)].filter(Boolean).join("\n");
+      try { await navigator.clipboard.writeText(txt); L.showToast("Failure details copied", "ok", 2000); }
+      catch (err) { download(`failed-step-${st.id}.txt`, txt); }
+      return;
+    }
     if (act === "retry") return runFrom(i);
     if (act === "skip") {
       st.status = "skipped";

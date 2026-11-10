@@ -127,6 +127,7 @@ public class ImplementApplyServlet extends HttpServlet {
                         } catch (Exception e) {
                             r.put("result", "failed");
                             r.put("detail", ImplementServlet.trim(e.getMessage(), 400));
+                            r.set("failure", ImplDiagnose.describe(e, section, item));
                         }
                         if ("partial".equals(executor)) {
                             ObjectNode q = rpaQueue.addObject();
@@ -369,6 +370,7 @@ public class ImplementApplyServlet extends HttpServlet {
             for (JsonNode fu : wf.path("field_updates")) {
                 JsonNode live = fieldOf.apply(fu.path("field").asText());
                 if (live == null) throw new IllegalStateException("Field " + fu.path("field").asText() + " isn't in " + module + " yet.");
+                ensurePicklistValue(module, live, fu.path("value"), requests);
                 ObjectNode body = ImplRules.fieldUpdate(module, moduleId, rule, live, fu.path("value"));
                 actions.add(new String[]{"field_updates", call(requests, "POST", "/crm/" + v + "/settings/automation/field_updates",
                         body, "field_updates", "field update")});
@@ -397,9 +399,12 @@ public class ImplementApplyServlet extends HttpServlet {
             CrmClient.Response res = crm.call(method, path, MAPPER.writeValueAsString(payload));
             JsonNode first = res.json == null ? null : res.json.path(key).path(0);
             String code = first == null ? "" : first.path("code").asText("");
+            rq.put("status", res.statusCode);
             if (res.statusCode >= 400 || (!code.isEmpty() && !"SUCCESS".equalsIgnoreCase(code))) {
                 String msg = first != null && first.has("message") ? first.path("message").asText() + " " + first.path("details") : res.rawBody;
-                throw new IllegalStateException(what + ": HTTP " + res.statusCode + ": " + ImplementServlet.trim(msg, 300));
+                if (res.json != null) rq.set("response", res.json); else rq.put("response", ImplementServlet.trim(res.rawBody, 2000));
+                throw new ImplDiagnose.StepFailure(what + ": HTTP " + res.statusCode + ": " + ImplementServlet.trim(msg, 300),
+                        method, path, payload, res.statusCode, res.rawBody);
             }
             String id = first == null ? "" : first.path("details").path("id").asText("");
             rq.put("created_id", id);
@@ -433,6 +438,27 @@ public class ImplementApplyServlet extends HttpServlet {
                     + live.path("api_name").asText() + ".");
             if (dryRun) r.put("result", "would_update");
             else if ("created".equals(r.path("result").asText())) r.put("result", "updated");
+        }
+
+        /** A field update that writes a picklist value CRM doesn't have yet is rejected (INVALID_DATA on
+         *  $.field_updates[0].value), so the option is added first — one PATCH, existing options kept. */
+        void ensurePicklistValue(String module, JsonNode live, JsonNode value, ArrayNode requests) throws Exception {
+            String type = live.path("data_type").asText("");
+            if (!type.contains("picklist") || value == null || value.isNull() || !live.has("pick_list_values")) return;
+            String want = value.asText().trim();
+            if (want.isEmpty()) return;
+            for (JsonNode pv : live.path("pick_list_values")) {
+                if (want.equalsIgnoreCase(pv.path("actual_value").asText()) || want.equalsIgnoreCase(pv.path("display_value").asText())) return;
+            }
+            ObjectNode fld = MAPPER.createObjectNode();
+            fld.putArray("pick_list_values").addObject().put("display_value", want).put("actual_value", want);
+            ObjectNode payload = MAPPER.createObjectNode();
+            payload.putArray("fields").add(fld);
+            call(requests, "PATCH", "/crm/" + v + "/settings/fields/" + live.path("id").asText() + "?module=" + enc(module),
+                    payload, "fields", "picklist option \"" + want + "\"");
+            if (!dryRun && live instanceof ObjectNode) {
+                ((ObjectNode) live).withArray("pick_list_values").addObject().put("display_value", want).put("actual_value", want);
+            }
         }
 
         void role(JsonNode role, ObjectNode r) throws Exception {
@@ -471,10 +497,13 @@ public class ImplementApplyServlet extends HttpServlet {
             CrmClient.Response res = crm.call(method, path, MAPPER.writeValueAsString(payload));
             JsonNode first = res.json == null ? null : res.json.path(key).path(0);
             String code = first == null ? "" : first.path("code").asText("");
+            preview.put("status", res.statusCode);
             if (res.statusCode >= 400 || (!code.isEmpty() && !"SUCCESS".equalsIgnoreCase(code))) {
                 String msg = first != null && first.has("message") ? first.path("message").asText() + " "
                         + first.path("details").toString() : res.rawBody;
-                throw new IllegalStateException("HTTP " + res.statusCode + ": " + ImplementServlet.trim(msg, 300));
+                if (res.json != null) preview.set("response", res.json); else preview.put("response", ImplementServlet.trim(res.rawBody, 2000));
+                throw new ImplDiagnose.StepFailure("HTTP " + res.statusCode + ": " + ImplementServlet.trim(msg, 300),
+                        method, path, payload, res.statusCode, res.rawBody);
             }
             r.put("result", "created");
             JsonNode details = first == null ? null : first.path("details");
