@@ -179,6 +179,7 @@ public class GenerateStageServlet extends HttpServlet {
         }
         ObjectNode in = MAPPER.createObjectNode();
         in.put("kind", "uat_generate");
+        in.set("zia", ZiaAgentClient.sharedConfig());   // the worker calls the same agent as this function
         in.put("brd", p.brd);
         in.put("platform", p.platform);
         in.put("creator_owner", p.creatorOwner);

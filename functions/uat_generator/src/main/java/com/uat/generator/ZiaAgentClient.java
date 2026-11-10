@@ -216,7 +216,38 @@ public final class ZiaAgentClient {
         return "https://accounts.zoho." + dc.trim().toLowerCase();
     }
 
-    private static String env(String k) { return System.getenv(k); }
+    /**
+     * Agent ids and endpoints handed over by uat_generator with each background job, so the
+     * impl_worker job uses the same agent as the web function whatever its own variables say.
+     * Secrets (refresh token, client id/secret) are never passed this way.
+     */
+    private static final java.util.Set<String> SHARED = new java.util.HashSet<>(java.util.Arrays.asList(
+            "ZIA_AGENT_ORG_ID", "ZIA_AGENT_ID", "ZIA_AGENT_VERSION_ID", "ZIA_AGENT_URL", "ZIA_ACCOUNTS_BASE"));
+    private static volatile java.util.Map<String, String> overrides = java.util.Collections.emptyMap();
+
+    /** The shareable settings of this function, to put in a job's input. */
+    static ObjectNode sharedConfig() {
+        ObjectNode o = MAPPER.createObjectNode();
+        for (String k : SHARED) if (notEmpty(System.getenv(k))) o.put(k, System.getenv(k).trim());
+        o.put("ZIA_ACCOUNTS_BASE", accountsBase());   // resolved, so the DC is always carried over
+        return o;
+    }
+
+    /** Applies a job input's shared settings (from sharedConfig) in the worker. Missing or empty = keep env. */
+    static void applySharedConfig(JsonNode cfg) {
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        if (cfg != null && cfg.isObject()) {
+            cfg.fields().forEachRemaining(e -> {
+                if (SHARED.contains(e.getKey()) && notEmpty(e.getValue().asText(""))) m.put(e.getKey(), e.getValue().asText().trim());
+            });
+        }
+        overrides = m;
+    }
+
+    private static String env(String k) {
+        String o = overrides.get(k);
+        return o != null ? o : System.getenv(k);
+    }
     private static boolean notEmpty(String s) { return s != null && !s.trim().isEmpty(); }
     private static String orDefault(String s, String d) { return notEmpty(s) ? s.trim() : d; }
     private static String trim(String s, int max) { return s == null ? "" : s.length() > max ? s.substring(0, max) + "…" : s; }

@@ -44,6 +44,7 @@ public final class ImplJob {
             String raw = JobStore.get(inputKey(key));
             if (raw == null) throw new IllegalStateException("The job's input has expired.");
             JsonNode in = MAPPER.readTree(raw);
+            ZiaAgentClient.applySharedConfig(in.path("zia"));   // same agent ids as uat_generator
             // Each function has its own env vars: say so plainly if this worker has no LLM set up.
             if (!Llm.mock() && !Llm.available()) {
                 throw new IllegalStateException("impl_worker: " + Llm.notConfiguredMessage());

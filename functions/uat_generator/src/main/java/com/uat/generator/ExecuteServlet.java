@@ -182,6 +182,7 @@ public class ExecuteServlet extends HttpServlet {
         if (cases.size() == 0) return JobQueue.error(400, "No cases to run.");
         ObjectNode in = MAPPER.createObjectNode();
         in.put("kind", "uat_execute");
+        in.set("zia", ZiaAgentClient.sharedConfig());   // the worker calls the same agent as this function
         in.set("cases", cases);
         in.put("platform", body.path("platform").asText("crm"));
         in.put("dry_run", simulated);

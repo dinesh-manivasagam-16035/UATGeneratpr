@@ -418,6 +418,7 @@ public class ImplementStageServlet extends HttpServlet {
         String key = JobStore.newKey();
         ObjectNode in = MAPPER.createObjectNode();
         in.put("kind", "blueprint");
+        in.set("zia", ZiaAgentClient.sharedConfig());   // the worker calls the same agent as this function
         in.put("brd", body.path("brd").asText(""));
         in.set("modules", body.path("modules"));
         in.set("answers", body.path("answers"));
