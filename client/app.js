@@ -148,6 +148,7 @@
         creatorFormDisplayName:state.creatorFormDisplayName,
         creatorFormLinkName:   state.creatorFormLinkName,
         creatorFields:         state.creatorFields,
+        orgChosen:             !!state.orgChosen,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     } catch (e) { /* storage full or private mode */ }
@@ -168,6 +169,7 @@
       }
       if (Array.isArray(saved.requirements)) state.requirements = saved.requirements;
       if (saved.platform) state.platform = saved.platform;
+      if (saved.orgChosen) state.orgChosen = true;
       if (saved.mode === "impl" || saved.mode === "uat") state.mode = saved.mode;
       if (saved.creatorOwner)           state.creatorOwner           = saved.creatorOwner;
       if (saved.creatorApp)             state.creatorApp             = saved.creatorApp;
@@ -1949,6 +1951,7 @@
         state.crmOrgName = data.current.org_name || "";
         if (!state.crmEmail && data.current.email) state.crmEmail = data.current.email;
       }
+      if (!wasAuthorized) offerOrgPickerIfNeeded();
       // Auto-load modules whenever CRM is authorized (page load or first connect).
       if (state.platform === "creator") {
         loadCreatorForms();
@@ -2080,7 +2083,9 @@
           if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
           closeOrgPicker();
           state.crmOrgName = data.org_name || orgName;
-          setStatus("input", `Switched to ${state.crmOrgName}. Reloading modules…`, "ok");
+          state.orgChosen = true;
+          saveStateToStorage();
+          setStatus("input", `Switched to ${state.crmOrgName}. Reloading modules…` + (data.note ? " " + data.note : ""), data.note ? "warn" : "ok");
           await checkAuthStatus();
           if (typeof loadModules === "function") loadModules();
         } catch (e) {
@@ -2121,10 +2126,23 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         showToast("CRM connection failed: " + (data.error || res.statusText), "err");
+      } else {
+        state.orgChosen = false;   // a fresh connection lands in the default org: let the user pick
       }
     } catch (e) {
       showToast("CRM connection failed: " + e.message, "err");
     }
+  }
+
+  // A user in several orgs is routed to their default org until they pick one: ask right after connecting.
+  function offerOrgPickerIfNeeded() {
+    if (state.orgChosen || state.crmOrgList.length <= 1 || state.platform === "creator") return;
+    const overlay = document.getElementById("org-modal-overlay");
+    if (overlay && !overlay.hidden) return;
+    state.orgChosen = true;        // offer once per connection
+    renderOrgList();
+    openOrgPicker();
+    setStatus("input", "You belong to " + state.crmOrgList.length + " CRM organisations — pick the one to work in.", "");
   }
 
   function initAuth() {

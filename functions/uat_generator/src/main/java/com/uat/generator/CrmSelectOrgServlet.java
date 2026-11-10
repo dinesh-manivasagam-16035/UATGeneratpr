@@ -42,14 +42,19 @@ public class CrmSelectOrgServlet extends HttpServlet {
         // Make sure the token really reaches that org before switching the session to it.
         CrmClient probe = bundle.toCrmClient().forOrg(orgId);
         String orgName = body.path("org_name").asText("");
+        boolean verified = true;
         try {
             CrmClient.Response r = probe.call("GET", "/crm/v3/org", null);
-            if (r.statusCode >= 400 || r.json == null) {
+            if (r.statusCode == 401 && r.rawBody != null && r.rawBody.contains("OAUTH_SCOPE_MISMATCH")) {
+                // A token issued before ZohoCRM.org.READ was requested can't read /org. Switch anyway
+                // (the id came from the user's own org list) and say the check was skipped.
+                verified = false;
+            } else if (r.statusCode >= 400 || r.json == null) {
                 ImplementServlet.writeError(resp, 502, "CRM didn't accept org " + orgId + ": HTTP " + r.statusCode
                         + (r.rawBody == null ? "" : ": " + ImplementServlet.trim(r.rawBody, 200)));
                 return;
             }
-            JsonNode org = r.json.path("org").path(0);
+            JsonNode org = verified ? r.json.path("org").path(0) : MAPPER.createObjectNode();
             String liveId = org.path("id").asText("");
             if (!liveId.isEmpty() && !liveId.equals(orgId) && !liveId.equals(org.path("zgid").asText(""))) {
                 // The header was ignored (single-org user, or id of another kind): say so plainly.
@@ -70,6 +75,9 @@ public class CrmSelectOrgServlet extends HttpServlet {
         out.put("ok", true);
         out.put("org_id", orgId);
         out.put("org_name", orgName);
+        out.put("verified", verified);
+        if (!verified) out.put("note", "Switched without checking: this CRM connection predates the org-read scope. "
+                + "Disconnect and reconnect CRM once so LiftOff can confirm the org and detect sandboxes.");
         resp.getWriter().write(MAPPER.writeValueAsString(out));
     }
 
