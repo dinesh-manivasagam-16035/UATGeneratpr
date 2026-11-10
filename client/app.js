@@ -256,6 +256,99 @@
   ];
   let _genMsgTimer = null, _genProgressTimer = null, _genProgressVal = 0;
 
+  // ---- Busy overlay: one blocking progress panel for every long action ----
+  // start(title, detail) → update({title?, detail?, fraction?, steps?}) → end().
+  // While shown, the app is inert (no clicks, no keyboard) so a job can't be disturbed.
+  const busy = (() => {
+    let el = null, t0 = 0, timer = null, depth = 0;
+    const fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+    function ensure() {
+      if (el) return el;
+      el = document.createElement("div");
+      el.id = "busy-overlay";
+      el.setAttribute("role", "dialog");
+      el.setAttribute("aria-modal", "true");
+      el.setAttribute("aria-live", "polite");
+      el.hidden = true;
+      el.innerHTML = `<div class="busy-card">
+          <div class="busy-head"><span class="busy-spinner" aria-hidden="true"></span>
+            <div><h3 class="busy-title"></h3><p class="busy-detail"></p></div>
+            <span class="busy-time" title="Elapsed">0:00</span></div>
+          <div class="busy-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+          <ol class="busy-steps" hidden></ol>
+          <p class="busy-note">Working in the background. Other controls are locked until this finishes.</p>
+        </div>`;
+      document.body.appendChild(el);
+      return el;
+    }
+    function render(o) {
+      const b = ensure();
+      if (o.title !== undefined) b.querySelector(".busy-title").textContent = o.title;
+      if (o.detail !== undefined) b.querySelector(".busy-detail").textContent = o.detail || "";
+      const bar = b.querySelector(".busy-bar");
+      if (typeof o.fraction === "number") {
+        bar.classList.remove("indeterminate");
+        bar.setAttribute("aria-valuenow", String(Math.round(o.fraction * 100)));
+        bar.firstElementChild.style.width = Math.max(3, Math.min(100, Math.round(o.fraction * 100))) + "%";
+      } else if (o.fraction === null) {
+        bar.classList.add("indeterminate");
+        bar.removeAttribute("aria-valuenow");
+        bar.firstElementChild.style.width = "";
+      }
+      if (o.steps !== undefined) {
+        const list = b.querySelector(".busy-steps");
+        const steps = Array.isArray(o.steps) ? o.steps : [];
+        list.hidden = !steps.length;
+        list.innerHTML = steps.map((st) => {
+          const state = st.state || st.status || "waiting";
+          const right = state === "done" ? (st.items != null ? `${st.items} item(s)` : st.result || "done")
+            : state === "working" || state === "running" ? "working…" : state === "failed" ? "failed" : state === "skipped" ? "skipped" : "queued";
+          return `<li class="is-${escapeHtml(state)}"><span class="busy-dot"></span><span class="busy-step-label">${escapeHtml(st.label || st.title || "")}</span>
+            <span class="busy-step-state">${escapeHtml(right)}</span>${st.error ? `<span class="busy-step-err">${escapeHtml(st.error)}</span>` : ""}</li>`;
+        }).join("");
+        const done = steps.filter((st) => ["done", "failed", "skipped"].includes(st.state || st.status)).length;
+        if (steps.length && typeof o.fraction !== "number") render({ fraction: (done + 0.3 * steps.filter((st) => ["working", "running"].includes(st.state || st.status)).length) / steps.length });
+      }
+    }
+    return {
+      start(title, detail) {
+        depth++;
+        const b = ensure();
+        if (depth === 1) {
+          t0 = Date.now();
+          b.querySelector(".busy-steps").hidden = true;
+          b.querySelector(".busy-steps").innerHTML = "";
+          render({ title, detail: detail || "Starting…", fraction: null });
+          b.hidden = false;
+          document.body.classList.add("is-busy");
+          const app = document.getElementById("app");
+          if (app) app.setAttribute("inert", "");
+          clearInterval(timer);
+          timer = setInterval(() => { b.querySelector(".busy-time").textContent = fmt(Date.now() - t0); }, 1000);
+          b.querySelector(".busy-time").textContent = "0:00";
+        } else {
+          render({ title, detail });
+        }
+      },
+      update(o) { if (!el || el.hidden) return; render(typeof o === "string" ? { detail: o } : o || {}); },
+      end() {
+        depth = Math.max(0, depth - 1);
+        if (depth || !el) return;
+        clearInterval(timer); timer = null;
+        el.hidden = true;
+        document.body.classList.remove("is-busy");
+        const app = document.getElementById("app");
+        if (app) app.removeAttribute("inert");
+      },
+      active() { return !!(el && !el.hidden); },
+    };
+  })();
+
+  const PANEL_BUSY_TITLE = {
+    input: "Reading the document", cases: "Writing UAT cases", execute: "Running cases in Zoho CRM",
+    push: "Pushing to Zoho Projects", blueprint: "Drafting the implementation blueprint", build: "Building", verify: "Verifying",
+  };
+
   function startGenLoader() {
     const loaderEl = document.querySelector('[data-panel="cases"] .loader');
     if (loaderEl) loaderEl.classList.add("fullscreen");
@@ -277,6 +370,7 @@
         idx = (idx + 1) % GEN_MESSAGES.length;
         el.textContent = GEN_MESSAGES[idx];
         el.classList.remove("fading");
+        busy.update({ detail: GEN_MESSAGES[idx] });
       }, 350);
     }, 3200);
 
@@ -390,6 +484,8 @@
     const fillEl = document.getElementById(ids.fill);
     if (fillEl && typeof fraction === "number") fillEl.style.width = Math.min(95, Math.round(fraction * 100)) + "%";
     renderJobSteps(kind, msgEl, jobStatus);
+    busy.update({ detail: text, fraction: typeof fraction === "number" ? fraction : undefined,
+      steps: jobStatus && Array.isArray(jobStatus.steps) ? jobStatus.steps : undefined });
   }
 
   const RESULT_TEXT = { pass: "Passed", fail: "Failed", dry_run: "Plan checked", skipped: "Skipped" };
@@ -603,12 +699,14 @@
     if (text && textEl) textEl.textContent = text;
     loader.hidden = false;
     setTabState(panelName, { running: true });
+    busy.start(PANEL_BUSY_TITLE[panelName] || "Working", text || "");
   }
   function hideLoader(panelName) {
     const panel = getPanel(panelName);
     const loader = panel.querySelector(".loader");
     loader.hidden = true;
     setTabState(panelName, { running: false });
+    busy.end();
   }
 
   els.tabs.forEach((btn) => {
@@ -2670,6 +2768,7 @@
   // Hooks for implement.js (kept small on purpose).
   window.LiftOff = {
     plainBrd,
+    busy,
     FUNCTION_BASE,
     state,
     fetchWithTimeout,

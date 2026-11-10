@@ -318,3 +318,36 @@ ul.impl-manual > li input[type="checkbox"] { width: 18px; height: 18px; margin-t
 .org-manual p { margin: 0; font-size: 13px; }
 .org-manual-row { display: flex; gap: 8px; }
 .org-manual-row input { flex: 1; height: 36px; border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 10px; font: 14px Inter, system-ui, sans-serif; background: var(--bg-elevated); color: var(--text); }
+
+/* ---- Busy overlay: blocks the app while a job runs ---- */
+#busy-overlay { position: fixed; inset: 0; z-index: 10050; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent); backdrop-filter: blur(3px); padding: 24px; }
+#busy-overlay[hidden] { display: none; }
+body.is-busy { overflow: hidden; }
+.busy-card { width: min(640px, 100%); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow-lg); padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+.busy-head { display: flex; align-items: flex-start; gap: 14px; }
+.busy-head > div { flex: 1; min-width: 0; }
+.busy-title { margin: 0; font-size: 17px; font-weight: 700; color: var(--text); }
+.busy-detail { margin: 4px 0 0; font-size: 14px; color: var(--text-secondary); }
+.busy-time { font: 600 13px ui-monospace, "JetBrains Mono", monospace; color: var(--text-muted); flex: none; padding-top: 2px; }
+.busy-spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--accent-soft); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; margin-top: 2px; }
+.busy-bar { height: 8px; border-radius: 4px; background: var(--bg-subtle); overflow: hidden; position: relative; }
+.busy-bar > span { display: block; height: 100%; width: 3%; background: var(--accent); border-radius: 4px; transition: width .4s ease; }
+.busy-bar.indeterminate > span { width: 30%; animation: busy-slide 1.4s ease-in-out infinite; }
+@keyframes busy-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+.busy-steps { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; border-top: 1px solid var(--divider); }
+.busy-steps li { display: grid; grid-template-columns: 14px 1fr auto; column-gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--divider); font-size: 13.5px; }
+.busy-steps li:last-child { border-bottom: 0; }
+.busy-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border-strong); box-sizing: border-box; }
+.busy-steps li.is-working .busy-dot, .busy-steps li.is-running .busy-dot { border-color: var(--accent); border-right-color: transparent; animation: spin .8s linear infinite; }
+.busy-steps li.is-done .busy-dot { background: var(--ok); border-color: var(--ok); }
+.busy-steps li.is-failed .busy-dot { background: var(--err); border-color: var(--err); }
+.busy-steps li.is-skipped .busy-dot { background: var(--border-strong); }
+.busy-step-state { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; }
+.busy-steps li.is-working .busy-step-state, .busy-steps li.is-running .busy-step-state { color: var(--accent); font-weight: 600; }
+.busy-steps li.is-failed .busy-step-state { color: var(--err); font-weight: 600; }
+.busy-step-err { grid-column: 2 / -1; font-size: 12.5px; color: var(--err); }
+.busy-note { margin: 0; font-size: 12.5px; color: var(--text-muted); }
+/* The in-panel loaders are redundant while the overlay is up */
+body.is-busy .tab-panel > .loader { display: none !important; }

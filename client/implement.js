@@ -701,6 +701,7 @@
     return {
       begin() {
         t0 = Date.now(); phaseText = "Starting"; steps = []; job = null;
+        L.busy.start("Drafting the implementation blueprint", "Reading the BRD and your org…");
         const box = el();
         if (box) box.hidden = false;
         L.setTabState("blueprint", { running: true });
@@ -708,7 +709,7 @@
         timer = setInterval(draw, 1000);          // elapsed and per-step timers tick between polls
         draw();
       },
-      phase(text) { phaseText = text; draw(); },
+      phase(text) { phaseText = text; L.busy.update({ detail: text }); draw(); },
       plan(jobs) {
         steps = jobs.map((j) => ({ label: `Part ${j.part} · ${NAME[j.group] || j.group}`, detail: DETAIL[j.group] || "", state: "waiting" }))
           .concat([{ label: "Delivery plan", detail: "Phases, tasks, effort", state: "waiting" }]);
@@ -717,10 +718,14 @@
       job(st) {
         job = st;
         if (st && Array.isArray(st.steps) && st.steps.length) steps = st.steps;
+        const done = steps.filter((x) => ["done", "failed", "skipped"].includes(x.state)).length;
+        L.busy.update({ detail: st && st.state === "queued" ? "Waiting for a worker to pick up the job"
+          : steps.length ? `Agent is writing step ${Math.min(done + 1, steps.length)} of ${steps.length}` : phaseText, steps });
         draw();
       },
-      step(i, patch) { if (steps[i]) Object.assign(steps[i], patch); draw(); },
+      step(i, patch) { if (steps[i]) Object.assign(steps[i], patch); L.busy.update({ steps }); draw(); },
       end() {
+        L.busy.end();
         clearInterval(timer); timer = null;
         const box = el();
         if (box) { box.hidden = true; box.innerHTML = ""; }
@@ -764,6 +769,7 @@
 
   async function dryRun() {
     L.setStatus("build", "Dry run…");
+    L.busy.start("Dry run", "Comparing every blueprint item with the org and previewing the API calls. Nothing is written.");
     try {
       impl.dryRun = await post("/implement/apply", { spec: impl.spec, dry_run: true }, 90_000, "Dry run");
       impl.applied = null;
@@ -779,6 +785,8 @@
         : "Dry run done (no CRM connected — connect CRM to apply).", "ok");
     } catch (e) {
       L.setStatus("build", "Dry run failed: " + e.message, "err");
+    } finally {
+      L.busy.end();
     }
   }
 
@@ -830,6 +838,9 @@
     if (running || !impl.build) return;
     running = true;
     const b = impl.build;
+    const stepsView = () => b.steps.map((x) => ({ label: x.label, state: x.status === "running" ? "working" : x.status === "conflict" ? "failed" : x.status, error: x.status === "failed" || x.status === "conflict" ? x.detail : "" }));
+    L.busy.start(`Applying to ${b.org.name}`, `Creating ${b.steps.length} item(s) through the CRM settings API, one at a time.`);
+    L.busy.update({ steps: stepsView() });
     try {
       for (let i = start; i < b.steps.length; i++) {
         const st = b.steps[i];
@@ -837,6 +848,7 @@
         st.status = "running"; st.detail = "";
         renderBuild();
         L.setStatus("build", `Step ${i + 1} of ${b.steps.length}: ${st.label}`);
+        L.busy.update({ detail: `Step ${i + 1} of ${b.steps.length}: ${st.method} ${st.path} — ${st.label}`, steps: stepsView() });
         let r;
         try {
           const data = await post("/implement/apply", {
@@ -856,6 +868,7 @@
         }
         save();
         renderBuild();
+        L.busy.update({ steps: stepsView() });
         if (st.status !== "done") {
           L.setStatus("build", `Stopped at step ${i + 1}: ${st.label}. Retry, skip, or fix it.`, "warn");
           return;
@@ -867,6 +880,7 @@
       render();
       L.setStatus("build", "Build steps finished. Tick off the hand-configured items, then Verify.", "ok");
     } finally {
+      L.busy.end();
       running = false;
       refreshButtons();
     }
@@ -979,7 +993,8 @@
 
   // ---- Verify: configuration check, UAT run, hand-off ----
   async function verify() {
-    L.setStatus("verify", "Reading the sandbox back…");
+    L.setStatus("verify", "Reading the org back…");
+    L.busy.start("Reading the org back", "Fetching fields, workflow rules and roles from CRM and comparing them with the blueprint…");
     try {
       impl.verify = await post("/implement/verify", { spec: impl.spec }, 90_000, "Verify");
       save();
@@ -990,6 +1005,8 @@
         (c.differ || c.missing) ? "warn" : "ok");
     } catch (e) {
       L.setStatus("verify", "Verify failed: " + e.message, "err");
+    } finally {
+      L.busy.end();
     }
   }
 
@@ -1161,17 +1178,19 @@
     if (!modules.length) { L.setStatus("verify", "The blueprint names no modules to test.", "warn"); return; }
     const org = verifyOrg();
     const live = !!(org && org.sandbox);   // UAT creates and deletes records: only ever live on a sandbox
+    L.busy.start("Writing and running UAT cases", "Turning the approved blueprint into test cases with the agent…");
     try {
       // Background jobs on impl_worker (short requests when jobs aren't set up); progress shows here.
       L.setStatus("verify", "Writing UAT cases from the blueprint…");
       const gen = await L.generateCasesStaged({ brd: specToBrd(), modules, platform: "crm" },
-        (text) => L.setStatus("verify", text));
+        (text, f, st) => { L.setStatus("verify", text); L.busy.update({ detail: text, fraction: typeof f === "number" ? f * 0.5 : undefined, steps: st && st.steps }); });
       const cases = gen.cases || [];
       if (!cases.length) throw new Error((gen.warnings || [])[0] || "No cases were written.");
       const where = live ? "against the sandbox" : "as a dry run";
       L.setStatus("verify", `Running ${cases.length} case(s) ${where}…`);
+      L.busy.update({ title: `Running ${cases.length} UAT case(s) ${where}`, detail: live ? "Creating test records in CRM, checking the results, then deleting them." : "Checking each case's plan; nothing is sent to CRM.", steps: [] });
       const ex = await L.executeBatched(cases, { platform: "crm", dry_run: !live },
-        (text) => L.setStatus("verify", `${text} (${where})`));
+        (text, f, st) => { L.setStatus("verify", `${text} (${where})`); L.busy.update({ detail: text, fraction: typeof f === "number" ? 0.5 + f * 0.5 : undefined, steps: st && st.steps }); });
       impl.uat = { cases: ex.cases || cases, live: live && !ex.dry_run, ranAt: new Date().toISOString(), modules };
       save();
       renderVerify();
@@ -1181,6 +1200,8 @@
         : "UAT dry run: plans checked, nothing sent. Connect a sandbox org to run them.", c.failed ? "warn" : "ok");
     } catch (e) {
       L.setStatus("verify", "UAT run failed: " + e.message, "err");
+    } finally {
+      L.busy.end();
     }
   }
 
@@ -1188,7 +1209,8 @@
     const org = verifyOrg();
     if (!org || !org.sandbox) return;
     if (!impl.spec.approved) { L.setStatus("verify", "Approve the blueprint before changing the sandbox.", "warn"); return; }
-    L.setStatus("verify", `Fixing ${id} in the sandbox…`);
+    L.setStatus("verify", `Fixing ${id} in the org…`);
+    L.busy.start(`Fixing ${id}`, "Creating the missing item through the CRM API, then reading the org back…");
     try {
       const data = await post("/implement/apply", { spec: impl.spec, dry_run: false, confirm_org_id: org.id, item_ids: [id] },
         90_000, "Fix");
@@ -1197,6 +1219,8 @@
       await verify();
     } catch (e) {
       L.setStatus("verify", `Couldn't fix ${id}: ${e.message}`, "err");
+    } finally {
+      L.busy.end();
     }
   }
 
@@ -1204,6 +1228,7 @@
     const base = (L.state.fileName || "BRD").replace(/\.[^.]+$/, "");
     const projectName = `UAT — ${base} — ${new Date().toISOString().slice(0, 10)}`;
     L.setStatus("verify", `Pushing ${impl.uat.cases.length} case(s) to Zoho Projects…`);
+    L.busy.start("Pushing to Zoho Projects", `Creating a task per case and a bug per failure in "${projectName}"…`);
     try {
       const data = await post("/push", { cases: impl.uat.cases, project_name: projectName }, 120_000, "Push");
       L.setStatus("verify", `${data.tasks_created || 0} task(s) and ${data.bugs_created || 0} bug(s) created`
@@ -1211,6 +1236,8 @@
         data.tasks_failed || data.bugs_failed ? "warn" : "ok");
     } catch (e) {
       L.setStatus("verify", "Push failed: " + e.message, "err");
+    } finally {
+      L.busy.end();
     }
   }
 
@@ -1295,6 +1322,7 @@
     const base = (L.state.fileName || "BRD").replace(/\.[^.]+$/, "");
     const projectName = `Implementation — ${base} — ${new Date().toISOString().slice(0, 10)}`;
     L.setStatus("blueprint", `Pushing ${cases.length} task(s) to Zoho Projects…`);
+    L.busy.start("Pushing the plan to Zoho Projects", `Creating ${cases.length} task(s)…`);
     try {
       const data = await post("/push", { cases, project_name: projectName }, 120_000, "Push");
       const link = data.project_url ? ` <a href="${esc(data.project_url)}" target="_blank" rel="noopener">Open project</a>` : "";
@@ -1304,6 +1332,8 @@
         + (data.project_name ? ` in "${data.project_name}"` : "") + (data.mock ? " (mock)" : "") + ".") + link;
     } catch (e) {
       L.setStatus("blueprint", "Push failed: " + e.message, "err");
+    } finally {
+      L.busy.end();
     }
   }
 
