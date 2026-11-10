@@ -22,6 +22,12 @@ final class JobQueue {
      * Returns {job_key, job_id?}, or {status: 503, error} when Cache or the job scheduler isn't set up.
      */
     static ObjectNode submit(String key, String jobName, ObjectNode input, int total) {
+        // IMPL_JOBS=off on uat_generator: never queue the worker; the browser runs the short
+        // requests itself (each agent call is now a few seconds, well inside the ~30 s limit).
+        String jobs = System.getenv("IMPL_JOBS");
+        if (jobs != null && ("off".equalsIgnoreCase(jobs.trim()) || "0".equals(jobs.trim()) || "false".equalsIgnoreCase(jobs.trim()))) {
+            return error(503, "Background jobs are turned off (IMPL_JOBS=off); generating in the browser instead.");
+        }
         try {
             JobStore.put(ImplJob.inputKey(key), MAPPER.writeValueAsString(input));
             ImplJob.status(key, "queued", 0, total, null, "Waiting for a worker");
