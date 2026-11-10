@@ -401,6 +401,9 @@ public class ImplementServlet extends HttpServlet {
      * and the executor that follows from it.
      */
     static void markStatus(ObjectNode spec, ImplOrg org) {
+        // Agents often describe a workflow only in words; derive the API form in code first,
+        // so a plain "On create / when X is empty / set Y to Z" rule builds through the API.
+        WorkflowStructurer.structureAll(spec, org);
         for (String s : ImplSpec.SECTIONS) {
             for (JsonNode n : spec.path(s)) {
                 ObjectNode o = (ObjectNode) n;
