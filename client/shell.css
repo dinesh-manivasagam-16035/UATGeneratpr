@@ -312,3 +312,9 @@ ul.impl-manual > li input[type="checkbox"] { width: 18px; height: 18px; margin-t
   .tiles-3, .tiles-4, .tiles-5 { grid-template-columns: 1fr; }
   .page-head h2 { font-size: 20px; }
 }
+
+/* ---- Org picker: manual org id ---- */
+.org-manual { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--divider); display: flex; flex-direction: column; gap: 8px; }
+.org-manual p { margin: 0; font-size: 13px; }
+.org-manual-row { display: flex; gap: 8px; }
+.org-manual-row input { flex: 1; height: 36px; border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 10px; font: 14px Inter, system-ui, sans-serif; background: var(--bg-elevated); color: var(--text); }

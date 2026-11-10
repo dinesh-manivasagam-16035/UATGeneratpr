@@ -1952,6 +1952,7 @@
       state.crmAuthorized = true;
       state.oauthAvailable = true;
       state.crmOrgList = Array.isArray(data.orgs) ? data.orgs : [];
+      state.crmOrgsError = data.orgs_error || "";
       if (data.current) {
         state.crmOrgName = data.current.org_name || "";
         if (!state.crmEmail && data.current.email) state.crmEmail = data.current.email;
@@ -2013,7 +2014,7 @@
       if (els.authEmail)   els.authEmail.textContent   = state.crmEmail   || state.authUser || "";
       if (els.authLoginArea) els.authLoginArea.hidden = state.crmAuthorized;
       if (els.authUserInfo)  els.authUserInfo.hidden  = !state.crmAuthorized;
-      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = state.crmOrgList.length <= 1;
+      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = false;   // an org id can always be entered by hand
       if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = false;
     }
 
@@ -2045,12 +2046,48 @@
     if (errEl) errEl.textContent = "";
   }
 
+  // Switches the session to an org (by id) and reloads what depends on it.
+  async function selectOrg(orgId, orgName, btn) {
+    const errEl = document.getElementById("org-modal-error");
+    if (btn) btn.disabled = true;
+    if (errEl) errEl.textContent = "";
+    try {
+      const res = await fetch(FUNCTION_BASE + "/crm/select-org", { method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ org_id: orgId, org_name: orgName || "" }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      closeOrgPicker();
+      state.crmOrgName = data.org_name || orgName || orgId;
+      state.orgChosen = true;
+      saveStateToStorage();
+      setStatus("input", `Switched to ${state.crmOrgName}. Reloading modules…` + (data.note ? " " + data.note : ""), data.note ? "warn" : "ok");
+      await checkAuthStatus();
+      loadModules();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      if (errEl) errEl.textContent = "Couldn't switch org: " + e.message;
+    }
+  }
+
   function renderOrgList() {
     const listEl = document.getElementById("org-modal-list");
     if (!listEl) return;
 
+    const manual = `
+      <div class="org-manual">
+        <p class="muted">${state.crmOrgList.length <= 1
+          ? "Zoho only told us about the connected org" + (state.crmOrgsError ? " (" + escapeHtml(state.crmOrgsError) + ")" : "") + ". To work in another org of this account, enter its Org ID:"
+          : "Not listed? Enter the org's ID:"}
+          <span class="muted">CRM → Setup → Company Settings → Company Details → <strong>Org ID</strong>.</span></p>
+        <div class="org-manual-row">
+          <input type="text" id="org-manual-id" inputmode="numeric" placeholder="e.g. 60012345678" aria-label="CRM org id" />
+          <button type="button" class="primary small" id="org-manual-go">Use this org</button>
+        </div>
+      </div>`;
+
     if (!state.crmOrgList.length) {
-      listEl.innerHTML = '<p class="muted" style="padding:1rem 0">No organisations found. Try connecting first.</p>';
+      listEl.innerHTML = '<p class="muted" style="padding:1rem 0">No organisations found. Connect CRM first.</p>' + manual;
+      wireManual(listEl);
       return;
     }
 
@@ -2074,32 +2111,25 @@
           </span>
           ${isCurrent ? '<span class="org-item-badge">Connected</span>' : '<span class="org-item-arrow">→</span>'}
         </button>`;
-    }).join("");
+    }).join("") + manual;
 
     listEl.querySelectorAll(".org-item:not(.org-item--current)").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        // Switch the session to this org (the server routes every CRM call to it with X-CRM-ORG).
-        const orgId = btn.dataset.orgId, orgName = btn.dataset.orgName;
-        btn.disabled = true;
-        try {
-          const res = await fetch(FUNCTION_BASE + "/crm/select-org", { method: "POST", credentials: "include",
-            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ org_id: orgId, org_name: orgName }) });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-          closeOrgPicker();
-          state.crmOrgName = data.org_name || orgName;
-          state.orgChosen = true;
-          saveStateToStorage();
-          setStatus("input", `Switched to ${state.crmOrgName}. Reloading modules…` + (data.note ? " " + data.note : ""), data.note ? "warn" : "ok");
-          await checkAuthStatus();
-          if (typeof loadModules === "function") loadModules();
-        } catch (e) {
-          btn.disabled = false;
-          setStatus("input", "Couldn't switch org: " + e.message
-            + " You can also sign in as another Zoho account from the picker.", "err");
-        }
-      });
+      btn.addEventListener("click", () => selectOrg(btn.dataset.orgId, btn.dataset.orgName, btn));
     });
+    wireManual(listEl);
+  }
+
+  function wireManual(listEl) {
+    const input = listEl.querySelector("#org-manual-id");
+    const go = listEl.querySelector("#org-manual-go");
+    if (!input || !go) return;
+    const run = () => {
+      const id = input.value.trim();
+      if (!/^\d{6,}$/.test(id)) { const e = document.getElementById("org-modal-error"); if (e) e.textContent = "An Org ID is a number (usually 11 digits)."; return; }
+      selectOrg(id, "", go);
+    };
+    go.addEventListener("click", run);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
   }
 
   function initOrgPicker() {
@@ -2690,7 +2720,7 @@
     } else {
       if (els.authLoginArea)    els.authLoginArea.hidden    = state.crmAuthorized;
       if (els.authUserInfo)     els.authUserInfo.hidden     = !state.crmAuthorized;
-      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = state.crmOrgList.length <= 1;
+      if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = false;   // an org id can always be entered by hand
       if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = false;
       if (els.authOrgName)      els.authOrgName.textContent = state.crmOrgName || "Zoho CRM";
       if (els.authEmail)        els.authEmail.textContent   = state.crmEmail   || state.authUser || "";

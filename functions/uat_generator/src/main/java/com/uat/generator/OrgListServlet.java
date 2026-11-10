@@ -66,8 +66,11 @@ public class OrgListServlet extends HttpServlet {
         out.set("current", current);
 
         // Attempt to fetch the full org list from Zoho Accounts.
+        lastOrgsError = null;
         ArrayNode orgs = fetchOrgList(bundle);
         out.set("orgs", orgs);
+        // When the list is only the current org, say why, so the UI can offer a manual org id.
+        if (lastOrgsError != null) out.put("orgs_error", lastOrgsError);
 
         resp.getWriter().write(MAPPER.writeValueAsString(out));
     }
@@ -101,6 +104,7 @@ public class OrgListServlet extends HttpServlet {
                 // or sometimes just { "orgs": [...] } — handle both.
                 JsonNode orgList = root.path("data").path("orgs");
                 if (!orgList.isArray()) orgList = root.path("orgs");
+                if (!orgList.isArray() || orgList.size() == 0) lastOrgsError = "Zoho Accounts returned no org list: " + trimMsg(body);
 
                 if (orgList.isArray() && orgList.size() > 0) {
                     for (JsonNode o : orgList) {
@@ -114,8 +118,8 @@ public class OrgListServlet extends HttpServlet {
                     return arr;
                 }
             }
-        } catch (Exception ignored) {
-            // Fall through to the single-org fallback below.
+        } catch (Exception e) {
+            lastOrgsError = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + trimMsg(e.getMessage()));
         }
 
         // Fallback: return just the currently-connected org.
@@ -128,6 +132,14 @@ public class OrgListServlet extends HttpServlet {
             arr.add(item);
         }
         return arr;
+    }
+
+    /** Why the org list fell back to the current org (per request; the servlet handles one request at a time per instance). */
+    private String lastOrgsError;
+
+    private static String trimMsg(String s) {
+        s = s == null ? "" : s.replaceAll("\\s+", " ").trim();
+        return s.length() > 160 ? s.substring(0, 160) + "…" : s;
     }
 
     private static String cookieValue(HttpServletRequest req, String name) {
