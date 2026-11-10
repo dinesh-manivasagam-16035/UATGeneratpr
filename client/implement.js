@@ -436,8 +436,14 @@
     const calls = results.reduce((t, r) => t + ((r.requests || []).length || (r.request ? 1 : 0)), 0);
     const org = data.org || {};
     const tile = (cls, label, value, sub) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div>`;
+    const orgKind = !org.id ? "not connected" : org.sandbox ? (org.allow_listed ? "test org · allow-listed" : "sandbox") : (org.type || "production") + " · not a sandbox";
+    const orgTile = !org.id
+      ? tile("warn", "Target org", "None", "connect CRM on the Brief step to apply")
+      : org.sandbox
+        ? tile("ok", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply allowed`)
+        : tile("warn", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply is off. For a test org, add its id <code>${esc(org.id)}</code> to IMPL_BUILD_ORG_IDS on uat_generator, then dry-run again.`);
     const tiles = `<div class="tiles tiles-4">
-      ${tile("", data.dry_run ? "Dry run" : "Apply", data.dry_run ? "Preview" : "Done", `${results.length} item(s) · ${data.dry_run ? "nothing was changed" : "written to " + esc(org.name || "the org")}`)}
+      ${orgTile}
       ${tile("info", data.dry_run ? "Will create via API" : "Created via API", String(api), `${calls} API call(s), in order`)}
       ${tile(rpa.length ? "warn" : "", "Queued for UI work", String(rpa.length), rpa.length ? `${rpa.reduce((t, q) => t + (q.steps || []).length, 0)} click-path steps · RPA bot or consultant` : "nothing needs Setup")}
       ${tile(conflicts ? "err" : "ok", "Conflicts / failures", String(conflicts), conflicts ? "see the rows marked in red" : "nothing clashes with the org")}
