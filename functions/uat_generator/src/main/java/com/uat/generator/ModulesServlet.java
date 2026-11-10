@@ -85,7 +85,7 @@ public class ModulesServlet extends HttpServlet {
             JsonNode modules = r.json.path("modules");
             if (modules.isArray()) {
                 for (JsonNode m : modules) {
-                    if (!m.path("api_supported").asBoolean(true)) continue;
+                    if (!ImplOrg.isBusinessModule(m)) continue;
                     if (m.path("api_name").asText("").isEmpty()) continue;
                     ObjectNode o = MAPPER.createObjectNode();
                     o.put("api_name", m.path("api_name").asText(""));

@@ -381,7 +381,7 @@ public class ImplementStageServlet extends HttpServlet {
             needsPlan = false;
             if (items.isEmpty() && ImplementServlet.hasBuildItems(spec)) needsPlan = true;
         }
-        if (Llm.mock() || !needsPlan) {
+        if (Llm.mock() || !ImplPrompts.PLAN_VIA_LLM || !needsPlan) {
             if (needsPlan) ImplSpec.merge(spec, "plan", ImplPlan.derive(spec), seen);
             ImplSpec.finish(spec);
             needsPlan = false;
@@ -449,7 +449,7 @@ public class ImplementStageServlet extends HttpServlet {
         Map<String, ObjectNode> seen = new HashMap<>();
         spec.putArray("plan");
         boolean planned = false;
-        try {
+        if (ImplPrompts.PLAN_VIA_LLM) try {
             LlmResult r = Llm.chat(ImplPrompts.planSystem(),
                     ImplPrompts.planPrompt(ImplementServlet.digest(spec, 6000), reqs.toString().trim()), 0);
             ImplSpec.Parsed p = ImplSpec.parse(r.content, List.of("plan"));

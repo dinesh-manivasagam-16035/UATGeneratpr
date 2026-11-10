@@ -41,6 +41,17 @@ is *called by* LiftOff.
    `INSTRUCTIONS Return {"ok": true}. REQUEST nothing` and check that the reply is just `{"ok": true}`.
 7. **Deploy** the agent. The Integrate tab only shows API details for a deployed agent.
 
+### What LiftOff sends per call
+
+The agent's own instructions above never change. What LiftOff puts in each message comes from the
+**product adapter** (`CrmProduct.java` for Zoho CRM; one class per product): the product's capability
+matrix (which items the API can build, which need one Setup step, which have no API), the vocabulary
+and JSON shape for that product, and the rule to *prefer the construct the API can build* — a workflow
+field update over a Deluge function, a required flag over a validation rule. Workflows come back in the
+structured form only; defaults Zoho already has are recorded as an `assumption` on the item instead of an
+open question; the delivery plan is derived in code from the spec and the lanes (set `IMPL_PLAN_LLM=1`
+to ask the agent for it instead). `IMPL_PRODUCT` selects the adapter (default `crm`).
+
 ## 2. Collect the agent IDs
 
 On the agent's details page → **Integrate** tab (Agent Info / Developer Interface → Agent API):

@@ -230,9 +230,10 @@ public final class ImplOrg {
     public String promptText(Collection<String> moduleNames, int maxChars) {
         StringBuilder sb = new StringBuilder("LIVE org metadata (connected org");
         if (!orgName.isEmpty()) sb.append(" \"").append(orgName).append('"');
-        sb.append("):\nExisting modules: ");
+        sb.append("):\nExisting modules (custom and standard; system modules are left out and must not be proposed): ");
         List<String> names = new ArrayList<>();
         for (JsonNode m : new java.util.LinkedHashSet<>(modules.values())) {
+            if (!isBusinessModule(m)) continue;
             names.add(m.path("api_name").asText(""));
             if (names.size() >= 60) break;
         }
@@ -247,7 +248,17 @@ public final class ImplOrg {
             sb.append("Fields of ").append(name).append(": ");
             List<String> fs = new ArrayList<>();
             for (JsonNode f : list) {
-                fs.add(f.path("api_name").asText("") + " (" + f.path("data_type").asText("") + ")");
+                String type = f.path("data_type").asText("");
+                StringBuilder one = new StringBuilder(f.path("api_name").asText("")).append(" (").append(type);
+                if (type.contains("picklist") && f.path("pick_list_values").size() > 0) {
+                    List<String> opts = new ArrayList<>();
+                    for (JsonNode pv : f.path("pick_list_values")) {
+                        opts.add(pv.path("actual_value").asText(pv.path("display_value").asText("")));
+                        if (opts.size() >= 12) { opts.add("…"); break; }
+                    }
+                    one.append(": ").append(String.join(" | ", opts));
+                }
+                fs.add(one.append(')').toString());
             }
             sb.append(String.join(", ", fs)).append('\n');
             if (sb.length() > maxChars) break;
@@ -255,6 +266,20 @@ public final class ImplOrg {
         String s = sb.toString().trim();
         return s.length() > maxChars ? s.substring(0, maxChars) + "…" : s;
     }
+
+    /** Modules a BRD can legitimately target: API-supported, not system/linking/subform generated. */
+    public static boolean isBusinessModule(JsonNode m) {
+        if (m == null) return false;
+        if (m.has("api_supported") && !m.path("api_supported").asBoolean(true)) return false;
+        String gen = m.path("generated_type").asText("").toLowerCase(java.util.Locale.ROOT);
+        if (gen.equals("system") || gen.equals("linking") || gen.equals("subform")) return false;
+        String api = m.path("api_name").asText("");
+        return !SYSTEM_MODULES.contains(api);
+    }
+    private static final java.util.Set<String> SYSTEM_MODULES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "Actions_Performed", "Approvals", "Attachments", "Notes", "Activities", "Feeds", "Home", "Reports",
+            "Dashboards", "Forecasts", "Social", "Documents", "Visits", "Analytics", "Email_Templates",
+            "Email_Analytics", "Users", "Territories", "Locking_Information__s", "Linking_Module__s"));
 
     private static JsonNode get(CrmClient crm, String path) throws Exception {
         CrmClient.Response r = crm.call("GET", path, null);

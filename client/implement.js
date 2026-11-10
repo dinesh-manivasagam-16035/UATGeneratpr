@@ -376,16 +376,16 @@
     const all = impl.spec.plan || [];
     if (!all.length) return "";
     const rows = all.filter((o) => matchesFilter("plan", o));
-    const hours = all.filter((o) => o.include !== false).reduce((n, t) => n + (Number(t.effort_hours) || 0), 0);
-    const head = `<div class="card-head"><h3>Delivery plan</h3><span class="pill">${all.filter((o) => o.include !== false).length} task(s) · ${hours} h</span></div>`;
+    const laneP = (l) => l === "api" ? pill("info", "API") : l === "ui" ? pill("warn", "you, in Setup") : l === "review" ? pill("err", "answer") : l === "verify" || l === "uat" ? pill("ok", l === "uat" ? "UAT" : "verify") : (l ? pill("", l) : `<span class="muted">—</span>`);
+    const head = `<div class="card-head"><h3>Execution plan <span class="muted">· what Run everything does, in order</span></h3><span class="pill">${all.filter((o) => o.include !== false).length} step(s)</span></div>`;
     const body = rows.map((o) => `<tr class="${o.include === false ? "is-off" : ""}" data-id="${esc(o.id)}">
         ${includeCell(o)}<td>${esc(o.phase || "")}</td><td class="cell-main">${esc(o.title || "")}${o.description ? `<div class="muted" style="font-weight:400">${esc(o.description)}</div>` : ""}</td>
-        <td>${esc(o.owner_role || "—")}</td><td>${esc(String(o.effort_hours || 0))} h</td>
-        <td>${pill(o.priority === "P0" ? "err" : o.priority === "P2" ? "" : "warn", o.priority || "P1")}</td>
+        <td>${laneP(o.lane)}<div class="muted" style="font-size:12px;margin-top:2px">${esc(o.owner_role || "")}</div></td>
+        <td class="muted">${esc(o.verify || "")}</td>
         <td>${(o.spec_refs || []).map((r) => `<code>${esc(r)}</code>`).join(" ") || `<span class="muted">—</span>`}</td>
-        <td><div class="cell-actions"><button class="ghost small" data-act="edit" data-id="${esc(o.id)}" type="button">Edit</button></div></td></tr>` + editorRow(o, 8)).join("");
+        <td><div class="cell-actions"><button class="ghost small" data-act="edit" data-id="${esc(o.id)}" type="button">Edit</button></div></td></tr>` + editorRow(o, 7)).join("");
     return `<section class="card">${head}<div class="table-wrap"><table class="lo-table">
-      <thead><tr><th class="col-check"></th><th>Phase</th><th>Task</th><th>Owner</th><th>Effort</th><th>Priority</th><th>Builds</th><th></th></tr></thead>
+      <thead><tr><th class="col-check"></th><th>Phase</th><th>Step</th><th>Lane</th><th>Verified by</th><th>Builds</th><th></th></tr></thead>
       <tbody>${body}</tbody></table></div></section>`;
   }
 
@@ -550,15 +550,20 @@
       html: `<div class="needs-answer"><input type="text" class="impl-answer" data-id="${esc(q.id)}" placeholder="Your answer" aria-label="Answer ${esc(q.id)}" /><button type="button" class="ghost small" data-guide-act="skip-q" data-id="${esc(q.id)}" title="Leave it out of the build">Skip</button></div>` }));
     conflicts.forEach(([sct, o]) => needs.push({ title: `${describe(sct, o)} conflicts with the org`, text: esc(o.note || "The org already has something with this name but a different shape."),
       html: `<button type="button" class="ghost small" data-open-fold="fold-blueprint">Open in table</button>` }));
-    dupes.forEach((f) => needs.push({ title: `Deluge function “${f.name}” duplicates a workflow rule`, text: "LiftOff excluded it. Keep it excluded unless you want code instead of a rule.",
+    dupes.forEach((f) => needs.push({ title: `Deluge function “${f.name}” duplicates a workflow rule`, text: esc(f.note || "LiftOff excluded it. Keep it excluded unless you want code instead of a rule."),
       html: `<button type="button" class="ghost small" data-guide-act="include" data-id="${esc(f.id)}">Include anyway</button>` }));
+    // Assumptions: defaults LiftOff chose instead of asking — shown once for a veto, never blocking
+    const assumed = [];
+    for (const [sct] of SECTIONS) if (sct !== "plan" && sct !== "open_questions") (spec[sct] || []).forEach((o) => { if (o.include !== false && (o.assumption || "").trim() && !o.assumption_ok) assumed.push([sct, o]); });
+    assumed.forEach(([sct, o]) => needs.push({ title: `Assumed: ${o.assumption}`, text: `for ${esc(describe(sct, o))} — built this way unless you change it`,
+      html: `<button type="button" class="ghost small" data-guide-act="assume-ok" data-id="${esc(o.id)}">OK</button><button type="button" class="ghost small" data-open-fold="fold-blueprint">Change</button>` }));
     if (!guideSkipNeeds) G.needs("blueprint", needs);
     // Plain list of what will be built
     const rows = [];
     for (const [sct] of SECTIONS) if (sct !== "plan" && sct !== "open_questions") (spec[sct] || []).forEach((o) => {
       if (sct === "modules" && o.status === "exists") return;
       const pi = plainItem(sct, o), lane = laneTag(o);
-      rows.push({ tag: lane.tag, tone: lane.tone, off: lane.off, title: pi.title, sub: pi.sub, right: (o.req_ids || []).join(", ") });
+      rows.push({ tag: lane.tag, tone: lane.tone, off: lane.off, title: pi.title, sub: pi.sub + ((o.assumption || "").trim() ? ` · assumed: ${o.assumption}` : ""), right: (o.req_ids || []).join(", ") });
     });
     const cov = impl.meta && impl.meta.coverage;
     G.plain("blueprint", rows, "What will be built · in plain words", cov && cov.requirements ? { text: cov.covered === cov.requirements ? `covers all ${cov.requirements} requirement(s)` : `covers ${cov.covered} of ${cov.requirements} requirement(s)`, tone: cov.covered === cov.requirements ? "ok" : "warn" } : null);
@@ -677,7 +682,8 @@
       if (act === "approve-run") runAll();
     } else if (act === "unapprove") { setApproved(false); els.approve.checked = false; render(); }
     else if (act === "skip-q" && id) { const f = findItem(id); if (f) { f.item.include = false; changed(); render(); } }
-    else if (act === "include" && id) { const f = findItem(id); if (f) { f.item.include = true; f.item.note = ""; changed(); render(); } }
+    else if (act === "include" && id) { const f = findItem(id); if (f) { f.item.include = true; f.item.manual_include = true; f.item.note = ""; changed(); render(); } }
+    else if (act === "assume-ok" && id) { const f = findItem(id); if (f) { f.item.assumption_ok = true; save(); render(); } }
     else if (act === "manual-done" && id) { const f = findItem(id); if (f) { f.item.manual_done = { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() }; save(); renderBuild(); renderVerify(); refreshButtons(); } }
     else if (act === "retry-stuck" || act === "skip-stuck") {
       const b = impl.build; const i = b ? b.steps.findIndex((x) => x.status === "failed" || x.status === "conflict") : -1;

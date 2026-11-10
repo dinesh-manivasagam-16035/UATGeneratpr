@@ -67,7 +67,7 @@ public class ImplementServlet extends HttpServlet {
         final BrdChunker.Chunk chunk;
         Task(String group, BrdChunker.Chunk chunk) { this.group = group; this.chunk = chunk; }
         List<String> sections() { return "automation".equals(group) ? ImplSpec.AUTOMATION : ImplSpec.DATA_MODEL; }
-        String system() { return "automation".equals(group) ? ImplPrompts.automationSystem() : ImplPrompts.dataModelSystem(); }
+        String system() { return Products.byId(ImplPrompts.PRODUCT).systemPrompt(group); }
     }
 
     @Override
@@ -208,7 +208,7 @@ public class ImplementServlet extends HttpServlet {
 
             // ---- 5. Delivery plan ----
             boolean planned = false;
-            if (!mock && deadline - System.currentTimeMillis() > MIN_TIME_FOR_PLAN_MS && hasBuildItems(spec)) {
+            if (ImplPrompts.PLAN_VIA_LLM && !mock && deadline - System.currentTimeMillis() > MIN_TIME_FOR_PLAN_MS && hasBuildItems(spec)) {
                 try {
                     LlmResult r = Llm.chat(ImplPrompts.planSystem(),
                             ImplPrompts.planPrompt(digest(spec, 6000), allRequirements(reqs, 1500)), 0);
@@ -224,7 +224,7 @@ public class ImplementServlet extends HttpServlet {
                 } catch (Exception e) {
                     warnings.add("Plan generation failed (" + trim(e.getMessage(), 160) + "); derived a plan from the spec instead.");
                 }
-            } else if (!mock && hasBuildItems(spec)) {
+            } else if (ImplPrompts.PLAN_VIA_LLM && !mock && hasBuildItems(spec)) {
                 warnings.add("No time left for the plan call; derived a plan from the spec instead.");
             }
             if (!planned && ((ArrayNode) spec.path("plan")).size() == 0) {
@@ -443,6 +443,33 @@ public class ImplementServlet extends HttpServlet {
                     o.put("executor", "none");
                 } else {
                     o.put("executor", ImplSpec.executorFor(s, o));
+                }
+            }
+        }
+        excludeDuplicateFunctions(spec);
+    }
+
+    /**
+     * A Deluge function that serves the same requirement on the same module as a workflow rule the API
+     * can build is code where a rule will do: exclude it (the person can include it again in Blueprint).
+     */
+    static void excludeDuplicateFunctions(ObjectNode spec) {
+        for (JsonNode fn : spec.path("functions")) {
+            ObjectNode f = (ObjectNode) fn;
+            if (!f.path("include").asBoolean(true) || f.has("manual_include")) continue;
+            java.util.Set<String> reqs = new java.util.HashSet<>(ImplSpec.strings(f.path("req_ids")));
+            String module = ImplSpec.low(f.path("module").asText(""));
+            for (JsonNode w : spec.path("workflows")) {
+                if (!w.path("include").asBoolean(true)) continue;
+                String lane = w.path("executor").asText("");
+                if (!lane.equals("api") && !lane.equals("partial")) continue;
+                boolean sameReq = !reqs.isEmpty() && ImplSpec.strings(w.path("req_ids")).stream().anyMatch(reqs::contains);
+                boolean sameModule = module.isEmpty() || module.equals(ImplSpec.low(w.path("module").asText("")));
+                if (sameReq && sameModule) {
+                    f.put("include", false);
+                    f.put("executor", "none");
+                    f.put("note", "Duplicates workflow rule \"" + w.path("name").asText() + "\", which the API builds; excluded.");
+                    break;
                 }
             }
         }

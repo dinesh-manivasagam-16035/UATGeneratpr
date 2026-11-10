@@ -267,6 +267,24 @@ public final class ImplSpec {
                     if (!text(t, "priority").isEmpty()) to.put("priority", text(t, "priority"));
                 }
                 copyStrings(in, o, "other_actions");
+                // Plain-language mirror of the structured form, for the UI (the agent sends only the structured form).
+                if (o.path("trigger").asText("").isEmpty() && !o.path("trigger_type").asText("").isEmpty()) {
+                    String tt = o.path("trigger_type").asText();
+                    String trigText = tt.equals("create") ? "On create" : tt.equals("edit") ? "On edit" : tt.equals("create_or_edit") ? "On create or edit"
+                            : tt.equals("delete") ? "On delete" : tt.equals("field_update") ? "On update of " + String.join(", ", strings(o.path("trigger_fields"))) : "On a date/time";
+                    o.put("trigger", trigText);
+                }
+                if (o.path("criteria").asText("").isEmpty() && conds.size() > 0) {
+                    List<String> cs = new ArrayList<>();
+                    for (JsonNode c : conds) cs.add(c.path("field").asText() + " " + c.path("comparator").asText().replace('_', ' ') + (c.path("value").asText("").isEmpty() ? "" : " " + c.path("value").asText()));
+                    o.put("criteria", String.join(" " + o.path("match").asText("and") + " ", cs));
+                }
+                if (o.path("actions").size() == 0) {
+                    ArrayNode acts = o.putArray("actions");
+                    for (JsonNode f : fus) acts.add("Set " + f.path("field").asText() + " to " + (f.path("value").isArray() ? f.path("value").toString() : f.path("value").asText()));
+                    for (JsonNode t : tasks) acts.add("Create task \"" + t.path("subject").asText() + "\"");
+                    for (JsonNode a : o.path("other_actions")) acts.add(a.asText());
+                }
                 break;
             }
             case "roles": {
@@ -314,6 +332,8 @@ public final class ImplSpec {
                 o.put("effort_hours", Math.max(0, in.path("effort_hours").asDouble(0)));
                 String pr = text(in, "priority").toUpperCase(Locale.ROOT);
                 o.put("priority", pr.matches("P[012]") ? pr : "P1");
+                putIfText(o, "lane", text(in, "lane"));
+                putIfText(o, "verify", text(in, "verify"));
                 copyStrings(in, o, "depends_on");
                 copyStrings(in, o, "spec_refs");
                 break;
@@ -321,6 +341,7 @@ public final class ImplSpec {
             default:
                 return null;
         }
+        putIfText(o, "assumption", text(in, "assumption"));
         ArrayNode ids = o.putArray("req_ids");
         for (JsonNode id : in.path("req_ids")) {
             String s = Requirements.normalizeId(id.asText(""));
@@ -385,25 +406,7 @@ public final class ImplSpec {
     }
 
     static String executorFor(String section, JsonNode o) {
-        if ("exists".equals(o.path("status").asText())) return "none";
-        switch (section) {
-            case "modules": return "standard".equals(o.path("kind").asText()) ? "none" : "api";
-            // "partial": the API creates it, a person finishes it (a role's module permissions
-            // live on its profile; a workflow's email/webhook/function actions are added by hand).
-            // Required fields are marked mandatory through the layouts API, so they stay "api".
-            case "fields":  return API_FIELD_TYPES.contains(o.path("data_type").asText()) ? "api" : "rpa";
-            case "roles":   return o.path("permissions").size() > 0 ? "partial" : "api";
-            case "workflows": {
-                boolean apiRule = "workflow".equals(o.path("type").asText())
-                        && API_TRIGGERS.contains(o.path("trigger_type").asText(""))
-                        && (o.path("field_updates").size() > 0 || o.path("tasks").size() > 0);
-                if (!apiRule) return "rpa";
-                return o.path("other_actions").size() > 0 ? "partial" : "api";
-            }
-            case "open_questions": return "review";
-            case "plan":    return "projects";
-            default:        return "rpa";   // layouts, validation rules, workflows, functions
-        }
+        return Products.byId(ImplPrompts.PRODUCT).laneFor(section, o);
     }
 
     /** CRM-style api name from a label: "Lead Score %" -> "Lead_Score". */
@@ -431,6 +434,12 @@ public final class ImplSpec {
             if (!v.isEmpty()) return v;
         }
         return "";
+    }
+
+    static List<String> strings(JsonNode arr) {
+        List<String> out = new ArrayList<>();
+        if (arr != null) for (JsonNode v : arr) out.add(v.asText(""));
+        return out;
     }
 
     private static void putIfText(ObjectNode o, String field, String value) {

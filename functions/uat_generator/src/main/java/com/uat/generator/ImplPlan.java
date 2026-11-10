@@ -23,71 +23,106 @@ public final class ImplPlan {
 
     private ImplPlan() {}
 
+    /**
+     * The execution plan LiftOff itself follows: one step per build lane in run order, with what Verify
+     * reads back and the UAT that closes it. Derived from the spec and the capability lanes — no agent call.
+     */
     public static List<ObjectNode> derive(ObjectNode spec) {
         List<ObjectNode> tasks = new ArrayList<>();
         String prev = null;
 
         List<JsonNode> blocking = new ArrayList<>();
-        for (JsonNode q : spec.path("open_questions")) if (q.path("blocking").asBoolean(false)) blocking.add(q);
+        for (JsonNode q : spec.path("open_questions")) if (q.path("blocking").asBoolean(false) && q.path("include").asBoolean(true)) blocking.add(q);
         if (!blocking.isEmpty()) {
-            prev = add(tasks, "1. Clarify", "Resolve blocking open questions with the client",
-                    "Get answers for: " + ids(blocking) + ".", "Consultant", 1.0 * blocking.size(), "P0",
-                    blocking, null);
+            prev = add(tasks, "1. Clarify", "Answer " + blocking.size() + " blocking question(s)",
+                    "Build is held until these are answered in the Blueprint: " + ids(blocking) + ".", "You", "review",
+                    0.25 * blocking.size(), "P0", blocking, null, "");
         }
 
+        // ---- 2. API lane, in the order Build applies them ----
+        String lastApi = prev;
         List<JsonNode> newModules = included(spec, "modules", "api");
         if (!newModules.isEmpty()) {
-            prev = add(tasks, "2. Data model", "Create custom modules",
-                    "Create " + names(newModules, "plural_label") + ".", "Admin", 1.0 * newModules.size(), "P0",
-                    newModules, prev);
+            lastApi = add(tasks, "2. Build via API", "Create " + newModules.size() + " module(s)",
+                    names(newModules, "plural_label") + ".", "LiftOff", "api", 0.05 * newModules.size(), "P0",
+                    newModules, prev, "each module is listed by GET settings/modules");
         }
         Map<String, List<JsonNode>> fieldsByModule = new LinkedHashMap<>();
-        for (JsonNode f : included(spec, "fields", null)) {
+        for (JsonNode f : included(spec, "fields", "api")) {
             fieldsByModule.computeIfAbsent(f.path("module").asText(), k -> new ArrayList<>()).add(f);
         }
-        String afterModules = prev;
-        String lastData = prev;
+        String afterModules = lastApi;
         for (Map.Entry<String, List<JsonNode>> e : fieldsByModule.entrySet()) {
-            lastData = add(tasks, "2. Data model", "Create " + e.getValue().size() + " field(s) on " + e.getKey(),
-                    names(e.getValue(), "label") + ".", "Admin", Math.max(1, 0.25 * e.getValue().size()), "P0",
-                    e.getValue(), afterModules);
+            lastApi = add(tasks, "2. Build via API", "Create " + e.getValue().size() + " field(s) on " + e.getKey(),
+                    names(e.getValue(), "label") + ".", "LiftOff", "api", 0.05 * e.getValue().size(), "P0",
+                    e.getValue(), afterModules, "each field exists with the specified type, length and options");
         }
-        List<JsonNode> layouts = included(spec, "layouts", null);
-        if (!layouts.isEmpty()) {
-            lastData = add(tasks, "2. Data model", "Configure layouts", names(layouts, "name") + ".", "Admin",
-                    1.5 * layouts.size(), "P1", layouts, lastData);
-        }
-        List<JsonNode> rules = included(spec, "validation_rules", null);
-        if (!rules.isEmpty()) {
-            lastData = add(tasks, "2. Data model", "Add validation rules", names(rules, "name") + ".", "Admin",
-                    0.5 * rules.size(), "P1", rules, lastData);
-        }
-        List<JsonNode> roles = included(spec, "roles", null);
+        List<JsonNode> roles = included(spec, "roles", "api");
+        roles.addAll(included(spec, "roles", "partial"));
         if (!roles.isEmpty()) {
-            add(tasks, "3. Access", "Set up roles and permissions", names(roles, "name") + ".", "Admin",
-                    0.5 * roles.size() + 1, "P1", roles, null);
+            lastApi = add(tasks, "2. Build via API", "Create " + roles.size() + " role(s)", names(roles, "name") + ".",
+                    "LiftOff", "api", 0.05 * roles.size(), "P1", roles, prev, "roles listed by GET settings/roles");
         }
-        List<JsonNode> flows = included(spec, "workflows", null);
-        String lastAuto = lastData;
-        for (JsonNode w : flows) {
-            String type = w.path("type").asText("workflow");
-            double h = "blueprint".equals(type) ? 6 : "approval".equals(type) ? 3 : 1.5;
-            lastAuto = add(tasks, "4. Automation", "Build " + type + ": " + w.path("name").asText(),
-                    w.path("trigger").asText("") + (w.path("criteria").asText("").isEmpty() ? "" : " — " + w.path("criteria").asText()),
-                    "Consultant", h, "P0", List.of(w), lastData);
+        List<JsonNode> apiRules = included(spec, "workflows", "api");
+        apiRules.addAll(included(spec, "workflows", "partial"));
+        for (JsonNode w : apiRules) {
+            lastApi = add(tasks, "2. Build via API", "Create rule: " + w.path("name").asText(),
+                    ruleText(w), "LiftOff", "api", 0.1, "P0", List.of(w), lastApi,
+                    "rule exists on " + w.path("module").asText() + " with its actions");
         }
-        for (JsonNode f : included(spec, "functions", null)) {
-            add(tasks, "5. Custom code", "Write and test function " + f.path("name").asText(),
-                    f.path("purpose").asText(""), "Developer", 4, "P1", List.of(f), lastData);
+
+        // ---- 3. Setup lane: what the runner walks you through ----
+        String lastUi = lastApi;
+        List<JsonNode> ui = new ArrayList<>();
+        for (String sct : new String[]{"fields", "layouts", "validation_rules", "workflows", "functions"}) ui.addAll(included(spec, sct, "rpa"));
+        for (JsonNode w : included(spec, "workflows", "partial")) {
+            if (w.path("other_actions").size() > 0) ui.add(w);
         }
-        if (!tasks.isEmpty()) {
-            String verify = add(tasks, "6. Verify & UAT", "Verify org against spec and run UAT",
-                    "Run /implement/verify, then generate and execute UAT cases from the approved spec.",
-                    "QA", 4, "P0", new ArrayList<>(), lastAuto);
-            add(tasks, "7. Go-live", "Go-live and hand-over",
-                    "Deploy from sandbox, user training, hypercare.", "Consultant", 4, "P1", new ArrayList<>(), verify);
+        for (JsonNode item : ui) {
+            String what = describeAny(spec, item);
+            lastUi = add(tasks, "3. In Setup (guided)", what, "No create API — the guided runner opens Setup and walks the steps; tick it when done.",
+                    "You", "ui", 0.25, "P1", List.of(item), lastApi, "confirmed by you (read back where the API allows)");
+        }
+
+        // ---- 4 & 5. Verify and UAT close the loop ----
+        if (!tasks.isEmpty() || hasAny(spec)) {
+            List<JsonNode> all = new ArrayList<>();
+            for (String sct : new String[]{"modules", "fields", "roles", "workflows", "layouts", "validation_rules"}) all.addAll(included(spec, sct, null));
+            String verify = add(tasks, "4. Verify", "Read the org back", "Every built item is read through the API and compared with the blueprint.",
+                    "LiftOff", "verify", 0.05, "P0", all, lastUi, "every item reports match");
+            add(tasks, "5. UAT", "Run the acceptance tests", "Test records are created, each acceptance criterion is checked, then the records are deleted. Sign-off unlocks when all pass.",
+                    "LiftOff", "uat", 0.1, "P0", new ArrayList<>(), verify, "all acceptance tests pass");
         }
         return tasks;
+    }
+
+    private static boolean hasAny(ObjectNode spec) {
+        for (String s : ImplSpec.SECTIONS) if (!"plan".equals(s) && !"open_questions".equals(s) && spec.path(s).size() > 0) return true;
+        return false;
+    }
+
+    private static String ruleText(JsonNode w) {
+        StringBuilder sb = new StringBuilder();
+        String trig = w.path("trigger_type").asText("");
+        sb.append(trig.isEmpty() ? w.path("trigger").asText("") : "on " + trig.replace('_', ' '));
+        if (w.path("conditions").size() > 0) {
+            List<String> cs = new ArrayList<>();
+            for (JsonNode c : w.path("conditions")) cs.add(c.path("field").asText() + " " + c.path("comparator").asText().replace('_', ' ') + (c.path("value").asText("").isEmpty() ? "" : " " + c.path("value").asText()));
+            sb.append(" when ").append(String.join(" " + w.path("match").asText("and") + " ", cs));
+        }
+        List<String> acts = new ArrayList<>();
+        for (JsonNode f : w.path("field_updates")) acts.add("set " + f.path("field").asText() + " = " + f.path("value").asText());
+        for (JsonNode t : w.path("tasks")) acts.add("task \"" + t.path("subject").asText() + "\"");
+        for (JsonNode a : w.path("other_actions")) acts.add(a.asText());
+        if (!acts.isEmpty()) sb.append(" → ").append(String.join(", ", acts));
+        return sb.toString();
+    }
+
+    private static String describeAny(ObjectNode spec, JsonNode item) {
+        for (String s : ImplSpec.SECTIONS) {
+            for (JsonNode o : spec.path(s)) if (o == item) return describe(s, item);
+        }
+        return item.path("name").asText(item.path("label").asText(""));
     }
 
     /** Short "what" text for an item, used in the plan prompt and task descriptions. */
@@ -108,13 +143,16 @@ public final class ImplPlan {
     }
 
     private static String add(List<ObjectNode> tasks, String phase, String title, String description,
-                              String owner, double hours, String priority, List<JsonNode> items, String dependsOn) {
+                              String owner, String lane, double hours, String priority, List<JsonNode> items,
+                              String dependsOn, String verify) {
         ObjectNode t = MAPPER.createObjectNode();
         t.put("phase", phase);
         t.put("title", title);
         t.put("description", description);
         t.put("owner_role", owner);
-        t.put("effort_hours", Math.round(hours * 2) / 2.0);
+        t.put("lane", lane);
+        t.put("verify", verify == null ? "" : verify);
+        t.put("effort_hours", Math.round(hours * 20) / 20.0);
         t.put("priority", priority);
         ArrayNode dep = t.putArray("depends_on");
         if (dependsOn != null) dep.add(dependsOn);
