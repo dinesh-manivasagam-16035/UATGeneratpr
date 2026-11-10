@@ -26,7 +26,14 @@
     ["plan",             "Delivery plan"],
   ];
   const EXECUTOR_LABEL = { api: "API", partial: "Partly manual", rpa: "Manual", review: "Review", projects: "Projects", none: "—" };
-  const FILTERS = [["all", "All items"], ["attention", "Needs attention"], ["new", "New"], ["exists", "Already in org"]];
+  const FILTERS = [["all", "All items"], ["attention", "Needs attention"], ["new", "New"], ["exists", "Already in org"],
+    ["api", "Builds via API"], ["manual", "Needs UI work"]];
+  const GROUPS = [
+    ["data_model", "Data model", "modules, fields, layouts, validation rules, roles", ["modules", "fields", "layouts", "validation_rules", "roles"]],
+    ["automation", "Automation", "workflows, approvals, Deluge functions", ["workflows", "functions"]],
+  ];
+  const KIND_LABEL = { modules: "module", fields: "field", layouts: "layout", validation_rules: "validation rule", roles: "role",
+    workflows: "workflow", functions: "Deluge function" };
   const STATUS_LABEL = { new: "New", exists: "Already in org", needs_update: "Needs update", conflict: "Conflict",
     not_compared: "Not compared", created: "Created", open: "Open" };
   const API_TRIGGERS = ["create", "edit", "create_or_edit", "field_update", "delete"];   // ImplSpec.API_TRIGGERS
@@ -228,12 +235,7 @@
          <span class="muted">Connect CRM on the Brief tab to check items against your org and to apply.</span>`;
 
     const warnings = m.warnings || [];
-    const cov = m.coverage;
     let wh = "";
-    if (cov && cov.requirements) {
-      wh += `<p class="muted">Requirements covered: <strong>${cov.covered}/${cov.requirements}</strong>`
-        + (cov.uncovered && cov.uncovered.length ? ` — not covered: ${esc(cov.uncovered.join(", "))}` : "") + "</p>";
-    }
     if (warnings.length) {
       wh += `<details class="impl-warn"><summary>${warnings.length} note(s) from generation</summary><ul>`
         + warnings.map((w) => `<li>${esc(w)}</li>`).join("") + "</ul></details>";
@@ -243,7 +245,7 @@
 
     els.toolbar.hidden = false;
     els.toolbar.innerHTML = toolbarHtml();
-    const html = SECTIONS.map(([s, label]) => sectionHtml(s, label)).join("");
+    const html = GROUPS.map((g) => groupTableHtml(g)).join("") + questionsTableHtml() + planTableHtml();
     els.spec.innerHTML = html || `<p class="muted impl-empty">Nothing matches this filter.</p>`;
     els.reviewBar.hidden = false;
     els.approve.checked = !!impl.spec.approved;
@@ -263,126 +265,224 @@
       case "attention": return needsAttention(section, o);
       case "new":       return o.status === "new";
       case "exists":    return o.status === "exists";
+      case "api":       return o.executor === "api" || o.executor === "partial";
+      case "manual":    return o.executor === "rpa" || o.executor === "partial";
       default:          return true;
     }
   }
 
-  function sectionHtml(section, label) {
-    const items = impl.spec[section] || [];
-    if (!items.length) return "";
-    const shown = items.filter((o) => matchesFilter(section, o));
-    if (!shown.length) return "";
-    const included = items.filter((o) => o.include !== false).length;
-    let body;
-    if (section === "fields") {
-      // Grouped by module, as consultants read a field list.
-      const byModule = {};
-      shown.forEach((o) => { (byModule[o.module] = byModule[o.module] || []).push(o); });
-      body = Object.entries(byModule).map(([m, list]) =>
-        `<div class="impl-group"><h4>${esc(m)}</h4>${list.map((o) => itemHtml(section, o)).join("")}</div>`).join("");
-    } else {
-      body = shown.map((o) => itemHtml(section, o)).join("");
-    }
-    return `<details class="impl-section" open data-section="${section}">
-      <summary><span>${esc(label)}</span><span class="muted">${included}/${items.length} included</span></summary>
-      ${body}
-    </details>`;
+  // ---- Blueprint as tables ----
+
+  function pill(cls, text, title) {
+    return `<span class="impl-badge ${esc(cls)}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`;
+  }
+  function statusPills(section, o) {
+    const ver = impl.verify && (impl.verify.results || []).find((r) => r.id === o.id);
+    const run = (impl.applied || impl.dryRun) && ((impl.applied || impl.dryRun).results || []).find((r) => r.id === o.id);
+    return [
+      o.status && o.status !== "todo" ? pill("st-" + o.status, STATUS_LABEL[o.status] || o.status) : "",
+      run ? pill("run-" + run.result, run.result.replace(/_/g, " "), run.detail || "") : "",
+      ver ? pill("ver-" + ver.verdict, ver.verdict, ver.detail || "") : "",
+    ].filter(Boolean).join(" ");
+  }
+  function reqCells(o) {
+    return (o.req_ids || []).map((r) => `<span class="impl-req">${esc(r)}</span>`).join("") || `<span class="muted">—</span>`;
+  }
+  function includeCell(o, disabled) {
+    return `<td><input type="checkbox" data-act="include" data-id="${esc(o.id)}" aria-label="Include ${esc(o.id)}" ${o.include === false ? "" : "checked"} ${disabled ? "disabled" : ""} /></td>`;
+  }
+  function editorRow(o, cols) {
+    return `<tr class="row-editor" data-editor="${esc(o.id)}" hidden><td colspan="${cols}">
+      <textarea rows="10" spellcheck="false" aria-label="Edit ${esc(o.id)} as JSON">${esc(JSON.stringify(o, null, 2))}</textarea>
+      <div class="cell-actions" style="margin-top:8px">
+        <button class="primary small" data-act="save" data-id="${esc(o.id)}" type="button">Save</button>
+        <button class="ghost small" data-act="cancel" data-id="${esc(o.id)}" type="button">Cancel</button>
+      </div></td></tr>`;
+  }
+  function nameCell(section, o) {
+    return `<td class="cell-main">${esc(describe(section, o).replace(/^[^·]*·\s*/, "")) || esc(o.id)}<span class="muted">${esc(KIND_LABEL[section] || section)}</span>
+      ${o.note ? `<div class="muted" style="color:var(--warn)">${esc(o.note)}</div>` : ""}</td>`;
   }
 
-  // Summary line, filters and the review actions above the blueprint.
+  // Data model / Automation: every section of the group in one table, filtered.
+  function groupTableHtml([key, label, sub, sections]) {
+    const rows = [];
+    sections.forEach((section) => (impl.spec[section] || []).forEach((o) => { if (matchesFilter(section, o)) rows.push([section, o]); }));
+    const total = sections.reduce((n, sct) => n + (impl.spec[sct] || []).length, 0);
+    if (!total) return "";
+    const included = sections.reduce((n, sct) => n + (impl.spec[sct] || []).filter((o) => o.include !== false).length, 0);
+    const head = `<div class="card-head"><h3>${esc(label)} <span class="muted">· ${esc(sub)}</span></h3>
+        <span class="pill">${included} of ${total} included</span></div>`;
+    if (!rows.length) return `<section class="card" data-group="${key}">${head}<p class="muted" style="padding:14px 18px;margin:0">Nothing in this group matches the filter.</p></section>`;
+    const auto = key === "automation";
+    const cols = auto ? 9 : 8;
+    const thead = auto
+      ? `<tr><th class="col-check"></th><th class="col-narrow">ID</th><th>Item</th><th>Trigger</th><th>Criteria</th><th>Actions</th><th>In org</th><th>Build via</th><th>Req</th><th></th></tr>`
+      : `<tr><th class="col-check"></th><th class="col-narrow">ID</th><th>Item</th><th>Module</th><th>Details</th><th>In org</th><th>Build via</th><th>Req</th><th></th></tr>`;
+    const body = rows.map(([section, o]) => {
+      const off = o.include === false;
+      const exec = pill("exec-" + o.executor, EXECUTOR_LABEL[o.executor] || o.executor);
+      const edit = `<td><div class="cell-actions"><button class="ghost small" data-act="edit" data-id="${esc(o.id)}" type="button">Edit</button></div></td>`;
+      let mid;
+      if (auto) {
+        if (section === "workflows") {
+          const crit = o.criteria || (o.conditions || []).map((c) => `${c.field} ${c.comparator} ${c.value || ""}`).join(" and ") || "all records";
+          const acts = [].concat(
+            (o.field_updates || []).map((f) => `Set <code>${esc(f.field)}</code> = ${esc(Array.isArray(f.value) ? f.value.join(", ") : f.value)}`),
+            (o.tasks || []).map((t) => `Task “${esc(t.subject)}” · ${esc(String(t.due_in_days || 0))} day(s) · ${esc(t.priority || "Normal")}`),
+            (o.other_actions || []).map((a) => `<span class="muted">by hand:</span> ${esc(a)}`),
+            (!(o.field_updates || []).length && !(o.tasks || []).length && !(o.other_actions || []).length ? (o.actions || []).map(esc) : []),
+            (o.states || []).length ? [`<span class="muted">states:</span> ${esc(o.states.join(" → "))}`] : []);
+          mid = `<td>${esc(o.trigger || "")}${o.trigger_type ? `<div><code>${esc(o.trigger_type)}${(o.trigger_fields || []).length ? ": " + esc(o.trigger_fields.join(", ")) : ""}</code></div>` : ""}</td>
+            <td>${esc(crit)}</td><td>${acts.join("<br>") || `<span class="muted">—</span>`}${o.details ? `<div class="muted">${esc(o.details)}</div>` : ""}</td>`;
+        } else {
+          mid = `<td>${esc(o.trigger || "")}</td><td><span class="muted">—</span></td>
+            <td>${esc(o.purpose || "")}${(o.arguments || []).length ? `<div class="muted">args: ${esc(o.arguments.map((a) => a.name).join(", "))}</div>` : ""}
+              ${o.code ? `<details><summary class="muted">Deluge code</summary><pre class="impl-code">${esc(o.code)}</pre></details>` : ""}</td>`;
+        }
+      } else {
+        const det = details(section, o).map(esc).join("<br>") || `<span class="muted">—</span>`;
+        mid = `<td>${esc(o.module || (section === "modules" ? o.api_name || "" : ""))}</td><td>${det}</td>`;
+      }
+      return `<tr class="${off ? "is-off" : ""}${o.status === "conflict" ? " is-err" : ""}" data-id="${esc(o.id)}">
+        ${includeCell(o, o.status === "exists")}<td><strong>${esc(o.id)}</strong></td>${nameCell(section, o)}${mid}
+        <td>${statusPills(section, o) || `<span class="muted">—</span>`}</td><td>${exec}</td><td>${reqCells(o)}</td>${edit}</tr>` + editorRow(o, cols);
+    }).join("");
+    return `<section class="card" data-group="${key}">${head}<div class="table-wrap"><table class="lo-table"><thead>${thead}</thead><tbody>${body}</tbody></table></div></section>`;
+  }
+
+  function questionsTableHtml() {
+    const qs = (impl.spec.open_questions || []).filter((o) => matchesFilter("open_questions", o));
+    const all = impl.spec.open_questions || [];
+    if (!all.length) return "";
+    const open = all.filter((q) => q.include !== false && !(q.answer || "").trim()).length;
+    const head = `<div class="card-head ${open ? "warn" : ""}"><h3>Open questions <span class="muted">· answers feed the next regeneration</span></h3>
+        <span class="pill ${open ? "warn" : "ok"}">${open ? open + " open" : "all answered"}</span></div>`;
+    if (!qs.length) return `<section class="card ${open ? "warn" : ""}">${head}</section>`;
+    const body = qs.map((o) => `<tr class="${o.include === false ? "is-off" : ""}" data-id="${esc(o.id)}">
+        ${includeCell(o)}<td><strong>${esc(o.id)}</strong></td>
+        <td>${esc(o.question || "")}</td><td class="muted">${esc(o.context || "")}</td>
+        <td><textarea class="impl-answer" data-id="${esc(o.id)}" rows="2" placeholder="Answer (from the client)">${esc(o.answer || "")}</textarea></td>
+        <td>${o.blocking ? pill("warn", "blocking") : pill("", "no")}</td>
+        <td>${reqCells(o)}</td></tr>`).join("");
+    return `<section class="card ${open ? "warn" : ""}">${head}<div class="table-wrap"><table class="lo-table">
+      <thead><tr><th class="col-check"></th><th class="col-narrow">ID</th><th style="width:30%">Question</th><th>What the BRD says</th><th style="width:28%">Your answer</th><th>Blocking</th><th>Req</th></tr></thead>
+      <tbody>${body}</tbody></table></div></section>`;
+  }
+
+  function planTableHtml() {
+    const all = impl.spec.plan || [];
+    if (!all.length) return "";
+    const rows = all.filter((o) => matchesFilter("plan", o));
+    const hours = all.filter((o) => o.include !== false).reduce((n, t) => n + (Number(t.effort_hours) || 0), 0);
+    const head = `<div class="card-head"><h3>Delivery plan</h3><span class="pill">${all.filter((o) => o.include !== false).length} task(s) · ${hours} h</span></div>`;
+    const body = rows.map((o) => `<tr class="${o.include === false ? "is-off" : ""}" data-id="${esc(o.id)}">
+        ${includeCell(o)}<td>${esc(o.phase || "")}</td><td class="cell-main">${esc(o.title || "")}${o.description ? `<div class="muted" style="font-weight:400">${esc(o.description)}</div>` : ""}</td>
+        <td>${esc(o.owner_role || "—")}</td><td>${esc(String(o.effort_hours || 0))} h</td>
+        <td>${pill(o.priority === "P0" ? "err" : o.priority === "P2" ? "" : "warn", o.priority || "P1")}</td>
+        <td>${(o.spec_refs || []).map((r) => `<code>${esc(r)}</code>`).join(" ") || `<span class="muted">—</span>`}</td>
+        <td><div class="cell-actions"><button class="ghost small" data-act="edit" data-id="${esc(o.id)}" type="button">Edit</button></div></td></tr>` + editorRow(o, 8)).join("");
+    return `<section class="card">${head}<div class="table-wrap"><table class="lo-table">
+      <thead><tr><th class="col-check"></th><th>Phase</th><th>Task</th><th>Owner</th><th>Effort</th><th>Priority</th><th>Builds</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table></div></section>`;
+  }
+
+  // Summary tiles, filters and the review actions above the blueprint.
   function toolbarHtml() {
     const all = [];
     for (const [s] of SECTIONS) if (s !== "plan") (impl.spec[s] || []).forEach((o) => all.push([s, o]));
     const build = all.filter(([s]) => s !== "open_questions");
-    const count = (f) => build.filter(([, o]) => f(o)).length;
     const included = build.filter(([, o]) => o.include !== false);
     const byExec = (e) => included.filter(([, o]) => o.executor === e).length;
-    const doable = byExec("api") + byExec("partial") + byExec("rpa");
-    const pct = doable ? Math.round(100 * byExec("api") / doable) : 0;
     const openQs = (impl.spec.open_questions || []).filter((q) => q.include !== false);
     const answered = openQs.filter((q) => (q.answer || "").trim()).length;
-    const stat = (n, label, cls) => n ? `<span class="impl-stat ${cls || ""}">${n} ${label}</span>` : "";
-    return `<div class="impl-stats">
-        <span class="impl-stat strong">${included.length} of ${build.length} items included</span>
-        ${stat(count((o) => o.status === "conflict"), "conflicts", "err")}
-        ${stat(count((o) => o.status === "needs_update"), "need update", "warn")}
-        ${stat(count((o) => o.status === "new"), "new", "new")}
-        ${stat(count((o) => o.status === "exists"), "already in org")}
-        ${stat(count((o) => o.status === "not_compared"), "not compared")}
-      </div>
-      <div class="impl-stats">
-        <span class="impl-stat strong">${pct}% by API</span>
-        ${stat(byExec("partial"), "partly manual", "warn")}
-        ${stat(byExec("rpa"), "manual")}
-        ${openQs.length ? `<span class="impl-stat">${openQs.length} open question(s) · ${answered} answered</span>` : ""}
-      </div>
-      <div class="impl-toolbar-row">
-        <div class="impl-filters" role="group" aria-label="Filter the blueprint">
-          ${FILTERS.map(([k, l]) => `<button type="button" class="mode-btn${impl.filter === k ? " active" : ""}" data-filter="${k}" aria-pressed="${impl.filter === k}">${l}</button>`).join("")}
-        </div>
+    const blocking = openQs.filter((q) => q.blocking && !(q.answer || "").trim()).length;
+    const conflicts = build.filter(([, o]) => o.status === "conflict").length;
+    const cov = (impl.meta && impl.meta.coverage) || null;
+    const tile = (cls, label, value, sub, bar) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}${bar || ""}</div>`;
+    const pct = cov && cov.requirements ? Math.round(100 * cov.covered / cov.requirements) : 0;
+    const count = (sct) => (impl.spec[sct] || []).filter((o) => o.include !== false).length;
+    const breakdown = [["fields", "field"], ["workflows", "rule"], ["functions", "function"], ["validation_rules", "validation"], ["roles", "role"], ["layouts", "layout"]]
+      .map(([sct, l]) => [count(sct), l]).filter(([n]) => n).map(([n, l]) => `${n} ${l}${n === 1 ? "" : "s"}`).join(" · ");
+    const tiles = `<div class="tiles tiles-5">
+      ${cov && cov.requirements ? tile(pct === 100 ? "ok" : "warn", "Requirements covered", `${cov.covered} <span class="unit">/ ${cov.requirements}</span>`,
+          cov.uncovered && cov.uncovered.length ? "not covered: " + esc(cov.uncovered.join(", ")) : "every requirement has an item",
+          `<div class="tile-bar"><span style="width:${pct}%"></span></div>`) : tile("", "Requirements", "—", "no requirement ids in the BRD")}
+      ${tile("", "Items", `${included.length} <span class="unit">/ ${build.length}</span>`, esc(breakdown || "nothing to build"))}
+      ${tile("info", "Builds via API", String(byExec("api") + byExec("partial")), byExec("partial") ? `${byExec("partial")} finished by hand` : "created by Build")}
+      ${tile(byExec("rpa") ? "warn" : "", "Needs UI work", String(byExec("rpa")), "no create API · click-path steps")}
+      ${tile(openQs.length - answered ? "warn" : openQs.length ? "ok" : "", "Open questions", String(openQs.length - answered),
+          openQs.length ? `${answered} answered · ${blocking} blocking` : "none")}
+    </div>`;
+    const chips = `<div class="chips" role="group" aria-label="Filter the blueprint"><span class="chip-label">Show</span>
+        ${FILTERS.map(([k, l]) => `<button type="button" class="mode-btn${impl.filter === k ? " active" : ""}" data-filter="${k}" aria-pressed="${impl.filter === k}">${l}</button>`).join("")}
+        ${conflicts ? `<span class="pill err">${conflicts} conflict(s)</span>` : ""}
+        <span class="spacer"></span>
         <div class="impl-toolbar-actions">
           ${openQs.length ? `<button type="button" class="ghost small" data-tool="copy-questions">Copy questions for email</button>` : ""}
           ${answered ? `<button type="button" class="ghost small" data-tool="regen-answers">Apply answers and regenerate</button>` : ""}
           <button type="button" class="ghost small" data-tool="regen">Regenerate</button>
-        </div>
-      </div>`;
+        </div></div>`;
+    return tiles + chips;
   }
 
-  function itemHtml(section, o) {
-    const off = o.include === false;
-    const ver = impl.verify && (impl.verify.results || []).find((r) => r.id === o.id);
-    const run = (impl.applied || impl.dryRun) && ((impl.applied || impl.dryRun).results || []).find((r) => r.id === o.id);
-    const reqs = (o.req_ids || []).length ? `<span class="impl-req">${esc(o.req_ids.join(", "))}</span>` : "";
-    const badges = [
-      `<span class="impl-badge exec-${esc(o.executor)}">${esc(EXECUTOR_LABEL[o.executor] || o.executor)}</span>`,
-      o.status && !["todo"].includes(o.status) ? `<span class="impl-badge st-${esc(o.status)}">${esc(STATUS_LABEL[o.status] || o.status)}</span>` : "",
-      run ? `<span class="impl-badge run-${esc(run.result)}" title="${esc(run.detail || "")}">${esc(run.result.replace(/_/g, " "))}</span>` : "",
-      ver ? `<span class="impl-badge ver-${esc(ver.verdict)}" title="${esc(ver.detail || "")}">${esc(ver.verdict)}</span>` : "",
-      section === "open_questions" && o.blocking ? `<span class="impl-badge warn">blocking</span>` : "",
-      section === "plan" ? `<span class="badge ${esc((o.priority || "P1").toLowerCase())}">${esc(o.priority || "P1")}</span>` : "",
-    ].join("");
-    const det = details(section, o).map((d) => `<li>${esc(d)}</li>`).join("");
-    const extra = [];
-    if (section === "functions" && o.code) extra.push(`<pre class="impl-code">${esc(o.code)}</pre>`);
-    if (section === "open_questions") {
-      extra.push(`<textarea class="impl-answer" data-id="${esc(o.id)}" rows="2" placeholder="Answer (from the client)">${esc(o.answer || "")}</textarea>`);
-    }
-    if (run && run.detail) extra.push(`<p class="muted impl-run-detail">${esc(run.detail)}${run.follow_up ? " — " + esc(run.follow_up) : ""}</p>`);
-    if (ver && ver.detail) extra.push(`<p class="muted impl-run-detail">Verify: ${esc(ver.detail)}</p>`);
-    return `<div class="impl-item${off ? " off" : ""}" data-id="${esc(o.id)}">
-      <div class="impl-item-head">
-        <label class="impl-include"><input type="checkbox" data-act="include" data-id="${esc(o.id)}" ${off ? "" : "checked"} />
-          <span class="impl-id">${esc(o.id)}</span></label>
-        <span class="impl-title">${esc(describe(section, o))}</span>
-        ${reqs}
-        <span class="impl-badges">${badges}</span>
-        <button class="ghost small" data-act="edit" data-id="${esc(o.id)}" type="button">Edit</button>
-      </div>
-      ${det ? `<ul class="impl-details">${det}</ul>` : ""}
-      ${extra.join("")}
-      <div class="impl-editor" data-editor="${esc(o.id)}" hidden>
-        <textarea rows="10" spellcheck="false">${esc(JSON.stringify(o, null, 2))}</textarea>
-        <div class="actions inline tight">
-          <button class="primary small" data-act="save" data-id="${esc(o.id)}" type="button">Save</button>
-          <button class="ghost small" data-act="cancel" data-id="${esc(o.id)}" type="button">Cancel</button>
-        </div>
-      </div>
-    </div>`;
-  }
-
+  // Build tab: summary tiles + the plan table from a dry run (or the verify table).
   function renderRun(title, data, kind) {
-    const counts = Object.entries(data.counts || {}).map(([k, n]) => `${n} ${k.replace(/_/g, " ")}`).join(" · ");
-    const rows = (data.results || []).map((r) => `<tr>
-        <td>${esc(r.id)}</td><td>${esc(r.label)}</td>
-        <td><span class="impl-badge ${kind === "verify" ? "ver-" + esc(r.verdict) : "run-" + esc(r.result)}">${esc((kind === "verify" ? r.verdict : r.result || "").replace(/_/g, " "))}</span></td>
-        <td class="muted">${esc([r.detail, r.follow_up].filter(Boolean).join(" — "))}</td></tr>`).join("");
-    const rpa = (data.rpa_queue || []).length
-      ? `<p class="muted">${data.rpa_queue.length} item(s) need UI work (RPA bot or consultant) — use “Download RPA queue”.</p>` : "";
-    const warn = (data.warnings || []).length ? `<p class="status warn">${esc(data.warnings.join(" • "))}</p>` : "";
-    els.run.innerHTML = `<div class="impl-run">
-      <h3>${esc(title)}</h3><p class="muted">${esc(counts)}</p>${warn}${rpa}
-      <div class="impl-table-wrap"><table class="impl-table"><thead><tr><th>Item</th><th>What</th><th>Result</th><th>Detail</th></tr></thead>
-      <tbody>${rows}</tbody></table></div></div>`;
+    const results = data.results || [];
+    const rpa = data.rpa_queue || [];
+    const n = (f) => results.filter(f).length;
+    const api = n((r) => ["would_create", "would_update", "created", "updated"].includes(r.result));
+    const conflicts = n((r) => r.result === "conflict" || r.result === "failed");
+    const calls = results.reduce((t, r) => t + ((r.requests || []).length || (r.request ? 1 : 0)), 0);
+    const org = data.org || {};
+    const tile = (cls, label, value, sub) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div>`;
+    const tiles = `<div class="tiles tiles-4">
+      ${tile("", data.dry_run ? "Dry run" : "Apply", data.dry_run ? "Preview" : "Done", `${results.length} item(s) · ${data.dry_run ? "nothing was changed" : "written to " + esc(org.name || "the org")}`)}
+      ${tile("info", data.dry_run ? "Will create via API" : "Created via API", String(api), `${calls} API call(s), in order`)}
+      ${tile(rpa.length ? "warn" : "", "Queued for UI work", String(rpa.length), rpa.length ? `${rpa.reduce((t, q) => t + (q.steps || []).length, 0)} click-path steps · RPA bot or consultant` : "nothing needs Setup")}
+      ${tile(conflicts ? "err" : "ok", "Conflicts / failures", String(conflicts), conflicts ? "see the rows marked in red" : "nothing clashes with the org")}
+    </div>`;
+    let step = 0;
+    const rows = results.map((r) => {
+      const reqs = r.requests || (r.request ? [r.request] : []);
+      const isApi = ["would_create", "would_update", "created", "updated", "conflict", "failed"].includes(r.result) && (r.executor === "api" || r.executor === "partial");
+      const num = isApi ? String(++step) : "—";
+      const f = findItem(r.id);
+      const what = `<strong>${esc(r.label.replace(/^(field|workflow|module|role|validation rule|Deluge function|layout)\s+/i, ""))}</strong><span class="muted"> ${esc((r.label.match(/^(field|workflow|module|role|validation rule|Deluge function|layout)/i) || [""])[0].toLowerCase())}</span>`;
+      const call = reqs.length
+        ? reqs.map((q) => `<code>${esc((q.method || "") + " " + (q.path || "").replace(/^\/crm\/v\d+/, "").replace(/\?.*$/, ""))}</code>`).join("<br>")
+        : `<span class="muted">${r.executor === "rpa" ? "no create API" : "—"}</span>`;
+      const cls = r.result === "conflict" || r.result === "failed" ? "is-err" : (f && f.item.include === false) ? "is-off" : "";
+      return `<tr class="${cls}"><td class="muted">${num}</td><td><strong>${esc(r.id)}</strong></td><td>${what}</td><td>${call}</td>
+        <td>${pill(kind === "verify" ? "ver-" + r.verdict : "run-" + r.result, (kind === "verify" ? r.verdict : r.result || "").replace(/_/g, " "))}</td>
+        <td class="muted">${esc([r.detail, r.follow_up].filter(Boolean).join(" — "))}</td></tr>`;
+    }).join("");
+    const warn = (data.warnings || []).length ? `<p class="status warn" style="margin:0 18px 12px">${esc(data.warnings.join(" • "))}</p>` : "";
+    els.run.innerHTML = tiles + `<section class="card impl-plan"><div class="card-head"><h3>${esc(title)}</h3><span class="muted">Order: modules → fields → roles → rules</span></div>
+      <div class="table-wrap"><table class="lo-table"><thead><tr><th class="col-narrow">#</th><th class="col-narrow">Item</th><th>What</th><th>API call</th><th>Result</th><th>Detail</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>${warn}</section>` + rpaQueueHtml(rpa);
+  }
+
+  // The click-path queue for items without a create API, with the "done" tick per item.
+  function rpaQueueHtml(queue) {
+    if (!queue.length) return "";
+    const doneCount = queue.filter((q) => { const f = findItem(q.id); return f && f.item.manual_done; }).length;
+    return `<section class="card" id="impl-rpa"><div class="card-head"><h3>UI work queue <span class="muted">· no create API</span></h3>
+        <div class="impl-toolbar-actions"><span class="pill ${doneCount === queue.length ? "ok" : "warn"}">${doneCount} of ${queue.length} done</span></div></div>
+      <ul class="impl-manual">` + queue.map((q) => {
+        const f = findItem(q.id);
+        const item = f ? f.item : {};
+        const blocked = blockedBy(item);
+        const done = item.manual_done;
+        return `<li>
+          <input type="checkbox" data-manual="${esc(q.id)}" ${done ? "checked" : ""} ${blocked.length && !done ? "disabled" : ""} aria-label="${esc(q.label)} done" />
+          <div class="impl-manual-body"><strong>${esc(q.label)}</strong> <span class="pill warn">${(q.steps || []).length} steps</span>
+            <ol>${(q.steps || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>
+          ${done ? `<span class="impl-done-by">Done by ${esc(done.by)}</span>`
+            : blocked.length ? `<span class="impl-blocked">Blocked by ${esc(blocked.join(", "))}</span>`
+            : `<button class="ghost small" type="button" data-copy="${esc(q.id)}">Copy steps</button>`}
+        </li>`;
+      }).join("") + "</ul></section>";
   }
 
   function refreshButtons() {
@@ -768,47 +868,33 @@
     let html = "";
     if (b) {
       const n = (s) => b.steps.filter((x) => x.status === s).length;
-      const tiles = [["Done", n("done") + n("skipped"), "ok"], ["Running", n("running"), "run"],
-                     ["Failed", n("failed") + n("conflict"), "err"], ["Waiting", n("waiting"), "wait"]];
-      html += `<div class="impl-run"><h3>Build steps, in order</h3>
-        <p class="muted">Sandbox "${esc(b.org.name)}" · modules first, then fields and roles · each step stops on error.</p>
-        <div class="impl-tiles">${tiles.map(([l, v, k]) => `<div class="impl-tile ${k}"><span>${l}</span><strong>${v}</strong></div>`).join("")}</div>
-        <div class="impl-table-wrap"><table class="impl-table"><thead><tr><th>Step</th><th>What</th><th>API call</th><th>Status</th></tr></thead><tbody>`
+      const tile = (cls, label, value, sub) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div>`;
+      const finished = !!b.finishedAt;
+      html += `<div class="tiles tiles-4">
+        ${tile(finished ? (n("failed") + n("conflict") ? "err" : "ok") : "info", "Apply", finished ? (n("failed") + n("conflict") ? "Stopped" : "Done") : "Running…", `${esc(b.org.name)} · ${b.steps.length} step(s)`)}
+        ${tile("ok", "Done", String(n("done") + n("skipped")), n("skipped") ? `${n("skipped")} skipped` : "created in the org")}
+        ${tile(n("failed") + n("conflict") ? "err" : "", "Failed / conflict", String(n("failed") + n("conflict")), "stops the run until retried or skipped")}
+        ${tile("", "Waiting", String(n("waiting") + n("running")), "modules → fields → roles → rules")}
+      </div>`;
+      html += `<section class="card"><div class="card-head"><h3>Apply <span class="muted">· live progress, stops on the first problem</span></h3>
+          <button class="ghost small" type="button" data-step-act="log">Download run log</button></div>
+        <div class="table-wrap"><table class="lo-table"><thead><tr><th class="col-narrow">#</th><th>What</th><th>API call</th><th>Status</th></tr></thead><tbody>`
         + b.steps.map((st, i) => {
           const stuck = st.status === "failed" || st.status === "conflict";
           const f = findItem(st.id);
-          const actions = stuck ? `<div class="impl-step-actions">
+          const actions = stuck ? `<div class="cell-actions" style="margin-top:6px">
               <button class="ghost small" type="button" data-step-act="retry" data-i="${i}">Retry</button>
               ${st.status === "conflict" && f && f.section === "fields" ? `<button class="ghost small" type="button" data-step-act="newfield" data-i="${i}">Create new field instead</button>` : ""}
               <button class="ghost small" type="button" data-step-act="skip" data-i="${i}">Skip</button></div>` : "";
-          return `<tr class="${stuck ? "impl-row-err" : ""}"><td class="muted">${i + 1}</td>
+          return `<tr class="${stuck ? "is-err" : ""}"><td class="muted">${i + 1}</td>
             <td><strong>${esc(st.label)}</strong><div class="muted">${esc(st.id)}${f && (f.item.req_ids || []).length ? " · " + esc(f.item.req_ids.join(", ")) : ""}</div>
               ${st.detail ? `<div class="${stuck ? "impl-err-text" : "muted"}">${esc(st.detail)}</div>` : ""}</td>
-            <td class="impl-mono">${esc(st.method + " " + st.path)}${st.calls > 1 ? `<div class="muted">+ ${st.calls - 1} action call(s) first</div>` : ""}</td>
-            <td><span class="impl-badge step-${esc(st.status)}">${esc(st.status)}</span>${actions}</td></tr>`;
+            <td><code>${esc(st.method + " " + st.path.replace(/^\/crm\/v\d+/, ""))}</code>${st.calls > 1 ? `<div class="muted">+ ${st.calls - 1} action call(s) first</div>` : ""}</td>
+            <td>${pill("step-" + st.status, st.status)}${actions}</td></tr>`;
         }).join("")
-        + `</tbody></table></div>
-        <p><button class="ghost small" type="button" data-step-act="log">Download run log</button></p></div>`;
+        + `</tbody></table></div></section>`;
     }
-    if (queue.length) {
-      const doneCount = queue.filter((q) => { const f = findItem(q.id); return f && f.item.manual_done; }).length;
-      html += `<div class="impl-run"><h3>Configure by hand</h3>
-        <p class="muted">${queue.length} item(s) the APIs can't fully do · ${doneCount} done. Tick each one when it's set up.</p>
-        <ul class="impl-manual">` + queue.map((q) => {
-          const f = findItem(q.id);
-          const item = f ? f.item : {};
-          const blocked = blockedBy(item);
-          const done = item.manual_done;
-          return `<li>
-            <input type="checkbox" data-manual="${esc(q.id)}" ${done ? "checked" : ""} ${blocked.length && !done ? "disabled" : ""} aria-label="${esc(q.label)} done" />
-            <div class="impl-manual-body"><strong>${esc(q.label)}</strong>
-              <details><summary class="muted">${esc((q.steps || [])[0] || "Steps")}</summary><ol>${(q.steps || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></details></div>
-            ${done ? `<span class="impl-done-by">Done by ${esc(done.by)}</span>`
-              : blocked.length ? `<span class="impl-blocked">Blocked by ${esc(blocked.join(", "))}</span>`
-              : `<button class="ghost small" type="button" data-copy="${esc(q.id)}">Copy steps</button>`}
-          </li>`;
-        }).join("") + "</ul></div>";
-    }
+    html += rpaQueueHtml(queue);
     els.run.innerHTML = html;
     // Keep item badges in step with the run.
     impl.applied = b ? { org: b.org, rpa_queue: queue,
@@ -948,88 +1034,97 @@
     if (!impl.verify && !impl.uat) { els.verifyArea.innerHTML = ""; return; }
     let html = "";
     const org = verifyOrg();
+    const tile = (cls, label, value, sub) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div>`;
+    const c = impl.verify ? verifyCounts() : null;
+    const u = uatCounts();
+    const total = u.passed + u.failed + u.notRun;
+    const ready = checksOk() && uatOk();
+    const why = !impl.verify ? "Check the org first." : !checksOk() ? "Every check must match or be confirmed by hand."
+      : !impl.uat ? "Run the UAT cases first." : !impl.uat.live ? "Run the UAT cases against the org (not a dry run)."
+      : !uatOk() ? "No UAT case may fail." : "";
+    const reqIds = new Set(); (impl.uat ? impl.uat.cases : []).forEach((tc) => (tc.req_ids || []).forEach((r) => reqIds.add(r)));
+    const covered = [...reqIds].filter((r) => (impl.uat.cases || []).some((tc) => (tc.req_ids || []).includes(r) && (tc.execution_result || {}).status === "pass")).length;
+
+    html += `<div class="tiles tiles-4">
+      ${c ? tile(c.match + (c.byHand || 0) === (impl.verify.results || []).length ? "ok" : "warn", "Blueprint checks",
+          `${c.match} <span class="unit">/ ${(impl.verify.results || []).length} match</span>`,
+          [c.differ ? `${c.differ} differ` : "", c.missing ? `${c.missing} missing` : "", c.byHand ? `${c.byHand} to confirm by hand` : "", c.skipped ? `${c.skipped} skipped` : ""].filter(Boolean).join(" · ") || "everything matches")
+        : tile("", "Blueprint checks", "—", "not checked yet")}
+      ${impl.uat ? tile(u.failed ? "err" : u.notRun ? "warn" : "ok", "UAT cases", `${u.passed} <span class="unit">/ ${total} passed</span>`,
+          [u.failed ? `${u.failed} failed` : "", u.notRun ? `${u.notRun} not run` : "", impl.uat.live ? "" : "dry run"].filter(Boolean).join(" · ") || "all passed")
+        : tile("", "UAT cases", "—", "not written yet")}
+      ${impl.uat ? tile(covered === reqIds.size ? "ok" : "warn", "Requirements", `${covered} <span class="unit">/ ${reqIds.size}</span>`, "each covered by ≥ 1 passing case") : tile("", "Requirements", "—", "")}
+      ${tile(ready ? "ok" : "warn", "Promotion", ready ? "Ready" : "Locked", ready ? "package can be handed over" : esc(why))}
+    </div>`;
+
     if (impl.verify) {
-      const c = verifyCounts();
       const rows = (impl.verify.results || []).map((r) => ({ r, v: effectiveVerdict(r) }));
       const order = { mismatch: 0, missing: 1, unverifiable: 2, skipped: 3, confirmed: 4, present: 5 };
       rows.sort((a, b) => (order[a.v] ?? 9) - (order[b.v] ?? 9));
       const rowHtml = ({ r, v }) => {
         const f = findItem(r.id);
-        const reqs = f && (f.item.req_ids || []).length ? " · " + f.item.req_ids.join(", ") : "";
         let action = "";
         if ((v === "missing" || v === "mismatch") && r.fixable && org && org.sandbox) {
-          action = `<button class="ghost small" type="button" data-fix="${esc(r.id)}">Fix in sandbox</button>`;
+          action = `<button class="ghost small" type="button" data-fix="${esc(r.id)}">Fix in org</button>`;
         } else if (v === "mismatch" && !r.fixable) {
           action = `<span class="muted">Can't change a field's type — create a new field in Build</span>`;
         } else if (v === "unverifiable") {
-          action = `<span class="muted">Tick it in Configure by hand once checked</span>`;
+          action = `<span class="muted">Tick it in the UI work queue once checked</span>`;
         } else if (v === "confirmed" && f) {
-          action = `<span class="impl-done-by">${esc(f.item.manual_done.by)}</span>`;
-        }
-        return `<tr class="${v === "mismatch" || v === "missing" ? "impl-row-err" : ""}">
-          <td><strong>${esc(r.label)}</strong><div class="muted">${esc(r.id + reqs)}</div></td>
+          action = `<span class="impl-done-by">Confirmed by ${esc(f.item.manual_done.by)}</span>`;
+        } else action = `<span class="muted">—</span>`;
+        return `<tr class="${v === "mismatch" || v === "missing" ? "is-err" : ""}">
+          <td><strong>${esc(r.id)}</strong></td>
+          <td class="cell-main">${esc(r.label)}${f && (f.item.req_ids || []).length ? `<div class="muted" style="font-weight:400">${(f.item.req_ids).map((x) => `<span class="impl-req">${esc(x)}</span>`).join("")}</div>` : ""}</td>
           <td>${esc(r.expected || "")}</td>
-          <td class="${v === "mismatch" || v === "missing" ? "impl-err-text" : ""}">${esc(r.actual || "")}${r.detail && v !== "present" ? `<div class="muted">${esc(r.detail)}</div>` : ""}</td>
-          <td><span class="impl-badge ver-${esc(v)}">${esc(VERDICT_LABEL[v] || v)}</span></td>
+          <td class="${v === "mismatch" || v === "missing" ? "impl-err-text" : ""}">${esc(r.actual || "") || `<span class="muted">${esc(r.detail || "—")}</span>`}${r.actual && r.detail && v !== "present" ? `<div class="muted">${esc(r.detail)}</div>` : ""}</td>
+          <td>${pill("ver-" + v, VERDICT_LABEL[v] || v)}</td>
           <td>${action}</td></tr>`;
       };
-      const attention = rows.filter((x) => !["present", "confirmed"].includes(x.v));
-      const fine = rows.filter((x) => ["present", "confirmed"].includes(x.v));
-      const tiles = [["match the blueprint", c.match, "ok"], ["differ", c.differ, "err"], ["missing", c.missing, "err"],
-        ["to confirm by hand", c.byHand, "wait"], ["skipped during build", c.skipped, "wait"]].filter(([, n, k]) => n || k === "ok");
-      html += `<div class="impl-run"><h3>Configuration check</h3>
-        <p class="muted">Sandbox "${esc(org ? org.name : "")}" read back and compared with the blueprint.
-          <button class="ghost small" type="button" data-verify-act="recheck">Check again</button></p>
-        <div class="impl-tiles">${tiles.map(([l, n, k]) => `<div class="impl-tile ${k}"><strong>${n}</strong><span>${l}</span></div>`).join("")}</div>
-        <div class="impl-table-wrap"><table class="impl-table"><thead><tr><th>Item</th><th>Blueprint says</th><th>Sandbox has</th><th>Result</th><th><span class="sr-only">Action</span></th></tr></thead>
-        <tbody>${attention.map(rowHtml).join("")}</tbody></table></div>
-        ${fine.length ? `<details><summary class="muted">${fine.length} item(s) match</summary><div class="impl-table-wrap"><table class="impl-table"><tbody>${fine.map(rowHtml).join("")}</tbody></table></div></details>` : ""}
-        ${(impl.verify.warnings || []).length ? `<p class="status warn">${esc(impl.verify.warnings.join(" • "))}</p>` : ""}
-      </div>`;
+      html += `<section class="card"><div class="card-head"><h3>Org vs blueprint</h3>
+          <div class="impl-toolbar-actions"><span class="muted">${esc(org ? org.name : "")} read back${impl.verify.at ? " " + esc(impl.verify.at) : ""}</span>
+          <button class="ghost small" type="button" data-verify-act="recheck">Check again</button></div></div>
+        <div class="table-wrap"><table class="lo-table"><thead><tr><th class="col-narrow">ID</th><th>Item</th><th>Expected</th><th>Found in org</th><th>Result</th><th>Action</th></tr></thead>
+        <tbody>${rows.map(rowHtml).join("")}</tbody></table></div>
+        ${(impl.verify.warnings || []).length ? `<p class="status warn" style="margin:0 18px 12px">${esc(impl.verify.warnings.join(" • "))}</p>` : ""}
+      </section>`;
     }
 
-    // UAT cases, written from the same blueprint and run against the sandbox.
-    const u = uatCounts();
-    const total = u.passed + u.failed + u.notRun;
+    // UAT cases, written from the same blueprint and run against the org.
     const canRunLive = !!(org && org.sandbox);
-    html += `<div class="impl-run"><div class="impl-run-head"><div><h3>UAT cases</h3>
-        <p class="muted">${impl.uat ? `${total} case(s) from the blueprint · ${impl.uat.live ? "run against the sandbox" : "dry run: plans checked, nothing sent"}`
-          : "Written from the approved blueprint, then run against the sandbox."}</p></div>
+    html += `<section class="card"><div class="card-head"><h3>UAT cases <span class="muted">· written from the blueprint, run against the org</span></h3>
         <div class="impl-toolbar-actions">
+          ${impl.uat ? `<span class="pill ok">${u.passed} pass</span>${u.failed ? `<span class="pill err">${u.failed} fail</span>` : ""}${u.notRun ? `<span class="pill">${u.notRun} not run</span>` : ""}` : ""}
           ${impl.uat ? `<button class="ghost small" type="button" data-verify-act="uat-download">Download cases</button>` : ""}
           <button class="${impl.uat ? "ghost" : "primary"} small" type="button" data-verify-act="uat-run" ${impl.spec && impl.spec.approved ? "" : "disabled title=\"Approve the blueprint first\""}>
             ${impl.uat ? "Run all cases again" : canRunLive ? "Write and run cases" : "Write cases and dry-run them"}</button>
         </div></div>`;
     if (impl.uat) {
-      html += `<div class="impl-bar" role="img" aria-label="${u.passed} passed, ${u.failed} failed, ${u.notRun} not run">
-          <span class="ok" style="flex:${u.passed}"></span><span class="err" style="flex:${u.failed}"></span><span class="wait" style="flex:${u.notRun}"></span></div>
-        <p class="muted">${u.passed} passed · ${u.failed} failed · ${u.notRun} not run</p>
-        <div class="impl-table-wrap"><table class="impl-table"><thead><tr><th>Case</th><th>Requirement</th><th>Result</th></tr></thead><tbody>`
-        + impl.uat.cases.slice().sort((a, b) => rank(a) - rank(b)).map((tc) => {
+      html += `<div class="table-wrap"><table class="lo-table"><thead><tr><th class="col-narrow">ID</th><th>Case</th><th>Observed</th><th>Result</th><th>Req</th></tr></thead><tbody>`
+        + impl.uat.cases.slice().sort((a, b) => rank(a) - rank(b)).map((tc, i) => {
           const er = tc.execution_result || {};
           const s = er.status === "pass" ? "passed" : er.status === "fail" ? "failed" : "not run";
           const why = er.status === "fail" ? (er.first_failure || er.reason || "")
             : er.status === "dry_run" ? (er.plan_ok ? "plan looks runnable" : er.first_issue || "plan needs fixes") : er.reason || "";
-          return `<tr><td>${esc(tc.title)}</td><td>${(tc.req_ids || []).map((id) => `<span class="impl-req">${esc(id)}</span>`).join(" ")}</td>
-            <td><span class="impl-badge uat-${s.replace(" ", "_")}">${esc(s)}</span>${why ? `<div class="muted">${esc(typeof why === "string" ? why : JSON.stringify(why))}</div>` : ""}</td></tr>`;
+          return `<tr class="${s === "failed" ? "is-err" : ""}"><td><strong>${esc(tc.id || "UAT-" + (i + 1))}</strong></td><td class="cell-main">${esc(tc.title)}</td>
+            <td class="${s === "failed" ? "impl-err-text" : "muted"}">${esc(typeof why === "string" ? why : JSON.stringify(why)) || (s === "passed" ? "as expected" : "—")}</td>
+            <td>${pill("uat-" + s.replace(" ", "_"), s)}</td><td>${(tc.req_ids || []).map((id) => `<span class="impl-req">${esc(id)}</span>`).join("") || `<span class="muted">—</span>`}</td></tr>`;
         }).join("") + "</tbody></table></div>";
+    } else {
+      html += `<p class="muted" style="padding:14px 18px;margin:0">Cases are written from the approved blueprint's requirements and acceptance criteria, then run against ${esc(org ? org.name : "the org")}.</p>`;
     }
-    html += "</div>";
+    html += "</section>";
 
     // Hand-off: Projects, and promotion as a package for Zoho's sandbox deployment.
-    const ready = checksOk() && uatOk();
-    const why = !impl.verify ? "Verify the sandbox first." : !checksOk() ? "Every check must match or be confirmed by hand."
-      : !impl.uat ? "Run the UAT cases first." : !impl.uat.live ? "Run the UAT cases against the sandbox (not a dry run)."
-      : !uatOk() ? "No UAT case may fail." : "";
-    html += `<div class="impl-run impl-handoff"><div><h3>Hand off</h3>
+    html += `<section class="card impl-handoff"><div><h3>Hand off</h3>
         <p class="muted">Push cases and failures to Zoho Projects for the team. Promotion hands over a package for Zoho's
           sandbox deployment; LiftOff never writes to production.</p>
-        ${why ? `<p class="muted"><strong>Promote is locked:</strong> ${esc(why)}</p>` : ""}</div>
+        ${why ? `<p class="muted" style="color:var(--warn)"><strong>Promote is locked:</strong> ${esc(why)}</p>` : ""}</div>
         <div class="impl-toolbar-actions">
           <button class="ghost" type="button" data-verify-act="uat-push" ${impl.uat ? "" : "disabled"}>Push to Zoho Projects</button>
           <button class="primary" type="button" data-verify-act="promote" ${ready ? "" : "disabled"}>Promote to production</button>
         </div>
-        <div id="impl-promote" hidden></div></div>`;
+        <div id="impl-promote" hidden></div></section>`;
     els.verifyArea.innerHTML = html;
   }
 
@@ -1342,7 +1437,8 @@
 
   load();
   if (impl.spec) {
-    if (impl.build || impl.dryRun) renderBuild();
+    if (impl.build) renderBuild();
+    else if (impl.dryRun) renderRun("Dry run — nothing was changed", impl.dryRun, "apply");
     renderVerify();
     render();
   } else {

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="shell.css" />
   <!-- Catalyst Web SDK — must load before app.js uses catalyst.auth -->
   <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0/catalystWebSDK.js"></script>
   <script src="/__catalyst/sdk/init.js"></script>
@@ -22,77 +23,6 @@
   </script>
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <span class="brand-mark liftoff-icon-wrap" aria-hidden="true">
-        <svg class="liftoff-svg" viewBox="0 0 44 44" width="36" height="36" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="liftoff-bg-g" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#6366F1"/>
-              <stop offset="55%" stop-color="#7C3AED"/>
-              <stop offset="100%" stop-color="#A855F7"/>
-            </linearGradient>
-            <linearGradient id="liftoff-flame-g" x1="22" y1="26" x2="22" y2="38" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#FDE68A"/>
-              <stop offset="55%" stop-color="#F97316"/>
-              <stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
-            </linearGradient>
-          </defs>
-          <rect width="44" height="44" rx="12" fill="url(#liftoff-bg-g)"/>
-          <rect x="0" y="0" width="44" height="18" rx="12" fill="rgba(255,255,255,0.07)"/>
-          <!-- Stars -->
-          <circle cx="9" cy="9" r="1.2" fill="rgba(255,255,255,0.6)"/>
-          <circle cx="35" cy="8" r="0.85" fill="rgba(255,255,255,0.45)"/>
-          <circle cx="37" cy="20" r="1.0" fill="rgba(255,255,255,0.35)"/>
-          <circle cx="7" cy="29" r="0.7" fill="rgba(255,255,255,0.3)"/>
-          <!-- Rocket -->
-          <g class="li-rocket-g">
-            <path d="M22 7C18.5 12.5 17 18.5 17 24H27C27 18.5 25.5 12.5 22 7Z" fill="white"/>
-            <circle cx="22" cy="18.5" r="2.8" fill="#5B21B6" opacity="0.7"/>
-            <circle cx="22" cy="18.5" r="1.5" fill="rgba(255,255,255,0.55)"/>
-            <path d="M17 24L12.5 30.5L18.5 27Z" fill="rgba(255,255,255,0.8)"/>
-            <path d="M27 24L31.5 30.5L25.5 27Z" fill="rgba(255,255,255,0.8)"/>
-            <rect x="19.5" y="24" width="5" height="2.5" rx="1.25" fill="rgba(255,255,255,0.6)"/>
-            <g class="li-flame-g">
-              <path d="M20 26.5Q22 37 24 26.5" fill="url(#liftoff-flame-g)"/>
-              <path d="M20.8 26.5Q22 32 23.2 26.5" fill="rgba(255,230,90,0.6)"/>
-            </g>
-          </g>
-        </svg>
-      </span>
-      <div>
-        <h1>Lift<span class="brand-accent">Off</span></h1>
-        <p class="sub">Automated UAT, from spec to sign-off.</p>
-      </div>
-    </div>
-    <div class="header-actions">
-      <div class="theme-picker-wrap" id="theme-picker-wrap">
-        <button class="theme-picker-btn" id="theme-picker-btn" aria-label="Choose theme" title="Choose theme">
-          <span class="theme-swatch-small" id="theme-swatch-preview"></span>
-          <span id="theme-picker-label">Theme</span>
-          <svg viewBox="0 0 10 6" width="10" height="6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
-        </button>
-        <div class="theme-dropdown" id="theme-dropdown" hidden>
-          <div class="theme-option" data-theme-pick="light">
-            <span class="theme-swatch swatch-light"></span> Light
-          </div>
-          <div class="theme-option" data-theme-pick="dark">
-            <span class="theme-swatch swatch-dark"></span> Night
-          </div>
-        </div>
-      </div>
-      <div id="header-user-chip" class="header-user-chip" hidden>
-        <span class="huc-avatar" id="huc-avatar">Z</span>
-        <div class="huc-info">
-          <span class="huc-org" id="huc-org"></span>
-          <span class="huc-email" id="huc-email"></span>
-        </div>
-        <span class="huc-dot" id="huc-dot" aria-label="Connected"></span>
-      </div>
-      <span class="live-pill">Live</span>
-    </div>
-  </header>
-
   <!-- Login screen — shown while checking auth or when unauthenticated -->
   <section id="login-screen" aria-label="Sign in to LiftOff">
     <div class="login-card">
@@ -174,150 +104,208 @@
     </div>
   </section>
 
-  <nav class="tabs" role="tablist" aria-label="LiftOff workflow" hidden>
-    <button class="tab active" data-tab="input" data-step="1" id="tab-input" role="tab" aria-selected="true" aria-controls="panel-input">
-      <span class="tab-num">1</span><span class="tab-label">Brief</span><span class="tab-state"></span>
-    </button>
-    <button class="tab locked" data-tab="cases" data-step="2" id="tab-cases" role="tab" aria-selected="false" aria-controls="panel-cases">
-      <span class="tab-num">2</span><span class="tab-label">Cases</span><span class="tab-state"></span>
-    </button>
-    <button class="tab locked" data-tab="execute" data-step="3" id="tab-execute" role="tab" aria-selected="false" aria-controls="panel-execute">
-      <span class="tab-num">3</span><span class="tab-label">Fly</span><span class="tab-state"></span>
-    </button>
-    <button class="tab locked" data-tab="push" data-step="4" id="tab-push" role="tab" aria-selected="false" aria-controls="panel-push">
-      <span class="tab-num">4</span><span class="tab-label">Land</span><span class="tab-state"></span>
-    </button>
-    <button class="tab locked" data-tab="blueprint" data-step="2" id="tab-blueprint" role="tab" aria-selected="false" aria-controls="panel-blueprint" hidden>
-      <span class="tab-num">2</span><span class="tab-label">Blueprint</span><span class="tab-state"></span>
-    </button>
-    <button class="tab locked" data-tab="build" data-step="3" id="tab-build" role="tab" aria-selected="false" aria-controls="panel-build" hidden>
-      <span class="tab-num">3</span><span class="tab-label">Build</span><span class="tab-state"></span>
-    </button>
-    <button class="tab locked" data-tab="verify" data-step="4" id="tab-verify" role="tab" aria-selected="false" aria-controls="panel-verify" hidden>
-      <span class="tab-num">4</span><span class="tab-label">Verify</span><span class="tab-state"></span>
-    </button>
-  </nav>
+
+  <div class="app" id="app">
+    <aside class="sidebar" aria-label="LiftOff">
+      <div class="brand">
+        <span class="brand-mark liftoff-icon-wrap" aria-hidden="true">
+        <svg class="liftoff-svg" viewBox="0 0 44 44" width="36" height="36" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="liftoff-bg-g" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#6366F1"/>
+              <stop offset="55%" stop-color="#7C3AED"/>
+              <stop offset="100%" stop-color="#A855F7"/>
+            </linearGradient>
+            <linearGradient id="liftoff-flame-g" x1="22" y1="26" x2="22" y2="38" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#FDE68A"/>
+              <stop offset="55%" stop-color="#F97316"/>
+              <stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <rect width="44" height="44" rx="12" fill="url(#liftoff-bg-g)"/>
+          <rect x="0" y="0" width="44" height="18" rx="12" fill="rgba(255,255,255,0.07)"/>
+          <!-- Stars -->
+          <circle cx="9" cy="9" r="1.2" fill="rgba(255,255,255,0.6)"/>
+          <circle cx="35" cy="8" r="0.85" fill="rgba(255,255,255,0.45)"/>
+          <circle cx="37" cy="20" r="1.0" fill="rgba(255,255,255,0.35)"/>
+          <circle cx="7" cy="29" r="0.7" fill="rgba(255,255,255,0.3)"/>
+          <!-- Rocket -->
+          <g class="li-rocket-g">
+            <path d="M22 7C18.5 12.5 17 18.5 17 24H27C27 18.5 25.5 12.5 22 7Z" fill="white"/>
+            <circle cx="22" cy="18.5" r="2.8" fill="#5B21B6" opacity="0.7"/>
+            <circle cx="22" cy="18.5" r="1.5" fill="rgba(255,255,255,0.55)"/>
+            <path d="M17 24L12.5 30.5L18.5 27Z" fill="rgba(255,255,255,0.8)"/>
+            <path d="M27 24L31.5 30.5L25.5 27Z" fill="rgba(255,255,255,0.8)"/>
+            <rect x="19.5" y="24" width="5" height="2.5" rx="1.25" fill="rgba(255,255,255,0.6)"/>
+            <g class="li-flame-g">
+              <path d="M20 26.5Q22 37 24 26.5" fill="url(#liftoff-flame-g)"/>
+              <path d="M20.8 26.5Q22 32 23.2 26.5" fill="rgba(255,230,90,0.6)"/>
+            </g>
+          </g>
+        </svg>
+        </span>
+        <div>
+          <h1>Lift<span class="brand-accent">Off</span></h1>
+          <p class="sub">Spec to sign-off</p>
+        </div>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="LiftOff workflow" hidden>
+        <button class="tab active" data-tab="input" data-step="1" id="tab-input" role="tab" aria-selected="true" aria-controls="panel-input">
+          <span class="tab-num">1</span><span class="tab-label">Brief</span><span class="tab-state"></span>
+        </button>
+        <button class="tab locked" data-tab="cases" data-step="2" id="tab-cases" role="tab" aria-selected="false" aria-controls="panel-cases">
+          <span class="tab-num">2</span><span class="tab-label">Cases</span><span class="tab-state"></span>
+        </button>
+        <button class="tab locked" data-tab="execute" data-step="3" id="tab-execute" role="tab" aria-selected="false" aria-controls="panel-execute">
+          <span class="tab-num">3</span><span class="tab-label">Run</span><span class="tab-state"></span>
+        </button>
+        <button class="tab locked" data-tab="push" data-step="4" id="tab-push" role="tab" aria-selected="false" aria-controls="panel-push">
+          <span class="tab-num">4</span><span class="tab-label">Hand off</span><span class="tab-state"></span>
+        </button>
+        <button class="tab locked" data-tab="blueprint" data-step="2" id="tab-blueprint" role="tab" aria-selected="false" aria-controls="panel-blueprint" hidden>
+          <span class="tab-num">2</span><span class="tab-label">Blueprint</span><span class="tab-state"></span>
+        </button>
+        <button class="tab locked" data-tab="build" data-step="3" id="tab-build" role="tab" aria-selected="false" aria-controls="panel-build" hidden>
+          <span class="tab-num">3</span><span class="tab-label">Build</span><span class="tab-state"></span>
+        </button>
+        <button class="tab locked" data-tab="verify" data-step="4" id="tab-verify" role="tab" aria-selected="false" aria-controls="panel-verify" hidden>
+          <span class="tab-num">4</span><span class="tab-label">Verify</span><span class="tab-state"></span>
+        </button>
+      </nav>
+
+      <div class="side-foot">
+      <div id="header-user-chip" class="header-user-chip" hidden>
+        <span class="huc-avatar" id="huc-avatar">Z</span>
+        <div class="huc-info">
+          <span class="huc-org" id="huc-org"></span>
+          <span class="huc-email" id="huc-email"></span>
+        </div>
+        <span class="huc-dot" id="huc-dot" aria-label="Connected"></span>
+      </div>
+        <div class="side-foot-row">
+      <div class="theme-picker-wrap" id="theme-picker-wrap">
+        <button class="theme-picker-btn" id="theme-picker-btn" aria-label="Choose theme" title="Choose theme">
+          <span class="theme-swatch-small" id="theme-swatch-preview"></span>
+          <span id="theme-picker-label">Theme</span>
+          <svg viewBox="0 0 10 6" width="10" height="6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+        </button>
+        <div class="theme-dropdown" id="theme-dropdown" hidden>
+          <div class="theme-option" data-theme-pick="light">
+            <span class="theme-swatch swatch-light"></span> Light
+          </div>
+          <div class="theme-option" data-theme-pick="dark">
+            <span class="theme-swatch swatch-dark"></span> Night
+          </div>
+        </div>
+      </div>
+          <span class="live-pill">Live</span>
+        </div>
+      </div>
+    </aside>
 
   <main hidden>
 
-    <!-- Tab 1: Input -->
+    <!-- Step 1: Brief -->
     <section class="tab-panel active" data-panel="input" id="panel-input" role="tabpanel" aria-labelledby="tab-input">
       <div class="loader" hidden>
         <div class="spinner"></div>
         <div class="loader-text">Parsing BRD...</div>
       </div>
       <div class="panel-body">
-        <h2>Brief your pilot ✈️</h2>
-        <div class="scene scene-brief" aria-hidden="true">
-          <div class="scene-art">
-            <svg class="scene-svg" viewBox="0 0 110 56" fill="none">
-              <circle class="tab-anim radar-r1" cx="28" cy="28" r="12" stroke="currentColor" stroke-width="1" opacity="0.5"/>
-              <circle class="tab-anim radar-r2" cx="28" cy="28" r="21" stroke="currentColor" stroke-width="0.8" opacity="0.3"/>
-              <circle cx="28" cy="28" r="2.5" fill="currentColor" opacity="0.4"/>
-              <line class="tab-anim radar-sweep" x1="28" y1="28" x2="28" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <circle class="tab-anim radar-blip" cx="37" cy="17" r="2.5" fill="currentColor"/>
-              <g class="tab-anim plane-float">
-                <path d="M70 20 L90 13 L82 22 L90 30 Z" fill="currentColor" opacity="0.85"/>
-                <path d="M82 22 L75 27 L78 22 Z" fill="currentColor" opacity="0.45"/>
-              </g>
-              <circle class="tab-anim trail-1" cx="63" cy="23" r="1.8" fill="currentColor" opacity="0.5"/>
-              <circle class="tab-anim trail-2" cx="56" cy="23" r="1.3" fill="currentColor" opacity="0.3"/>
-            </svg>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Step 1 of 4</p>
+            <h2>Brief</h2>
+            <p class="muted">Load the requirements document, confirm the modules in scope, choose what to produce.</p>
           </div>
-          <div class="scene-copy">
-            <strong>Mission Briefing</strong>
-            <span>Connect CRM &middot; upload UAT spec &middot; select target modules</span>
+          <div class="page-actions">
+            <button id="download-sample-btn" class="ghost" type="button">BRD Template Builder</button>
+            <button id="generate-btn" class="primary" disabled>Generate UAT cases &rarr;</button>
           </div>
         </div>
 
-        <div class="auth-panel" id="auth-panel">
-
-          <!-- Not connected -->
-          <div id="auth-login-area">
-            <div class="crm-connect-row">
-              <span class="crm-connect-icon" aria-hidden="true">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M17 7H7a5 5 0 0 0 0 10h1v-2H7a3 3 0 1 1 0-6h10a3 3 0 1 1 0 6h-1v2h1a5 5 0 0 0 0-10z" fill="white"/>
-                  <rect x="8" y="11" width="8" height="2" rx="1" fill="white"/>
-                </svg>
-              </span>
-              <div class="crm-connect-text">
-                <strong id="auth-platform-label">Zoho CRM</strong>
-                <span>Connect to load live modules and push test cases</span>
+        <div class="tiles tiles-3">
+          <!-- CRM connection -->
+          <div class="tile auth-panel" id="auth-panel">
+            <p class="tile-label" id="auth-platform-label">Zoho CRM</p>
+            <div id="auth-login-area">
+              <div class="crm-connect-row">
+                <div class="crm-connect-text">
+                  <strong>Not connected</strong>
+                  <span>Connect to load live modules, compare against the org and build.</span>
+                </div>
+                <button id="auth-login-btn" class="primary small">Connect &rarr;</button>
               </div>
-              <button id="auth-login-btn" class="primary small">Connect &rarr;</button>
+              <span id="auth-status-text" class="status muted"></span>
             </div>
-            <span id="auth-status-text" class="status muted" style="display:block;margin-top:6px"></span>
-          </div>
-
-          <!-- Connected -->
-          <div id="auth-user-info" hidden>
-            <div class="crm-connected-bar">
-              <span class="crm-status-dot" aria-hidden="true"></span>
-              <div class="crm-info">
-                <span class="crm-org-name" id="auth-org-name"></span>
-                <span class="crm-email" id="auth-email"></span>
+            <div id="auth-user-info" hidden>
+              <div class="crm-connected-bar">
+                <span class="crm-status-dot" aria-hidden="true"></span>
+                <div class="crm-info">
+                  <span class="crm-org-name" id="auth-org-name"></span>
+                  <span class="crm-email" id="auth-email"></span>
+                </div>
               </div>
               <div class="crm-info-actions">
-                <button id="auth-switch-org-btn" class="ghost small">&#8644; Switch org</button>
+                <button id="auth-switch-org-btn" class="ghost small">Switch org</button>
                 <button id="auth-logout-btn" class="ghost small">Disconnect</button>
               </div>
             </div>
+            <div class="crm-load-row">
+              <button id="load-modules-btn" class="ghost small">&#8635; Load modules</button>
+              <span id="modules-status" class="status muted" aria-live="polite"></span>
+            </div>
           </div>
 
-          <!-- Load modules (always visible) -->
-          <div class="crm-load-row">
-            <button id="load-modules-btn" class="ghost small">&#8635; Load modules</button>
-            <span id="modules-status" class="status muted" aria-live="polite"></span>
+          <!-- Output -->
+          <div class="tile">
+            <p class="tile-label">Output</p>
+            <div class="platform-selector mode-selector" id="mode-selector" role="group" aria-label="What to generate">
+              <button class="mode-btn active" data-mode="uat" id="mode-uat-btn" type="button">UAT cases</button>
+              <button class="mode-btn" data-mode="impl" id="mode-impl-btn" type="button">Implementation</button>
+            </div>
+            <p class="muted mode-hint" id="mode-hint" hidden>
+              Blueprint from the BRD (modules, fields, automation, roles, Deluge, plan) &rarr; review &rarr; build in a test org &rarr; verify with UAT.
+            </p>
+            <p class="tile-label" style="margin-top:12px">Platform</p>
+            <div class="platform-selector" id="platform-selector" role="group" aria-label="Select platform">
+              <button class="platform-btn active" data-platform="crm" id="platform-crm-btn" type="button">Zoho CRM</button>
+              <button class="platform-btn" data-platform="creator" id="platform-creator-btn" type="button">Zoho Creator</button>
+            </div>
+            <iframe id="sso-frame" src="" hidden style="display:none"></iframe>
           </div>
 
-        </div>
-
-        <!-- Generator mode: UAT cases or Implementation spec -->
-        <div class="platform-selector mode-selector" id="mode-selector" role="group" aria-label="What to generate">
-          <button class="mode-btn active" data-mode="uat" id="mode-uat-btn" type="button">UAT cases</button>
-          <button class="mode-btn" data-mode="impl" id="mode-impl-btn" type="button">Implementation</button>
-        </div>
-        <p class="muted mode-hint" id="mode-hint" hidden>
-          Drafts an implementation blueprint from the BRD (modules, fields, layouts, automation, roles, Deluge,
-          delivery plan). You review it, build it in a sandbox org, then verify it with UAT.
-        </p>
-
-        <!-- Platform selector -->
-        <div class="platform-selector" id="platform-selector" role="group" aria-label="Select platform">
-          <button class="platform-btn active" data-platform="crm" id="platform-crm-btn" type="button">
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" aria-hidden="true">
-              <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/>
-              <path d="M2 8h16" stroke="currentColor" stroke-width="1.4"/>
-              <circle cx="6" cy="12" r="1.2" fill="currentColor"/>
-              <path d="M9 11.5h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-              <path d="M9 13h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-            </svg>
-            Zoho CRM
-          </button>
-          <button class="platform-btn" data-platform="creator" id="platform-creator-btn" type="button">
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" aria-hidden="true">
-              <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
-              <rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
-              <rect x="3" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
-              <rect x="11" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-            Zoho Creator
-          </button>
-        </div>
-        <iframe id="sso-frame" src="" hidden style="display:none"></iframe>
-
-        <label id="module-picker-label">Target modules <span class="muted">(pick up to 5 — we auto-suggest from the spec)</span></label>
-        <div class="module-picker" id="module-picker">
-          <p class="muted" id="module-picker-empty">Modules will load automatically when CRM is connected, or use the default list:</p>
-          <div id="analysis-summary" class="analysis-summary" hidden></div>
-          <div class="module-chips" id="module-chips"></div>
-          <div class="module-selected" id="module-selected" hidden>
-            <span class="muted">Selected:</span>
-            <span id="module-selected-list"></span>
+          <!-- BRD file -->
+          <div class="tile">
+            <p class="tile-label"><label for="brd-file">Requirements document</label></p>
+            <div class="file-drop" id="file-drop">
+              <input id="brd-file" type="file" accept=".txt,.md,.markdown,.rtf,.pdf,.docx,text/plain,application/rtf,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+              <p class="file-drop-hint">Drop a <strong>.txt</strong>, <strong>.md</strong>, <strong>.rtf</strong>, <strong>.pdf</strong> or <strong>.docx</strong>, or click to browse.</p>
+              <p class="file-drop-meta" id="file-meta"></p>
+            </div>
+            <div id="analysis-summary" class="analysis-summary" hidden></div>
           </div>
         </div>
 
+        <div class="cols">
+          <section class="card" id="brd-requirements-card" hidden>
+            <div class="card-head"><h3>Requirements found</h3><span class="muted" id="brd-requirements-count"></span></div>
+            <div class="table-wrap"><table class="lo-table" id="brd-requirements"></table></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h3 id="module-picker-label">Modules in scope <span class="muted">(up to 5)</span></h3>
+            </div>
+            <div class="module-picker" id="module-picker">
+              <p class="muted" id="module-picker-empty">Modules load when CRM is connected; until then the standard list is shown.</p>
+              <div id="module-chips"></div>
+              <div class="module-selected" id="module-selected" hidden>
+                <span class="muted">Selected:</span>
+                <span id="module-selected-list"></span>
+              </div>
+            </div>
         <!-- Creator Form Spec — replaces module picker for Zoho Creator -->
         <div id="creator-spec-section" class="creator-spec-section" hidden>
           <label class="creator-section-label">Target Form</label>
@@ -359,24 +347,14 @@
           </div>
         </div>
 
-        <div class="label-row">
-          <label for="brd-file">Test Cases Document</label>
-          <button id="download-sample-btn" class="ghost small" type="button">&#9783; BRD Template Builder</button>
-        </div>
-        <div class="file-drop" id="file-drop">
-          <input id="brd-file" type="file" accept=".txt,.md,.markdown,.rtf,.pdf,.docx,text/plain,application/rtf,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-          <p class="file-drop-hint">Drop a <strong>.txt</strong>, <strong>.md</strong>, <strong>.rtf</strong>, <strong>.pdf</strong>, or <strong>.docx</strong> here, or click to browse.</p>
-          <p class="file-drop-meta" id="file-meta"></p>
+          </section>
         </div>
 
-        <div class="actions">
-          <button id="generate-btn" class="primary" disabled>Generate UAT cases &rarr;</button>
-        </div>
         <p id="status-input" class="status" aria-live="polite"></p>
       </div>
     </section>
 
-    <!-- Tab 2: Cases -->
+    <!-- Step 2 (UAT): Cases -->
     <section class="tab-panel" data-panel="cases" id="panel-cases" role="tabpanel" aria-labelledby="tab-cases" hidden>
       <div class="loader gen-loader" hidden>
         <div class="gen-rocket-wrap" aria-hidden="true">
@@ -417,47 +395,28 @@
         <div class="gen-bar" aria-hidden="true"><div class="gen-bar-fill" id="gen-bar-fill"></div></div>
       </div>
       <div class="panel-body">
-        <div class="panel-header">
-          <h2>Your flight plan 🛫</h2>
-          <p class="muted" id="cases-meta"></p>
-        </div>
-        <div class="scene scene-cases" aria-hidden="true">
-          <div class="scene-art">
-            <svg class="scene-svg" viewBox="0 0 110 56" fill="none">
-              <g class="tab-anim check-row-1">
-                <rect x="6" y="8" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
-                <path class="tab-anim check-mark-1" d="M8.5 13 L11 15.5 L15 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="22" y="10" width="50" height="6" rx="3" fill="currentColor" opacity="0.25"/>
-              </g>
-              <g class="tab-anim check-row-2">
-                <rect x="6" y="24" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
-                <path class="tab-anim check-mark-2" d="M8.5 29 L11 31.5 L15 26" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="22" y="26" width="38" height="6" rx="3" fill="currentColor" opacity="0.25"/>
-              </g>
-              <g class="tab-anim check-row-3">
-                <rect x="6" y="40" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
-                <rect x="22" y="42" width="54" height="6" rx="3" fill="currentColor" opacity="0.12"/>
-              </g>
-            </svg>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Step 2 of 4</p>
+            <h2>UAT cases</h2>
+            <p class="muted" id="cases-meta"></p>
           </div>
-          <div class="scene-copy">
-            <strong>Flight Plan Ready</strong>
-            <span>Review, reorder and approve your generated test cases</span>
+          <div class="page-actions">
+            <button id="export-csv-btn" class="ghost" disabled>Export CSV</button>
+            <button id="download-btn" class="ghost" disabled>Download JSON</button>
+            <button id="to-execute-btn" class="primary" disabled>Run in Zoho CRM &rarr;</button>
           </div>
         </div>
         <div id="coverage-cases"></div>
         <div id="cases"></div>
-        <div class="actions">
+        <div class="actions page-foot">
           <button id="back-to-input" class="ghost">&larr; Back</button>
-          <button id="to-execute-btn" class="primary" disabled>Execute in Zoho CRM &rarr;</button>
-          <button id="export-csv-btn" class="ghost" disabled>Export CSV</button>
-          <button id="download-btn" class="ghost" disabled>Download JSON</button>
         </div>
         <p id="status-cases" class="status" aria-live="polite"></p>
       </div>
     </section>
 
-    <!-- Tab 3: Execute -->
+    <!-- Step 3 (UAT): Run -->
     <section class="tab-panel" data-panel="execute" id="panel-execute" role="tabpanel" aria-labelledby="tab-execute" hidden>
       <div class="loader gen-loader" hidden>
         <div class="gen-rocket-wrap" aria-hidden="true">
@@ -494,42 +453,29 @@
         <div class="gen-bar" aria-hidden="true"><div class="gen-bar-fill" id="exec-bar-fill"></div></div>
       </div>
       <div class="panel-body">
-        <h2>Cleared for takeoff 🚀</h2>
-        <div class="scene scene-fly" aria-hidden="true">
-          <div class="scene-art">
-            <svg class="scene-svg" viewBox="0 0 110 60" fill="none">
-              <circle class="tab-anim ring-1" cx="30" cy="32" r="8" stroke="currentColor" stroke-width="1.5"/>
-              <circle class="tab-anim ring-2" cx="30" cy="32" r="8" stroke="currentColor" stroke-width="1"/>
-              <g class="tab-anim rocket-hover">
-                <path d="M76 4 L82 16 L79 16 L79 40 L73 40 L73 16 L70 16 Z" fill="currentColor" opacity="0.85"/>
-                <path d="M73 36 L68 46 L73 42 Z" fill="currentColor" opacity="0.7"/>
-                <path d="M79 36 L84 46 L79 42 Z" fill="currentColor" opacity="0.7"/>
-                <ellipse class="tab-anim flame-1" cx="76" cy="48" rx="4" ry="6" fill="currentColor" opacity="0.7"/>
-                <ellipse class="tab-anim flame-2" cx="76" cy="51" rx="2.5" ry="3.5" fill="currentColor" opacity="0.5"/>
-              </g>
-            </svg>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Step 3 of 4</p>
+            <h2>Run</h2>
+            <p class="muted">Cases run live against Zoho CRM. Without a connection, a dry run checks the plans and sends nothing.</p>
           </div>
-          <div class="scene-copy">
-            <strong>Engines Ignited</strong>
-            <span>Cases run live against Zoho CRM &mdash; without a connection, a dry run checks the plans and sends nothing</span>
+          <div class="page-actions">
+            <button id="execute-btn" class="primary">Run cases</button>
+            <button id="to-push-btn" class="primary" disabled>Hand off &rarr;</button>
           </div>
         </div>
-
         <div id="exec-summary" class="exec-summary"></div>
         <div id="coverage-exec"></div>
         <p id="exec-quote" class="exec-quote" hidden></p>
         <div id="exec-results"></div>
-
-        <div class="actions">
+        <div class="actions page-foot">
           <button id="back-to-cases" class="ghost">&larr; Back</button>
-          <button id="execute-btn" class="primary">Run execution</button>
-          <button id="to-push-btn" class="primary" disabled>Push to Projects &rarr;</button>
         </div>
         <p id="status-execute" class="status" aria-live="polite"></p>
       </div>
     </section>
 
-    <!-- Tab 4: Push -->
+    <!-- Step 4 (UAT): Hand off -->
     <section class="tab-panel" data-panel="push" id="panel-push" role="tabpanel" aria-labelledby="tab-push" hidden>
       <div class="loader gen-loader" hidden>
         <div class="gen-rocket-wrap" aria-hidden="true">
@@ -566,41 +512,29 @@
         <div class="gen-bar" aria-hidden="true"><div class="gen-bar-fill" id="push-bar-fill"></div></div>
       </div>
       <div class="panel-body">
-        <h2>Touchdown 🛬</h2>
-        <div class="scene scene-land" aria-hidden="true">
-          <div class="scene-art">
-            <svg class="scene-svg" viewBox="0 0 110 56" fill="none">
-              <line x1="4" y1="50" x2="106" y2="50" stroke="currentColor" stroke-width="0.8" opacity="0.25"/>
-              <circle class="tab-anim rwy-1" cx="14" cy="50" r="3" fill="currentColor"/>
-              <circle class="tab-anim rwy-2" cx="34" cy="50" r="3" fill="currentColor"/>
-              <circle class="tab-anim rwy-3" cx="54" cy="50" r="3" fill="currentColor"/>
-              <circle class="tab-anim rwy-4" cx="74" cy="50" r="3" fill="currentColor"/>
-              <circle class="tab-anim rwy-5" cx="94" cy="50" r="3" fill="currentColor"/>
-              <g class="tab-anim approach-plane">
-                <path d="M80 10 L100 6 L102 10 L100 14 L80 12 Z" fill="currentColor" opacity="0.85"/>
-                <path d="M83 10 L88 5 L91 6 L86 10 Z" fill="currentColor" opacity="0.65"/>
-                <path d="M96 10 L98 8 L100 9 L98 10 Z" fill="currentColor" opacity="0.6"/>
-              </g>
-            </svg>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Step 4 of 4</p>
+            <h2>Hand off</h2>
+            <p class="muted">Sync results and failure bugs to Zoho Projects.</p>
           </div>
-          <div class="scene-copy">
-            <strong>Final Approach</strong>
-            <span>Sync test results and failure bugs to Zoho Projects</span>
+          <div class="page-actions">
+            <button id="download-csv-btn" class="ghost">Download CSV</button>
+            <button id="push-btn" class="primary">Push to Projects</button>
           </div>
         </div>
-
-        <label for="project_name">Projects project name</label>
-        <input id="project_name" type="text" placeholder="Test Plan — your-feature-name" />
-        <p class="hint">If a project with this name already exists in your portal, we'll reuse it — otherwise we'll create it.</p>
-
+        <div class="card">
+          <div class="card-body">
+            <label for="project_name">Projects project name</label>
+            <input id="project_name" type="text" placeholder="Test Plan — your-feature-name" />
+            <p class="hint">An existing project with this name is reused; otherwise one is created.</p>
+          </div>
+        </div>
         <div id="push-summary" class="exec-summary"></div>
         <div id="push-link" hidden></div>
         <div id="push-results"></div>
-
-        <div class="actions">
+        <div class="actions page-foot">
           <button id="back-to-execute" class="ghost">&larr; Back</button>
-          <button id="push-btn" class="primary">Push to Projects</button>
-          <button id="download-csv-btn" class="ghost">Download CSV for Projects import</button>
           <button id="restart-btn" class="ghost">Start over</button>
         </div>
         <p id="status-push" class="status" aria-live="polite"></p>
@@ -614,14 +548,16 @@
         <div class="loader-text">Drafting the implementation blueprint…</div>
       </div>
       <div class="panel-body">
-        <div class="panel-header impl-panel-header">
+        <div class="page-head">
           <div>
+            <p class="eyebrow">Step 2 of 4</p>
             <h2>Implementation blueprint</h2>
-            <p class="muted" id="impl-meta"></p>
+            <p class="muted" id="impl-meta">Review every item, answer open questions, then approve. Nothing is built until Step 3.</p>
           </div>
-          <div class="impl-toolbar-actions">
-            <button id="impl-download" class="ghost small" disabled>Download JSON</button>
-            <button id="impl-push-plan" class="ghost small" disabled>Push plan to Projects</button>
+          <div class="page-actions">
+            <button id="impl-download" class="ghost" disabled>Download JSON</button>
+            <button id="impl-push-plan" class="ghost" disabled>Push plan to Projects</button>
+            <button id="impl-to-build" class="primary" disabled>Continue to Build &rarr;</button>
           </div>
         </div>
         <section id="impl-progress" class="ip" hidden aria-live="polite" aria-label="Blueprint generation progress"></section>
@@ -630,7 +566,7 @@
         <div id="impl-toolbar" class="impl-toolbar" hidden></div>
         <div id="impl-spec"></div>
 
-        <div class="impl-review-bar" id="impl-review-bar" hidden>
+        <div class="impl-review-bar card" id="impl-review-bar" hidden>
           <label class="impl-approve">
             <input type="checkbox" id="impl-approve" />
             I've reviewed this blueprint and approve it for build
@@ -638,9 +574,8 @@
           <span class="muted" id="impl-approve-note"></span>
         </div>
 
-        <div class="actions">
+        <div class="actions page-foot">
           <button id="impl-back" class="ghost">&larr; Back</button>
-          <button id="impl-to-build" class="primary" disabled>Continue to Build &rarr;</button>
         </div>
         <p id="status-blueprint" class="status" aria-live="polite"></p>
       </div>
@@ -652,21 +587,22 @@
         <div class="loader-text">Building…</div>
       </div>
       <div class="panel-body">
-        <div class="panel-header impl-panel-header">
+        <div class="page-head">
           <div>
-            <h2>Build in sandbox</h2>
-            <p class="muted" id="impl-build-meta">Dry run first to preview every API call; nothing is written until you apply.</p>
+            <p class="eyebrow">Step 3 of 4</p>
+            <h2>Build</h2>
+            <p class="muted" id="impl-build-meta">Dry run previews every API call. Apply writes only to the test org shown; production is never touched.</p>
           </div>
-          <div class="impl-toolbar-actions">
+          <div class="page-actions">
+            <button id="impl-download-rpa" class="ghost" disabled>Download RPA queue</button>
             <button id="impl-dry-run" class="ghost" disabled>Run dry run</button>
-            <button id="impl-apply" class="primary" disabled>Apply to sandbox</button>
+            <button id="impl-apply" class="primary" disabled>Apply to test org</button>
+            <button id="impl-to-verify" class="primary" disabled>Continue to Verify &rarr;</button>
           </div>
         </div>
         <div id="impl-run"></div>
-        <div class="actions">
+        <div class="actions page-foot">
           <button id="impl-back-blueprint" class="ghost">&larr; Back</button>
-          <button id="impl-download-rpa" class="ghost" disabled>Download RPA queue</button>
-          <button id="impl-to-verify" class="primary" disabled>Continue to Verify &rarr;</button>
         </div>
         <p id="status-build" class="status" aria-live="polite"></p>
       </div>
@@ -675,20 +611,21 @@
     <section class="tab-panel" data-panel="verify" id="panel-verify" role="tabpanel" aria-labelledby="tab-verify" hidden>
       <div class="loader" hidden>
         <div class="spinner"></div>
-        <div class="loader-text">Reading the sandbox back…</div>
+        <div class="loader-text">Reading the org back…</div>
       </div>
       <div class="panel-body">
-        <div class="panel-header impl-panel-header">
+        <div class="page-head">
           <div>
-            <h2>Verify the build</h2>
-            <p class="muted">Read the sandbox back, check it against the blueprint, then test it with UAT cases written from the same blueprint.</p>
+            <p class="eyebrow">Step 4 of 4</p>
+            <h2>Verify &amp; UAT</h2>
+            <p class="muted">Read the org back against the blueprint, run the acceptance cases, then hand off.</p>
           </div>
-          <div class="impl-toolbar-actions">
-            <button id="impl-verify" class="primary" disabled>Check the sandbox</button>
+          <div class="page-actions">
+            <button id="impl-verify" class="primary" disabled>Check the org</button>
           </div>
         </div>
         <div id="impl-verify-area"></div>
-        <div class="actions">
+        <div class="actions page-foot">
           <button id="impl-back-build" class="ghost">&larr; Back</button>
         </div>
         <p id="status-verify" class="status" aria-live="polite"></p>
@@ -696,6 +633,7 @@
     </section>
 
   </main>
+  </div><!-- /app -->
 
   <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
 

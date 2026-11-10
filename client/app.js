@@ -25,6 +25,7 @@
     moduleSelectedList: document.getElementById("module-selected-list"),
     modulePickerEmpty:  document.getElementById("module-picker-empty"),
     analysisSummary:    document.getElementById("analysis-summary"),
+    modulePickerEmpty:  document.getElementById("module-picker-empty"),
     loadModulesBtn:     document.getElementById("load-modules-btn"),
     themeSwatchPreview: document.getElementById("theme-swatch-preview"),
     themePickerLabel:   document.getElementById("theme-picker-label"),
@@ -746,7 +747,9 @@
       setStatus("input", "Unsupported file type. Use .txt, .md, .rtf, .pdf, or .docx.", "err");
       els.fileMeta.textContent = "";
       state.brd = "";
+    renderRequirementsTable();
       state.fileName = "";
+      renderRequirementsTable();
       els.generate.disabled = true;
       setTabState("input", { done: false });
       return;
@@ -763,6 +766,7 @@
       if (!text) throw new Error("File parsed but no text was extracted.");
       state.brd = text;
       state.fileName = file.name;
+      renderRequirementsTable();
       els.fileMeta.textContent =
         `${file.name} — ${kind.toUpperCase()}, ${text.length.toLocaleString()} chars`;
       saveStateToStorage();
@@ -796,6 +800,7 @@
     } catch (err) {
       state.brd = "";
       state.fileName = "";
+      renderRequirementsTable();
       els.fileMeta.textContent = "";
       refreshGenerateAvailability();
       setStatus("input", "Parse error: " + err.message, "err");
@@ -2202,9 +2207,11 @@
     els.moduleChips.innerHTML = "";
     const list = state.modulesAvailable.length ? state.modulesAvailable : DEFAULT_MODULES;
     const max = MAX_MODULES;
-    // Sort: suggested first (preserving suggestion order), then alphabetical.
+    // Sort: selected first, then suggested (in suggestion order), then alphabetical.
     const suggestedSet = new Set(state.suggestedModules);
     const sortedList = list.slice().sort((a, b) => {
+      const aSel = state.modulesSelected.includes(a.api_name), bSel = state.modulesSelected.includes(b.api_name);
+      if (aSel !== bSel) return aSel ? -1 : 1;
       const aSugg = state.suggestedModules.indexOf(a.api_name);
       const bSugg = state.suggestedModules.indexOf(b.api_name);
       const aIn = aSugg >= 0, bIn = bSugg >= 0;
@@ -2213,6 +2220,7 @@
       if (bIn) return 1;
       return (a.plural_label || a.api_name).localeCompare(b.plural_label || b.api_name);
     });
+    const live = state.modulesAvailable.length > 0;
     // Toolbar: search + counter
     const toolbar = document.createElement("div");
     toolbar.className = "module-toolbar";
@@ -2223,39 +2231,97 @@
     search.setAttribute("aria-label", "Search modules");
     const counter = document.createElement("span");
     counter.className = "module-counter";
-    counter.textContent = sortedList.length + " of " + sortedList.length;
+    counter.textContent = `${state.modulesSelected.length} selected · ${sortedList.length} module(s)` + (live ? "" : " · standard list");
     toolbar.appendChild(search);
     toolbar.appendChild(counter);
     els.moduleChips.appendChild(toolbar);
-    const chipWrap = document.createElement("div");
-    chipWrap.className = "module-chip-wrap";
-    els.moduleChips.appendChild(chipWrap);
+
+    // The modules table: tick to include; suggested ones are flagged with the reason.
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    const table = document.createElement("table");
+    table.className = "lo-table module-table";
+    table.innerHTML = `<thead><tr><th class="col-check"></th><th>Module</th><th>API name</th><th>Suggested</th></tr></thead>`;
+    const tbody = document.createElement("tbody");
+    sortedList.forEach((m) => {
+      const isSelected = state.modulesSelected.includes(m.api_name);
+      const isSuggested = suggestedSet.has(m.api_name);
+      const full = !isSelected && state.modulesSelected.length >= max;
+      const tr = document.createElement("tr");
+      tr.className = "module-row" + (isSelected ? " is-sel" : "") + (full ? " is-off" : "");
+      tr.dataset.apiName = m.api_name;
+      tr.dataset.text = ((m.plural_label || "") + " " + m.api_name).toLowerCase();
+      const label = m.plural_label || m.api_name;
+      tr.innerHTML = `<td><input type="checkbox" aria-label="Include ${escapeHtml(label)}" ${isSelected ? "checked" : ""} ${full ? "disabled" : ""}></td>
+        <td class="cell-main">${escapeHtml(label)}${m.singular_label && m.singular_label !== label ? `<span class="muted">${escapeHtml(m.singular_label)}</span>` : ""}</td>
+        <td><code>${escapeHtml(m.api_name)}</code></td>
+        <td>${isSuggested ? `<span class="pill info" title="Named or implied in the BRD">named in BRD</span>` : `<span class="muted">—</span>`}</td>`;
+      tr.addEventListener("click", (e) => {
+        if (full) return;
+        if (e.target.tagName === "INPUT") { toggleModule(m.api_name); return; }
+        toggleModule(m.api_name);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    els.moduleChips.appendChild(wrap);
     search.addEventListener("input", () => {
       const q = search.value.trim().toLowerCase();
       let visible = 0;
-      chipWrap.querySelectorAll(".module-chip").forEach((c) => {
-        const match = !q || c.textContent.toLowerCase().includes(q);
-        c.style.display = match ? "" : "none";
+      tbody.querySelectorAll("tr").forEach((r) => {
+        const match = !q || r.dataset.text.includes(q);
+        r.style.display = match ? "" : "none";
         if (match) visible++;
       });
-      counter.textContent = visible + " of " + sortedList.length;
+      counter.textContent = `${state.modulesSelected.length} selected · ${visible} of ${sortedList.length}`;
     });
-    sortedList.forEach((m) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "module-chip";
-      const isSelected = state.modulesSelected.includes(m.api_name);
-      const isSuggested = suggestedSet.has(m.api_name);
-      if (isSelected) btn.classList.add("selected");
-      if (isSuggested && !isSelected) btn.classList.add("suggested");
-      if (!isSelected && state.modulesSelected.length >= max) btn.classList.add("disabled");
-      btn.textContent = m.plural_label || m.api_name;
-      btn.dataset.apiName = m.api_name;
-      btn.title = isSuggested ? "Suggested based on the spec content" : "";
-      btn.addEventListener("click", () => toggleModule(m.api_name));
-      chipWrap.appendChild(btn);
-    });
+    if (els.modulePickerEmpty) els.modulePickerEmpty.hidden = live;
     renderSelectedSummary();
+  }
+
+  // ---- Requirements table (client-side parse of the BRD: IDs like FR-1, NFR-2, US-3 and their headings) ----
+  function extractRequirements(text) {
+    const out = [];
+    if (!text) return out;
+    const lines = text.split(/\r?\n/);
+    let section = "";
+    const idRe = /^\s*(?:[#*\-\u2022]+\s*)?((?:FR|NFR|BR|US|REQ|AC|R)[\s-]?\d+(?:\.\d+)*)\s*[:.\-\u2013\u2014)]?\s*(.*)$/i;
+    const headRe = /^\s*(?:#{1,3}\s*)?([A-Z][A-Za-z /&-]{2,40})\s*:?\s*$/;
+    lines.forEach((raw) => {
+      const line = raw.trim();
+      if (!line) return;
+      const h = headRe.exec(line);
+      if (h && !idRe.test(line) && line.length < 48) { section = h[1].trim(); return; }
+      const m = idRe.exec(line);
+      if (m) {
+        const id = m[1].toUpperCase().replace(/\s+/g, "-").replace(/^([A-Z]+)(\d)/, "$1-$2");
+        if (!out.some((r) => r.id === id)) out.push({ id, title: (m[2] || "").replace(/[*_`]/g, "").trim(), section });
+      }
+    });
+    // Acceptance criteria written as "A." / "B." under an Acceptance heading.
+    let acc = 0;
+    lines.forEach((raw) => {
+      const line = raw.trim();
+      if (/^[A-H][.)]\s+\S/.test(line)) acc++;
+    });
+    if (acc) out.push({ id: "ACCEPT", title: `${acc} acceptance criteria → UAT cases`, section: "Acceptance" });
+    return out;
+  }
+
+  function renderRequirementsTable() {
+    const card = document.getElementById("brd-requirements-card");
+    const table = document.getElementById("brd-requirements");
+    const count = document.getElementById("brd-requirements-count");
+    if (!card || !table) return;
+    const reqs = state.brd ? extractRequirements(state.brd) : [];
+    if (!reqs.length) { card.hidden = true; table.innerHTML = ""; return; }
+    card.hidden = false;
+    if (count) count.textContent = `${reqs.filter((r) => r.id !== "ACCEPT").length} requirement(s) · ${state.brd.length.toLocaleString()} chars`;
+    table.innerHTML = `<thead><tr><th class="col-narrow">ID</th><th>Requirement</th><th>Section</th></tr></thead><tbody>`
+      + reqs.map((r) => `<tr><td><strong>${escapeHtml(r.id === "ACCEPT" ? "A–" : r.id)}</strong></td>
+          <td>${escapeHtml(r.title || "(untitled)")}</td><td class="muted">${escapeHtml(r.section || "—")}</td></tr>`).join("")
+      + "</tbody>";
   }
 
   function renderSelectedSummary() {
@@ -3147,6 +3213,7 @@
         : (getElVal("brd-entity-name").trim() || "template");
       state.brd      = text;
       state.fileName = entity.replace(/\s+/g, "-").toLowerCase() + "-brd.md";
+      renderRequirementsTable();
       if (els.fileMeta) els.fileMeta.textContent = "✓ BRD loaded from template (" + state.fileName + ")";
       closeBrdModal();
       refreshGenerateAvailability();
