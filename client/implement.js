@@ -812,23 +812,63 @@
       }));
   }
 
+  // In-app confirmation before writing to an org. Resolves true to proceed.
+  function confirmApply(org, steps) {
+    return new Promise((resolve) => {
+      const prod = !!org.production_allowed;
+      const kind = prod ? (org.type || "production") + " org" : org.allow_listed ? "test org (allow-listed)" : "sandbox";
+      const wrap = document.createElement("div");
+      wrap.className = "modal-overlay";
+      wrap.innerHTML = `<div class="modal-card apply-confirm" role="dialog" aria-modal="true" aria-labelledby="apply-confirm-title">
+        <div class="modal-header"><h3 id="apply-confirm-title">Apply ${steps.length} step(s) to ${esc(org.name || org.id)}</h3></div>
+        <div class="apply-confirm-org">
+          <span class="pill ${prod ? "err" : org.allow_listed ? "warn" : "ok"}">${esc(kind)}</span>
+          <span class="muted">id <code>${esc(org.id || "")}</code>${org.zgid ? ` · zgid <code>${esc(org.zgid)}</code>` : ""}</span>
+        </div>
+        <ol class="apply-confirm-steps">${steps.map((st) => `<li><span>${esc(st.label)}</span><code>${esc(st.method)} ${esc(st.path.replace(/^\/crm\/v\d+/, ""))}</code></li>`).join("")}</ol>
+        <p class="muted">Steps run one at a time, through the CRM settings API, and stop at the first problem. Each one can be retried or skipped.</p>
+        ${prod ? `<p class="apply-confirm-warn"><strong>This is not a sandbox.</strong> Type the org's name or its id to confirm.</p>
+          <input type="text" id="apply-confirm-input" autocomplete="off" placeholder="${esc(org.name || org.id)}" aria-label="Org name or id" />` : ""}
+        <p class="status err" id="apply-confirm-error" style="min-height:1.2em"></p>
+        <div class="modal-actions">
+          <button type="button" class="ghost" data-x="cancel">Cancel</button>
+          <button type="button" class="primary" data-x="ok" ${prod ? "disabled" : ""}>Apply now</button>
+        </div></div>`;
+      document.body.appendChild(wrap);
+      const input = wrap.querySelector("#apply-confirm-input");
+      const ok = wrap.querySelector('[data-x="ok"]');
+      const err = wrap.querySelector("#apply-confirm-error");
+      const matches = () => {
+        if (!prod) return true;
+        const v = (input.value || "").trim().toLowerCase();
+        return v && [org.name, org.id, org.zgid].some((x) => x && String(x).trim().toLowerCase() === v);
+      };
+      const close = (v) => { wrap.remove(); resolve(v); };
+      if (input) {
+        input.addEventListener("input", () => { ok.disabled = !matches(); err.textContent = ""; });
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter" && matches()) close(true); });
+        setTimeout(() => input.focus(), 50);
+      }
+      ok.addEventListener("click", () => {
+        if (!matches()) { err.textContent = `Doesn't match "${org.name}" or ${org.id}.`; return; }
+        close(true);
+      });
+      wrap.querySelector('[data-x="cancel"]').addEventListener("click", () => close(false));
+      wrap.addEventListener("click", (e) => { if (e.target === wrap) close(false); });
+      wrap.addEventListener("keydown", (e) => { if (e.key === "Escape") close(false); });
+    });
+  }
+
   async function apply() {
     const org = impl.dryRun && impl.dryRun.org;
     if (!org) return;
     if (!org.sandbox) {
-      L.setStatus("build", `"${org.name}" isn't a sandbox. LiftOff only builds in sandbox orgs or allow-listed test orgs (IMPL_BUILD_ORG_IDS).`, "warn");
+      L.setStatus("build", `"${org.name}" isn't a sandbox. LiftOff only builds in sandbox orgs, allow-listed test orgs (IMPL_BUILD_ORG_IDS) or, with IMPL_ALLOW_PRODUCTION=1, any org.`, "warn");
       return;
     }
     const steps = buildSteps();
-    if (!steps.length) { L.setStatus("build", "Nothing for the API to build — see Configure by hand.", "ok"); renderBuild(); return; }
-    if (org.production_allowed) {
-      const typed = window.prompt(`This org is NOT a sandbox. Type its name to build ${steps.length} step(s) in it:\n\n${org.name}`, "");
-      if (!typed || typed.trim().toLowerCase() !== String(org.name || "").trim().toLowerCase()) {
-        L.setStatus("build", "Apply cancelled — the org name didn't match.", "warn");
-        return;
-      }
-    } else if (!window.confirm(`Run ${steps.length} build step(s) in ${org.allow_listed ? "test org" : "sandbox"} "${org.name}" (${org.id})?\n\n`
-        + "Steps run one at a time and stop on the first problem.")) return;
+    if (!steps.length) { L.setStatus("build", "Nothing for the API to build — see the UI work queue.", "ok"); renderBuild(); return; }
+    if (!(await confirmApply(org, steps))) { L.setStatus("build", "Apply cancelled.", ""); return; }
     impl.build = { org, steps, log: [], startedAt: new Date().toISOString() };
     save();
     await runFrom(0);
@@ -893,6 +933,7 @@
 
   function renderBuild() {
     const b = impl.build;
+    if (!b && impl.dryRun) { renderRun("Dry run — nothing was changed", impl.dryRun, "apply"); return; }
     const queue = (impl.dryRun && impl.dryRun.rpa_queue) || [];
     let html = "";
     if (b) {
