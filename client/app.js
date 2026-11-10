@@ -759,6 +759,23 @@
   function getPanel(name) {
     return Array.from(els.panels).find((p) => p.dataset.panel === name);
   }
+  // Step icons: one per tab, inside the number badge (the number moves to a small corner tag).
+  const TAB_ICONS = {
+    input: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+    cases: '<path d="M9 5h6l1 2h3v13H5V7h3z"/><path d="m9 13 2 2 4-4"/>',
+    execute: '<path d="M5 4v16l14-8z"/>',
+    push: '<path d="M12 19V7M6 13l6-6 6 6"/><path d="M4 3h16"/>',
+    blueprint: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 10v10M14 4v6"/>',
+    build: '<path d="m14.5 6.5 3 3L7 20H4v-3z"/><path d="m15 4 1.5-1.5a2.1 2.1 0 0 1 3 3L18 7"/><path d="M4 20l3-3"/>',
+    verify: '<path d="M12 3l7 3v6c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  };
+  document.querySelectorAll(".sidebar .tab").forEach((t) => {
+    const n = t.querySelector(".tab-num"), ic = TAB_ICONS[t.dataset.tab];
+    if (!n || !ic) return;
+    n.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg><i class="tab-step">${escapeHtml(t.dataset.step || "")}</i>`;
+    n.classList.add("has-icon");
+  });
+
   // Sidebar collapse: icons only, remembered per browser.
   (function initSidebarToggle() {
     const app = document.querySelector(".app"), btn = document.getElementById("side-toggle");
