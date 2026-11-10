@@ -59,7 +59,7 @@
     back: $("impl-back"), dry: $("impl-dry-run"), apply: $("impl-apply"), verify: $("impl-verify"),
     pushPlan: $("impl-push-plan"), verifyArea: $("impl-verify-area"), download: $("impl-download"),
     downloadRpa: $("impl-download-rpa"), run: $("impl-run"),
-    toBuild: $("impl-to-build"), toVerify: $("impl-to-verify"),
+    toBuild: $("impl-to-build"), toVerify: $("impl-to-verify"), runAll: $("impl-run-all"),
     backBlueprint: $("impl-back-blueprint"), backBuild: $("impl-back-build"),
   };
 
@@ -477,7 +477,9 @@
     if (!queue.length) return "";
     const doneCount = queue.filter((q) => { const f = findItem(q.id); return f && f.item.manual_done; }).length;
     return `<section class="card" id="impl-rpa"><div class="card-head"><h3>UI work queue <span class="muted">· no create API</span></h3>
-        <div class="impl-toolbar-actions"><span class="pill ${doneCount === queue.length ? "ok" : "warn"}">${doneCount} of ${queue.length} done</span></div></div>
+        <div class="impl-toolbar-actions"><span class="pill ${doneCount === queue.length ? "ok" : "warn"}">${doneCount} of ${queue.length} done</span>
+          <button class="ghost small" type="button" data-rpa="script" title="A Playwright script that opens CRM Setup in your own browser profile, shows each item's steps and pauses for you to do or confirm them">Export runner script</button>
+          <button class="ghost small" type="button" data-rpa="json">Download JSON</button></div></div>
       <ul class="impl-manual">` + queue.map((q) => {
         const f = findItem(q.id);
         const item = f ? f.item : {};
@@ -521,6 +523,10 @@
     L.setTabState("verify", { locked: !dryDone, done: checksOk() && uatOk() });
     els.toBuild.disabled = !approved;
     els.toVerify.disabled = !dryDone || running;
+    if (els.runAll) {
+      els.runAll.disabled = !approved || running || !connected;
+      els.runAll.title = !have ? "" : !approved ? "Approve the blueprint first" : !connected ? "Connect CRM first" : "Dry run, apply, verify and run UAT in one go";
+    }
   }
 
   // Any edit after approval needs a fresh approval and a fresh dry run.
@@ -785,9 +791,11 @@
         : "Dry run done (no CRM connected — connect CRM to apply).", "ok");
     } catch (e) {
       L.setStatus("build", "Dry run failed: " + e.message, "err");
+      return false;
     } finally {
       L.busy.end();
     }
+    return true;
   }
 
   // ---- Build: ordered steps, one API call each, stop on the first problem ----
@@ -810,6 +818,58 @@
         calls: (r.requests || []).length || (r.request ? 1 : 0),
         status: "waiting", detail: r.result === "failed" || r.result === "conflict" ? r.detail : "",
       }));
+  }
+
+  // ---- Run everything: one approval, then dry run → apply → verify → UAT, pausing only on exceptions ----
+  async function runAll() {
+    if (!impl.spec) return;
+    if (!impl.spec.approved) { L.setStatus("blueprint", "Approve the blueprint first.", "warn"); return; }
+    const connected = !!(impl.meta && impl.meta.org && impl.meta.org.connected) || !!L.state.crmAuthorized;
+    if (!connected) { L.setStatus("blueprint", "Connect CRM on the Brief step first.", "warn"); return; }
+    const stop = (tab, msg, kind) => { L.setStatus(tab, msg, kind || "warn"); L.showToast(msg, kind || "warn", 7000); };
+    L.busy.start("Running everything", "Dry run → apply → verify → UAT. It pauses only when something needs you.");
+    try {
+      // 1. Dry run
+      L.showTab("build");
+      if (!(await dryRun())) return stop("build", "Stopped at the dry run.", "err");
+      const org = impl.dryRun.org || {};
+      if (!org.id) return stop("build", "Stopped: no org is connected.");
+      if (!org.sandbox) return stop("build", `Stopped: "${org.name}" isn't a sandbox or allow-listed org, so nothing can be written. See the Target org tile.`);
+      const conflicts = (impl.dryRun.results || []).filter((r) => r.result === "conflict" || r.result === "failed");
+      if (conflicts.length) return stop("build", `Paused: ${conflicts.length} item(s) conflict with the org (${conflicts.map((r) => r.id).join(", ")}). Resolve them in the dry-run table, then run again.`);
+      // 2. Apply (the one human gate)
+      const steps = buildSteps();
+      if (steps.length) {
+        L.busy.end();   // the confirmation needs the page
+        const go = await confirmApply(org, steps);
+        L.busy.start("Running everything", "Applying…");
+        if (!go) return stop("build", "Stopped before Apply — nothing was written.", "");
+        impl.build = { org, steps, log: [], startedAt: new Date().toISOString() };
+        save();
+        await runFrom(0);
+        if (!impl.build.finishedAt) return stop("build", "Paused: a build step failed. Retry or skip it in the table, then continue from Verify.");
+      }
+      // 3. Verify
+      L.showTab("verify");
+      if (!(await verify())) return stop("verify", "Stopped: the org couldn't be read back.", "err");
+      // 4. UAT
+      if (!(await runUat())) return stop("verify", "Stopped: UAT cases couldn't be written or run.", "err");
+      // Summary
+      const c = verifyCounts(), u = uatCounts();
+      const queue = (impl.dryRun.rpa_queue || []).filter((q) => { const f = findItem(q.id); return !(f && f.item.manual_done); });
+      const parts = [
+        steps.length ? `${steps.length} item(s) built via API` : "nothing to build via API",
+        `${c.match} check(s) match` + (c.differ || c.missing ? `, ${c.differ + c.missing} differ or missing` : ""),
+        `UAT ${u.passed} passed, ${u.failed} failed`,
+        queue.length ? `${queue.length} item(s) still need UI work — see the Build step` : "",
+      ].filter(Boolean);
+      const ok = !(c.differ || c.missing || u.failed);
+      stop("verify", (ok ? "Done. " : "Done with exceptions. ") + parts.join(" · "), ok ? "ok" : "warn");
+      if (queue.length) L.showTab("build");
+    } finally {
+      L.busy.end();
+      refreshButtons();
+    }
   }
 
   // In-app confirmation before writing to an org. Resolves true to proceed.
@@ -973,6 +1033,8 @@
   }
 
   els.run.addEventListener("click", async (e) => {
+    const rpa = e.target.closest("button[data-rpa]");
+    if (rpa) { if (rpa.dataset.rpa === "script") rpaScript(); else rpaQueue(); return; }
     const copy = e.target.closest("button[data-copy]");
     if (copy) {
       const q = ((impl.dryRun && impl.dryRun.rpa_queue) || []).find((x) => x.id === copy.dataset.copy);
@@ -1046,9 +1108,11 @@
         (c.differ || c.missing) ? "warn" : "ok");
     } catch (e) {
       L.setStatus("verify", "Verify failed: " + e.message, "err");
+      return false;
     } finally {
       L.busy.end();
     }
+    return true;
   }
 
   // The verdict shown: the server's, adjusted for what happened in the build and by hand.
@@ -1216,7 +1280,7 @@
 
   async function runUat() {
     const modules = scopeModules();
-    if (!modules.length) { L.setStatus("verify", "The blueprint names no modules to test.", "warn"); return; }
+    if (!modules.length) { L.setStatus("verify", "The blueprint names no modules to test.", "warn"); return false; }
     const org = verifyOrg();
     const live = !!(org && org.sandbox);   // UAT creates and deletes records: only ever live on a sandbox
     L.busy.start("Writing and running UAT cases", "Turning the approved blueprint into test cases with the agent…");
@@ -1241,9 +1305,11 @@
         : "UAT dry run: plans checked, nothing sent. Connect a sandbox org to run them.", c.failed ? "warn" : "ok");
     } catch (e) {
       L.setStatus("verify", "UAT run failed: " + e.message, "err");
+      return false;
     } finally {
       L.busy.end();
     }
+    return true;
   }
 
   async function fixInSandbox(id) {
@@ -1413,6 +1479,77 @@
     download("rpa-queue.json", { org: run.org || null, generated_at: new Date().toISOString(), items: run.rpa_queue || [] });
   }
 
+  // A Playwright runner for the UI work queue: opens CRM Setup in the consultant's own browser
+  // profile (so their login is reused and no credentials leave their machine), shows each item's
+  // steps, pauses for the person to do or confirm them, and writes a results file + screenshots.
+  function rpaScript() {
+    const run = impl.applied || impl.dryRun;
+    const org = run.org || {};
+    const queue = (run.rpa_queue || []).filter((q) => { const f = findItem(q.id); return !(f && f.item.manual_done); });
+    if (!queue.length) { L.setStatus("build", "Every UI item is already ticked as done.", "ok"); return; }
+    const tld = (location.hostname.match(/\.(in|com|eu|com\.au|jp|com\.cn|sa|ca)$/) || [, "com"])[1];
+    const items = queue.map((q) => {
+      const f = findItem(q.id);
+      const it = f ? f.item : {};
+      return { id: q.id, section: q.section, label: q.label, module: it.module || "", steps: q.steps || [],
+        code: q.section === "functions" && it.code ? it.code : undefined };
+    });
+    const script = `#!/usr/bin/env node
+// LiftOff UI work runner — generated ${new Date().toISOString()}
+// Org: ${org.name || ""} (${org.id || ""})
+//
+// What it does: opens Zoho CRM Setup in a persistent browser profile (sign in once; the login is
+// kept in ./.liftoff-profile), then for each item shows the exact steps, pauses so you can do or
+// confirm them in the Playwright window, and records the result with a screenshot.
+//
+// Run:   npm i playwright && npx playwright install chromium && node liftoff-ui-runner.mjs
+// Then:  in the Playwright Inspector press "Resume" after finishing each item.
+import { chromium } from "playwright";
+import fs from "node:fs";
+
+const CRM_BASE = process.env.CRM_BASE || "https://crm.zoho.${tld}";        // change if your DC differs
+const SETUP_URL = ${JSON.stringify(org.zgid ? "/crm/org" + org.zgid + "/settings" : "/crm/settings")};
+const ITEMS = ${JSON.stringify(items, null, 2)};
+
+const browser = await chromium.launchPersistentContext("./.liftoff-profile", { headless: false, viewport: { width: 1440, height: 900 } });
+const page = browser.pages()[0] || await browser.newPage();
+const results = [];
+fs.mkdirSync("./liftoff-evidence", { recursive: true });
+
+await page.goto(CRM_BASE + SETUP_URL, { waitUntil: "domcontentloaded" });
+console.log("\\nIf CRM asks you to sign in, do it in the window, then press Resume.");
+await page.pause();
+
+for (const [i, it] of ITEMS.entries()) {
+  const header = \`[\${i + 1}/\${ITEMS.length}] \${it.label}\`;
+  console.log("\\n" + "=".repeat(78) + "\\n" + header + "\\n" + "-".repeat(78));
+  it.steps.forEach((s, n) => console.log(\`  \${n + 1}. \${s}\`));
+  if (it.code) { fs.writeFileSync(\`./liftoff-evidence/\${it.id}.deluge\`, it.code); console.log(\`  Deluge code saved to ./liftoff-evidence/\${it.id}.deluge — paste it in.\`); }
+  await page.goto(CRM_BASE + SETUP_URL, { waitUntil: "domcontentloaded" }).catch(() => {});
+  // A banner inside the page with the steps, so you don't have to switch windows.
+  await page.evaluate(({ header, steps }) => {
+    const old = document.getElementById("liftoff-banner"); if (old) old.remove();
+    const b = document.createElement("div"); b.id = "liftoff-banner";
+    b.style.cssText = "position:fixed;top:12px;right:12px;z-index:2147483647;max-width:440px;background:#0B1B3A;color:#fff;font:13px/1.4 system-ui;padding:14px 16px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.35)";
+    b.innerHTML = "<strong style='font-size:14px'>" + header.replace(/</g, "&lt;") + "</strong><ol style='margin:8px 0 0;padding-left:18px'>" +
+      steps.map((s) => "<li style='margin:4px 0'>" + s.replace(/</g, "&lt;") + "</li>").join("") +
+      "</ol><div style='margin-top:10px;color:#C7D2E3'>Do these steps, then press <b>Resume</b> in the Playwright Inspector.</div>";
+    document.body.appendChild(b);
+  }, { header, steps: it.steps }).catch(() => {});
+  await page.pause();   // ← you do the steps (or confirm they're done), then Resume
+  const shot = \`./liftoff-evidence/\${it.id}.png\`;
+  await page.screenshot({ path: shot, fullPage: false }).catch(() => {});
+  results.push({ id: it.id, label: it.label, done_at: new Date().toISOString(), screenshot: shot });
+  console.log(\`  ✓ recorded \${it.id} (\${shot})\`);
+}
+
+fs.writeFileSync("./liftoff-ui-results.json", JSON.stringify({ org: ${JSON.stringify({ id: org.id || "", name: org.name || "" })}, finished_at: new Date().toISOString(), results }, null, 2));
+console.log("\\nAll items recorded → ./liftoff-ui-results.json. Tick them as done in LiftOff's Build step so Verify can confirm them.");
+await browser.close();
+`;
+    download("liftoff-ui-runner.mjs", script);
+  }
+
   // ---- events ----
   els.spec.addEventListener("change", (e) => {
     const t = e.target;
@@ -1467,6 +1604,7 @@
   });
   els.back.addEventListener("click", () => L.showTab("input"));
   els.toBuild.addEventListener("click", () => L.showTab("build"));
+  if (els.runAll) els.runAll.addEventListener("click", runAll);
   els.toVerify.addEventListener("click", () => { L.showTab("verify"); if (!impl.verify) verify(); });
   els.backBlueprint.addEventListener("click", () => L.showTab("blueprint"));
   els.backBuild.addEventListener("click", () => L.showTab("build"));
