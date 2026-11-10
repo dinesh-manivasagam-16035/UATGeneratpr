@@ -100,6 +100,12 @@ public class CrmTokenStore {
         }
     }
 
+    /** The same session, re-issued for another org of the same user (new cookie value). */
+    public static String withOrg(TokenBundle b, String orgId, String orgName) {
+        return create(b.accessToken, b.expiresAt, b.refreshToken, b.email, b.clientId, b.clientSecret,
+                b.accountsBase, b.apiBase, orgId, orgName);
+    }
+
     /** The session for a cookie value, or null when missing, invalid, or expired. */
     public static TokenBundle get(String cookieValue) {
         if (cookieValue == null || cookieValue.isEmpty()) return null;
@@ -207,7 +213,7 @@ public class CrmTokenStore {
         }
 
         public CrmClient toCrmClient() {
-            return new CrmClient(apiBase, accountsBase, clientId, clientSecret, refreshToken);
+            return new CrmClient(apiBase, accountsBase, clientId, clientSecret, refreshToken).forOrg(orgId);
         }
     }
 }

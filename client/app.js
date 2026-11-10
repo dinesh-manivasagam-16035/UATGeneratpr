@@ -2069,10 +2069,25 @@
     }).join("");
 
     listEl.querySelectorAll(".org-item:not(.org-item--current)").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        closeOrgPicker();
-        // Re-trigger OAuth with prompt=select_account so the user can switch org.
-        window.location.href = FUNCTION_BASE + "/crm/auth?switch=true";
+      btn.addEventListener("click", async () => {
+        // Switch the session to this org (the server routes every CRM call to it with X-CRM-ORG).
+        const orgId = btn.dataset.orgId, orgName = btn.dataset.orgName;
+        btn.disabled = true;
+        try {
+          const res = await fetch(FUNCTION_BASE + "/crm/select-org", { method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ org_id: orgId, org_name: orgName }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          closeOrgPicker();
+          state.crmOrgName = data.org_name || orgName;
+          setStatus("input", `Switched to ${state.crmOrgName}. Reloading modules…`, "ok");
+          await checkAuthStatus();
+          if (typeof loadModules === "function") loadModules();
+        } catch (e) {
+          btn.disabled = false;
+          setStatus("input", "Couldn't switch org: " + e.message
+            + " You can also sign in as another Zoho account from the picker.", "err");
+        }
       });
     });
   }

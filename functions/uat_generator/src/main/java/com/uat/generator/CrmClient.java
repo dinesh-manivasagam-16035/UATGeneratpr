@@ -56,6 +56,14 @@ public class CrmClient {
     /** API host this client talks to, e.g. https://www.zohoapis.in. */
     public String apiBase() { return apiBase; }
 
+    /**
+     * The CRM org every call is routed to. A user in several orgs otherwise lands in their
+     * default org whatever they picked; Zoho CRM reads the org from the X-CRM-ORG header.
+     */
+    private String orgId;
+    public CrmClient forOrg(String orgId) { this.orgId = orgId == null || orgId.trim().isEmpty() ? null : orgId.trim(); return this; }
+    public String orgId() { return orgId; }
+
     public boolean hasCredentials() {
         if (notEmpty(staticAccessToken)) return true;
         return notEmpty(clientId) && notEmpty(clientSecret) && notEmpty(refreshToken);
@@ -79,6 +87,7 @@ public class CrmClient {
             default:       req = new HttpGet(url); break;
         }
         req.setHeader("Authorization", "Zoho-oauthtoken " + token);
+        if (orgId != null) req.setHeader("X-CRM-ORG", orgId);
         if (jsonBody != null && !jsonBody.isEmpty()
                 && (req instanceof HttpPost || req instanceof HttpPut || req instanceof HttpPatch)) {
             req.setEntity(new StringEntity(jsonBody, ContentType.APPLICATION_JSON));
