@@ -222,7 +222,7 @@
     els.org.hidden = false;
     els.org.innerHTML = org.connected
       ? `<strong>${esc(org.name || "Connected org")}</strong> <span class="muted">${esc(org.id || "")}</span>
-         <span class="impl-badge ${org.sandbox ? "ok" : "warn"}">${org.sandbox ? "sandbox" : esc(org.type || "production?")}</span>
+         <span class="impl-badge ${org.sandbox ? "ok" : "warn"}">${org.sandbox ? (org.allow_listed ? "test org (allow-listed)" : "sandbox") : esc(org.type || "production?")}</span>
          <span class="muted">Items are checked against this org.</span>`
       : `<span class="impl-badge warn">not connected</span>
          <span class="muted">Connect CRM on the Brief tab to check items against your org and to apply.</span>`;
@@ -664,7 +664,7 @@
       render();
       const o = impl.dryRun.org;
       L.setStatus("build", o && !o.sandbox
-        ? `Dry run against ${o.name || o.id}. It isn't a sandbox, so Apply stays off — connect a sandbox org to build.`
+        ? `Dry run against ${o.name || o.id}. It isn't a sandbox, so Apply stays off — connect a sandbox org, or add this org's id (${o.id}) to IMPL_BUILD_ORG_IDS on uat_generator if it is a test org.`
         : o
         ? `Dry run against ${o.name || o.id}. Check the requests, then Apply.`
         : "Dry run done (no CRM connected — connect CRM to apply).", "ok");
@@ -699,12 +699,12 @@
     const org = impl.dryRun && impl.dryRun.org;
     if (!org) return;
     if (!org.sandbox) {
-      L.setStatus("build", `"${org.name}" isn't a sandbox. LiftOff only builds in sandbox orgs.`, "warn");
+      L.setStatus("build", `"${org.name}" isn't a sandbox. LiftOff only builds in sandbox orgs or allow-listed test orgs (IMPL_BUILD_ORG_IDS).`, "warn");
       return;
     }
     const steps = buildSteps();
     if (!steps.length) { L.setStatus("build", "Nothing for the API to build — see Configure by hand.", "ok"); renderBuild(); return; }
-    if (!window.confirm(`Run ${steps.length} build step(s) in sandbox "${org.name}" (${org.id})?\n\n`
+    if (!window.confirm(`Run ${steps.length} build step(s) in ${org.allow_listed ? "test org" : "sandbox"} "${org.name}" (${org.id})?\n\n`
         + "Steps run one at a time and stop on the first problem.")) return;
     impl.build = { org, steps, log: [], startedAt: new Date().toISOString() };
     save();

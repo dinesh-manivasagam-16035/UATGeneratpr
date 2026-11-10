@@ -72,6 +72,7 @@ public class ImplementVerifyServlet extends HttpServlet {
             o.put("id", org.orgId);
             o.put("name", org.orgName);
             o.put("sandbox", org.sandbox);
+            o.put("allow_listed", org.allowListed);
             ObjectNode c = out.putObject("counts");
             counts.forEach(c::put);
             ArrayNode errs = out.putArray("warnings");

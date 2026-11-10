@@ -92,7 +92,8 @@ public class ImplementApplyServlet extends HttpServlet {
                 }
                 if (!org.sandbox) {
                     ImplementServlet.writeError(resp, 403, "\"" + org.orgName + "\" isn't a sandbox org (type: "
-                            + (org.orgType.isEmpty() ? "unknown" : org.orgType) + "). LiftOff only builds in sandbox; "
+                            + (org.orgType.isEmpty() ? "unknown" : org.orgType) + "). LiftOff only builds in sandbox orgs, "
+                            + "or in test orgs listed in IMPL_BUILD_ORG_IDS on uat_generator (this org's id: " + org.orgId + "); "
                             + "production is updated by promoting a verified build. Nothing was changed.");
                     return;
                 }
@@ -161,6 +162,7 @@ public class ImplementApplyServlet extends HttpServlet {
                 o.put("name", org.orgName);
                 o.put("type", org.orgType);
                 o.put("sandbox", org.sandbox);
+                o.put("allow_listed", org.allowListed);
             }
             Map<String, Integer> counts = new LinkedHashMap<>();
             for (JsonNode r : results) counts.merge(r.path("result").asText(), 1, Integer::sum);

@@ -398,3 +398,9 @@ Open the web client, pick the matching module, paste the BRD body, and click
   `ZOHO_PROJECTS_API_BASE`.
 - For QEngine push instead of Projects, add a `QEngineClient.java` mirroring
   `ProjectsClient.java` and a `target` field in the request body to route.
+
+## Building in a test org that isn't a Zoho sandbox
+
+Build writes only to sandbox/developer orgs. To let it write to a dedicated test org, set
+`IMPL_BUILD_ORG_IDS` on `uat_generator` to that org's id (comma-separated for several; the
+Build tab shows the id in its status line). Never list a production org.

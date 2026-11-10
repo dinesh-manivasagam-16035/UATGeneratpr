@@ -39,6 +39,15 @@ public final class ImplOrg {
     /** lower-cased module api_name → workflow rule names (only for modules that were read). */
     public final Map<String, List<String>> workflows = new LinkedHashMap<>();
     public final List<String> errors = new ArrayList<>();
+    /** True when the org counts as buildable only because IMPL_BUILD_ORG_IDS names it. */
+    public boolean allowListed;
+
+    static boolean allowListed(String orgId) {
+        String ids = System.getenv("IMPL_BUILD_ORG_IDS");
+        if (ids == null) return false;
+        for (String id : ids.split("[,;\\s]+")) if (!id.isEmpty() && id.equals(orgId.trim())) return true;
+        return false;
+    }
 
     private ImplOrg() {}
 
@@ -59,6 +68,13 @@ public final class ImplOrg {
         String t = o.orgType.toLowerCase(Locale.ROOT);
         o.sandbox = t.contains("sandbox") || t.contains("developer")
                 || crm.apiBase().toLowerCase(Locale.ROOT).contains("sandbox");
+        // Test orgs that aren't Zoho sandboxes can be allow-listed by org id on uat_generator
+        // (IMPL_BUILD_ORG_IDS="600...,600..."): Build treats them like a sandbox. Production
+        // orgs are never written to unless someone lists them here on purpose.
+        if (!o.sandbox && !o.orgId.isEmpty() && allowListed(o.orgId)) {
+            o.sandbox = true;
+            o.allowListed = true;
+        }
 
         try {
             for (JsonNode m : get(crm, "/crm/v3/settings/modules").path("modules")) {
