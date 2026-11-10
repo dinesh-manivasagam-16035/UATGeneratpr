@@ -17,7 +17,7 @@ public class CrmAuthServlet extends HttpServlet {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String SCOPES =
-            "ZohoCRM.modules.ALL,ZohoCRM.settings.ALL," +
+            "ZohoCRM.modules.ALL,ZohoCRM.settings.ALL,ZohoCRM.org.READ," +   // org.READ: sandbox detection (GET /org)
             "ZohoProjects.portals.READ,ZohoProjects.projects.ALL," +
             "ZohoProjects.tasks.ALL,ZohoProjects.bugs.ALL," +
             "ZohoCreator.meta.READ,ZohoCreator.report.READ," +

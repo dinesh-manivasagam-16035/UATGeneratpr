@@ -50,7 +50,11 @@ public final class ImplOrg {
             o.orgName = org.path("company_name").asText("");
             o.orgType = org.path("type").asText("");
         } catch (Exception e) {
-            o.errors.add("org: " + e.getMessage());
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            o.errors.add("org: " + msg + (msg.contains("OAUTH_SCOPE_MISMATCH")
+                    ? " — the CRM connection lacks the ZohoCRM.org.READ scope, so LiftOff can't tell whether this is a "
+                      + "sandbox and keeps Apply off. Disconnect and reconnect CRM to grant it."
+                    : ""));
         }
         String t = o.orgType.toLowerCase(Locale.ROOT);
         o.sandbox = t.contains("sandbox") || t.contains("developer")
@@ -85,7 +89,11 @@ public final class ImplOrg {
                 o.workflows.put(ImplSpec.low(name), names);
                 if (!ImplSpec.low(name).equals(ImplSpec.low(api))) o.workflows.put(ImplSpec.low(api), names);
             } catch (Exception e) {
-                o.errors.add("workflow rules of " + api + ": " + e.getMessage());
+                // System modules (Actions_Performed, ...) have no workflow rules: not an error worth showing.
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                if (!msg.contains("INVALID_MODULE") && !msg.contains("not supported")) {
+                    o.errors.add("workflow rules of " + api + ": " + msg);
+                }
             }
             if (withLayouts) {
                 try {
