@@ -402,5 +402,8 @@ Open the web client, pick the matching module, paste the BRD body, and click
 ## Building in a test org that isn't a Zoho sandbox
 
 Build writes only to sandbox/developer orgs. To let it write to a dedicated test org, set
-`IMPL_BUILD_ORG_IDS` on `uat_generator` to that org's id (comma-separated for several; the
-Build tab shows the id in its status line). Never list a production org.
+`IMPL_BUILD_ORG_IDS` on `uat_generator` to that org's CRM id or ZGID (comma-separated for several;
+the Build tab's "Target org" tile shows both). `*` allows every org. To let Build write to any
+connected org, production included, set `IMPL_ALLOW_PRODUCTION=1`; Apply then asks for the org
+name to be typed before it runs. Environment variables are read at function start: redeploy
+`uat_generator` (or restart it) after changing them.

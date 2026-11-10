@@ -292,6 +292,8 @@ public class ImplementServlet extends HttpServlet {
             orgOut.put("type", org.orgType);
             orgOut.put("sandbox", org.sandbox);
             orgOut.put("allow_listed", org.allowListed);
+            orgOut.put("production_allowed", org.productionAllowed);
+            orgOut.put("zgid", org.zgid);
         }
         ObjectNode counts = out.putObject("counts");
         ObjectNode byExec = out.putObject("by_executor");

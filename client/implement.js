@@ -436,12 +436,15 @@
     const calls = results.reduce((t, r) => t + ((r.requests || []).length || (r.request ? 1 : 0)), 0);
     const org = data.org || {};
     const tile = (cls, label, value, sub) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div>`;
-    const orgKind = !org.id ? "not connected" : org.sandbox ? (org.allow_listed ? "test org · allow-listed" : "sandbox") : (org.type || "production") + " · not a sandbox";
+    const orgKind = !org.id ? "not connected" : org.sandbox
+      ? (org.production_allowed ? (org.type || "production") + " · IMPL_ALLOW_PRODUCTION" : org.allow_listed ? "test org · allow-listed" : "sandbox")
+      : (org.type || "production") + " · not a sandbox";
+    const idsNote = `id <code>${esc(org.id || "")}</code>${org.zgid ? ` · zgid <code>${esc(org.zgid)}</code>` : ""}`;
     const orgTile = !org.id
       ? tile("warn", "Target org", "None", "connect CRM on the Brief step to apply")
       : org.sandbox
-        ? tile("ok", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply allowed`)
-        : tile("warn", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply is off. For a test org, add its id <code>${esc(org.id)}</code> to IMPL_BUILD_ORG_IDS on uat_generator, then dry-run again.`);
+        ? tile(org.production_allowed ? "warn" : "ok", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply allowed · ${idsNote}`)
+        : tile("warn", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply is off · ${idsNote}. Add either id to IMPL_BUILD_ORG_IDS on uat_generator (or set IMPL_ALLOW_PRODUCTION=1), redeploy the function, then dry-run again.`);
     const tiles = `<div class="tiles tiles-4">
       ${orgTile}
       ${tile("info", data.dry_run ? "Will create via API" : "Created via API", String(api), `${calls} API call(s), in order`)}
@@ -810,7 +813,13 @@
     }
     const steps = buildSteps();
     if (!steps.length) { L.setStatus("build", "Nothing for the API to build — see Configure by hand.", "ok"); renderBuild(); return; }
-    if (!window.confirm(`Run ${steps.length} build step(s) in ${org.allow_listed ? "test org" : "sandbox"} "${org.name}" (${org.id})?\n\n`
+    if (org.production_allowed) {
+      const typed = window.prompt(`This org is NOT a sandbox. Type its name to build ${steps.length} step(s) in it:\n\n${org.name}`, "");
+      if (!typed || typed.trim().toLowerCase() !== String(org.name || "").trim().toLowerCase()) {
+        L.setStatus("build", "Apply cancelled — the org name didn't match.", "warn");
+        return;
+      }
+    } else if (!window.confirm(`Run ${steps.length} build step(s) in ${org.allow_listed ? "test org" : "sandbox"} "${org.name}" (${org.id})?\n\n`
         + "Steps run one at a time and stop on the first problem.")) return;
     impl.build = { org, steps, log: [], startedAt: new Date().toISOString() };
     save();

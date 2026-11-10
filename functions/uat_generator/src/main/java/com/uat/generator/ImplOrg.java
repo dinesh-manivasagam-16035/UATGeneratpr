@@ -41,12 +41,30 @@ public final class ImplOrg {
     public final List<String> errors = new ArrayList<>();
     /** True when the org counts as buildable only because IMPL_BUILD_ORG_IDS names it. */
     public boolean allowListed;
+    /** True when Apply is allowed only because IMPL_ALLOW_PRODUCTION is set. */
+    public boolean productionAllowed;
+    public String zgid = "";
+    public String domain = "";
 
-    static boolean allowListed(String orgId) {
+    /** Matches IMPL_BUILD_ORG_IDS against any of the org's ids (CRM id, ZGID, domain). "*" allows every org. */
+    static boolean allowListed(String... orgIds) {
         String ids = System.getenv("IMPL_BUILD_ORG_IDS");
         if (ids == null) return false;
-        for (String id : ids.split("[,;\\s]+")) if (!id.isEmpty() && id.equals(orgId.trim())) return true;
+        for (String id : ids.split("[,;\\s]+")) {
+            if (id.isEmpty()) continue;
+            if ("*".equals(id)) return true;
+            for (String mine : orgIds) if (mine != null && !mine.trim().isEmpty() && id.equalsIgnoreCase(mine.trim())) return true;
+        }
         return false;
+    }
+
+    /**
+     * IMPL_ALLOW_PRODUCTION=1 on uat_generator lets Build write to any connected org, production
+     * included. The UI then asks for the org name to be typed before applying. Off by default.
+     */
+    static boolean productionAllowed() {
+        String v = System.getenv("IMPL_ALLOW_PRODUCTION");
+        return v != null && ("1".equals(v.trim()) || "true".equalsIgnoreCase(v.trim()) || "yes".equalsIgnoreCase(v.trim()));
     }
 
     private ImplOrg() {}
@@ -56,6 +74,8 @@ public final class ImplOrg {
         try {
             JsonNode org = get(crm, "/crm/v3/org").path("org").path(0);
             o.orgId = org.path("id").asText("");
+            o.zgid = org.path("zgid").asText("");
+            o.domain = org.path("domain_name").asText("");
             o.orgName = org.path("company_name").asText("");
             o.orgType = org.path("type").asText("");
         } catch (Exception e) {
@@ -71,9 +91,13 @@ public final class ImplOrg {
         // Test orgs that aren't Zoho sandboxes can be allow-listed by org id on uat_generator
         // (IMPL_BUILD_ORG_IDS="600...,600..."): Build treats them like a sandbox. Production
         // orgs are never written to unless someone lists them here on purpose.
-        if (!o.sandbox && !o.orgId.isEmpty() && allowListed(o.orgId)) {
+        if (!o.sandbox && !o.orgId.isEmpty() && allowListed(o.orgId, o.zgid, o.domain)) {
             o.sandbox = true;
             o.allowListed = true;
+        }
+        if (!o.sandbox && !o.orgId.isEmpty() && productionAllowed()) {
+            o.sandbox = true;
+            o.productionAllowed = true;
         }
 
         try {

@@ -164,6 +164,8 @@ public class ImplementStageServlet extends HttpServlet {
             orgOut.put("type", org.orgType);
             orgOut.put("sandbox", org.sandbox);
             orgOut.put("allow_listed", org.allowListed);
+            orgOut.put("production_allowed", org.productionAllowed);
+            orgOut.put("zgid", org.zgid);
             for (String e : org.errors) warnings.add("Couldn't read org metadata — " + ImplementServlet.trim(e, 160));
         } else if (!Llm.mock()) {
             warnings.add("Not connected to Zoho CRM, so nothing is checked against your org and every "
