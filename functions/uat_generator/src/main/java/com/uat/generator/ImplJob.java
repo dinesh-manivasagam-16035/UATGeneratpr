@@ -49,6 +49,19 @@ public final class ImplJob {
             if (!Llm.mock() && !Llm.available()) {
                 throw new IllegalStateException("impl_worker: " + Llm.notConfiguredMessage());
             }
+            // A trivial call first: if even this fails, the problem is this function's own agent
+            // access (its ZIA_AGENT_REFRESH_TOKEN / client), not the BRD, and the job says so at once.
+            if ("zia".equals(Llm.provider())) {
+                try {
+                    ZiaAgentClient.raw("Reply with exactly: {\"ok\": true}");
+                } catch (Exception e) {
+                    throw new IllegalStateException("impl_worker can't reach the Zia Agent even with a trivial query ("
+                            + ImplementServlet.trim(e.getMessage(), 200) + "). uat_generator can, so compare impl_worker's "
+                            + "ZIA_AGENT_REFRESH_TOKEN, ZIA_AGENT_CLIENT_ID and ZIA_AGENT_CLIENT_SECRET with uat_generator's: "
+                            + "the token must belong to a user with access to the agent. Agent: "
+                            + ZiaAgentClient.describe().toString());
+                }
+            }
             // One worker for every job kind: UAT generation and execution live in UatJob.
             String kind = in.path("kind").asText("blueprint");
             if ("uat_generate".equals(kind)) return UatJob.generate(key, in, remainingMs);
