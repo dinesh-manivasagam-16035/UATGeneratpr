@@ -2749,15 +2749,24 @@ footer { display: none; }
 /* Catalyst login widget wrapper */
 #catalyst-widget-wrap {
   margin-top: 0.75rem;
-  border-radius: var(--radius-md);
+  border-radius: 12px;
   overflow: hidden;
-  background: #fff;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  padding: 18px 20px 14px;
+  text-align: left;
+}
+#catalyst-widget-wrap[hidden] { display: none; }
+#catalyst-widget-wrap::before {
+  content: "Sign in with your Zoho account";
+  display: block; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;
 }
 #loginDivElementId iframe {
   width: 100% !important;
   border: none;
   display: block;
+  min-height: 220px;
 }
 
 /* Zoho 4-colour icon grid used in login + consent */

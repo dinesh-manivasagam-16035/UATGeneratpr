@@ -1,0 +1,54 @@
+/* LiftOff — styles applied inside the Catalyst embedded sign-in (passed as css_url).
+   The sign-in form is Zoho's; this only aligns colours, type and shape with the LiftOff card around it. */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+html, body { background: transparent !important; margin: 0; }
+body, input, button, select, textarea, .signin_container, .signin_box, .fieldcontainer, .signin_head, .signin_desc, .subhead {
+  font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  color: #0F172A;
+}
+
+/* Form shell: no second card inside our card */
+.signin_container, .signin_box, .signincontainer, .login_container, .container, .signin-wrapper, .box, .card {
+  background: transparent !important; box-shadow: none !important; border: 0 !important; padding: 0 !important; margin: 0 auto !important; max-width: 100% !important;
+}
+.signin_head, .heading, h1, h2 { font-size: 15px !important; font-weight: 600 !important; color: #0F172A !important; text-align: left !important; margin: 0 0 10px !important; }
+.signin_desc, .subhead, .desc, p { font-size: 13px !important; color: #5B6B7F !important; }
+
+/* Fields */
+.fieldcontainer, .field_container, .form-group { margin: 0 0 12px !important; }
+.fieldcontainer label, label { font-size: 12.5px !important; font-weight: 600 !important; color: #475569 !important; letter-spacing: .02em; text-transform: none !important; }
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"], .fieldcontainer input, #login_id, #password {
+  width: 100% !important; box-sizing: border-box !important; height: 44px !important; padding: 0 12px !important;
+  border: 1px solid #CBD5E1 !important; border-radius: 10px !important; background: #FFFFFF !important;
+  font-size: 15px !important; color: #0F172A !important; box-shadow: none !important; outline: none !important;
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus, .fieldcontainer input:focus, #login_id:focus, #password:focus { border-color: #1559D0 !important; box-shadow: 0 0 0 3px rgba(21,89,208,.15) !important; }
+input::placeholder { color: #94A3B8 !important; font-size: 14px !important; }
+.fieldcontainer::after, .fieldcontainer::before, .underline, .line { display: none !important; }
+
+/* Primary button: LiftOff blue, not Zoho's */
+button, .btn, .button, input[type="submit"], input[type="button"], #nextbtn, #signin_submit, .blue, .bluebtn {
+  width: 100% !important; height: 44px !important; margin: 6px 0 0 !important; padding: 0 16px !important; border: 0 !important; border-radius: 10px !important;
+  background: linear-gradient(135deg, #1559D0 0%, #2E72ED 55%, #5E9FFF 100%) !important; color: #FFFFFF !important;
+  font-size: 14.5px !important; font-weight: 600 !important; letter-spacing: .01em !important; text-transform: none !important; cursor: pointer;
+  box-shadow: 0 6px 16px rgba(21,89,208,.25) !important; transition: transform .1s, box-shadow .15s;
+}
+button:hover, .btn:hover, #nextbtn:hover, #signin_submit:hover { box-shadow: 0 8px 20px rgba(21,89,208,.32) !important; }
+button:active, .btn:active { transform: translateY(1px); }
+button[disabled], .btn[disabled] { opacity: .55 !important; box-shadow: none !important; }
+
+/* Secondary links (forgot password, other sign-in options) */
+a, .link, .forgot, .fpwd { color: #1559D0 !important; font-size: 13px !important; text-decoration: none !important; }
+a:hover { color: #0F47AB !important; text-decoration: underline !important; }
+
+/* Social / federated sign-in buttons */
+.social, .fed_login, .signin_options, .other_options { margin-top: 14px !important; }
+.social a, .fed_login a, .social button { width: auto !important; height: 36px !important; background: #FFFFFF !important; color: #0F172A !important; border: 1px solid #E3E8EF !important; box-shadow: none !important; border-radius: 8px !important; }
+
+/* Errors */
+.error, .errormsg, .fielderror, .err, .alert { color: #B91C1C !important; font-size: 12.5px !important; background: transparent !important; border: 0 !important; padding: 4px 0 0 !important; }
+
+/* Hide Zoho's own header/footer chrome inside the frame when present */
+.zoho_logo, .logo, .signin_footer, .footer, .powered_by, .poweredby { display: none !important; }

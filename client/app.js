@@ -2320,7 +2320,8 @@
         if (actionArea) actionArea.hidden = true;
         const widgetWrap = document.getElementById("catalyst-widget-wrap");
         if (widgetWrap) widgetWrap.hidden = false;
-        window.catalyst.auth.signIn("loginDivElementId", { service_url: "/app/index.html" });
+        const cssUrl = location.origin + location.pathname.replace(/[^/]*$/, "") + "login-widget.css";
+        window.catalyst.auth.signIn("loginDivElementId", { service_url: "/app/index.html", css_url: cssUrl });
       }, { once: true });
     }
     updateAuthUI();
