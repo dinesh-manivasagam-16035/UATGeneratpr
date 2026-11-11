@@ -687,6 +687,8 @@
 
   // Guide actions (buttons inside Now / Needs cards)
   document.addEventListener("click", async (e) => {
+    const rpaBtn = e.target.closest("button[data-rpa]");
+    if (rpaBtn && !rpaBtn.closest("#impl-run") && impl.spec) { if (rpaBtn.dataset.rpa === "script") rpaScript(); else rpaQueue(); return; }
     const t = e.target.closest("[data-guide-act]");
     if (!t || !impl.spec) return;
     const act = t.dataset.guideAct, id = t.dataset.id;
@@ -1756,22 +1758,27 @@
     const items = queue.map((q) => {
       const f = findItem(q.id);
       const it = f ? f.item : {};
-      return { id: q.id, section: q.section, label: q.label, module: it.module || "", steps: q.steps || [],
+      return { id: q.id, section: q.section, label: q.label, module: it.module || "", steps: q.steps || [], recipe: q.recipe || [],
         code: q.section === "functions" && it.code ? it.code : undefined };
     });
+    const auto = items.filter((x) => x.recipe.length).length;
     const script = `#!/usr/bin/env node
 // LiftOff UI work runner — generated ${new Date().toISOString()}
-// Org: ${org.name || ""} (${org.id || ""})
+// Org: ${org.name || ""} (${org.id || ""}) · ${items.length} item(s), ${auto} with an automatic recipe
 //
 // What it does: opens Zoho CRM Setup in a persistent browser profile (sign in once; the login is
-// kept in ./.liftoff-profile), then for each item shows the exact steps, pauses so you can do or
-// confirm them in the Playwright window, and records the result with a screenshot.
+// kept in ./.liftoff-profile). Items that have a recipe are done BY THE SCRIPT: it clicks through
+// Setup, fills the values, and pauses only before each Save so you can check — you are the approver.
+// If it can't find a control it shows the step and pauses so you can do that one step and Resume.
+// Items without a recipe are shown as steps for you to do, as before.
 //
-// Run:   npm i playwright && npx playwright install chromium && node liftoff-ui-runner.mjs
-// Then:  in the Playwright Inspector press "Resume" after finishing each item.
+// Run:    npm i playwright && npx playwright install chromium && node liftoff-ui-runner.mjs
+// Flags:  --manual   never act, only show steps     --no-confirm   don't pause before saves
 import { chromium } from "playwright";
 import fs from "node:fs";
 
+const MANUAL = process.argv.includes("--manual");
+const CONFIRM = !process.argv.includes("--no-confirm");
 const CRM_BASE = process.env.CRM_BASE || "https://crm.zoho.${tld}";        // change if your DC differs
 const SETUP_URL = ${JSON.stringify(org.zgid ? "/crm/org" + org.zgid + "/settings" : "/crm/settings")};
 const ITEMS = ${JSON.stringify(items, null, 2)};
@@ -1781,6 +1788,70 @@ const page = browser.pages()[0] || await browser.newPage();
 const results = [];
 fs.mkdirSync("./liftoff-evidence", { recursive: true });
 
+const rx = (t) => new RegExp("^\\\\s*(" + t + ")\\\\s*$", "i");   // whole text (buttons, tabs)
+const lx = (t) => new RegExp("(" + t + ")", "i");                   // anywhere in a label
+const banner = (title, lines, note) => page.evaluate(({ title, lines, note }) => {
+  const old = document.getElementById("liftoff-banner"); if (old) old.remove();
+  const b = document.createElement("div"); b.id = "liftoff-banner";
+  b.style.cssText = "position:fixed;top:12px;right:12px;z-index:2147483647;max-width:440px;background:#0B1B3A;color:#fff;font:13px/1.4 system-ui;padding:14px 16px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.35)";
+  const esc = (x) => String(x).replace(/</g, "&lt;");
+  b.innerHTML = "<strong style='font-size:14px'>" + esc(title) + "</strong>" + (lines.length ? "<ol style='margin:8px 0 0;padding-left:18px'>" + lines.map((s) => "<li style='margin:4px 0'>" + esc(s) + "</li>").join("") + "</ol>" : "") +
+    "<div style='margin-top:10px;color:#C7D2E3'>" + esc(note) + "</div>";
+  document.body.appendChild(b);
+}, { title, lines, note }).catch(() => {});
+
+// Candidate locators for one op, most specific first. Each is tried for a short time.
+function candidates(op) {
+  const t = op.text || op.label || op.near || "";
+  const r = rx(t);
+  switch (op.op) {
+    case "click": return [page.getByRole("button", { name: r }), page.getByRole("link", { name: r }), page.getByRole("tab", { name: r }),
+      page.getByRole("menuitem", { name: r }), page.getByText(r).first(), page.locator("[title]", { hasText: r }).first()];
+    case "fill": { const l = lx(t); return [page.getByLabel(r), page.getByPlaceholder(r), page.getByLabel(l), page.getByPlaceholder(l),
+      page.locator("label", { hasText: l }).locator("input,textarea").first(), page.locator("label", { hasText: l }).locator("..").locator("input,textarea").first()]; }
+    case "choose": { const l = lx(t); return [page.getByLabel(r), page.getByRole("combobox", { name: r }), page.getByLabel(l), page.getByRole("combobox", { name: l }),
+      page.locator("label", { hasText: l }).locator("select,[role=combobox]").first(), page.locator("label,span,div", { hasText: l }).locator("..").locator("[role=combobox],select,.lyteDropdown,input").first()]; }
+    case "expect": return [page.getByText(r).first(), page.getByText(t, { exact: false }).first()];
+    default: return [];
+  }
+}
+async function firstVisible(locs, ms) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    for (const l of locs) { try { if (await l.isVisible({ timeout: 250 })) return l; } catch {} }
+    await page.waitForTimeout(200);
+  }
+  return null;
+}
+async function stuck(op, why) {
+  const what = op.op === "goto" ? "open " + op.path : op.op === "click" ? "click “" + op.text + "”" : op.op === "fill" ? "enter “" + op.value + "” in “" + op.label + "”"
+    : op.op === "choose" ? "choose “" + op.option + "” for “" + op.near + "”" : op.op === "type" ? "paste the code" : "check “" + op.text + "”";
+  console.log("  ⚠ couldn't " + what + (why ? " (" + why + ")" : "") + " — do it, then Resume.");
+  await banner("Please do this step", [what], "Then press Resume in the Playwright Inspector.");
+  await page.pause();
+}
+async function perform(op) {
+  if (op.op === "goto") { await page.goto(CRM_BASE + SETUP_URL.replace(/\\/settings$/, "") + op.path, { waitUntil: "domcontentloaded" }).catch(() => {}); await page.waitForTimeout(1200); return; }
+  if (op.op === "confirm") { if (!CONFIRM) return; await banner("Check before saving", [op.text], "Resume to let the script save, or press Save yourself then Resume."); await page.pause(); return; }
+  if (op.op === "type") {
+    const ed = await firstVisible([page.locator(".CodeMirror textarea, .monaco-editor textarea, textarea:visible").first()], 4000);
+    if (!ed) return stuck(op, "no code editor found");
+    await ed.focus(); await page.keyboard.press("Control+A").catch(() => {}); await page.keyboard.insertText(op.value); return;
+  }
+  const el = await firstVisible(candidates(op), op.op === "expect" ? 8000 : 6000);
+  if (!el) return op.op === "expect" ? console.log("  ? couldn't confirm “" + op.text + "” on screen — check the screenshot.") : stuck(op, "not found");
+  if (op.op === "click") { await el.click(); await page.waitForTimeout(700); return; }
+  if (op.op === "fill") { await el.click(); await el.fill("").catch(() => {}); await el.fill(op.value).catch(async () => { await page.keyboard.insertText(op.value); }); return; }
+  if (op.op === "choose") {
+    const tag = await el.evaluate((n) => n.tagName.toLowerCase()).catch(() => "");
+    if (tag === "select") { await el.selectOption({ label: op.option }).catch(async () => stuck(op, "option not in the list")); return; }
+    await el.click(); await page.waitForTimeout(400);
+    const opt = await firstVisible([page.getByRole("option", { name: rx(op.option) }), page.getByRole("menuitem", { name: rx(op.option) }), page.getByText(rx(op.option)).last(), page.getByText(op.option, { exact: false }).last()], 4000);
+    if (!opt) return stuck(op, "option not listed");
+    await opt.click(); await page.waitForTimeout(400); return;
+  }
+}
+
 await page.goto(CRM_BASE + SETUP_URL, { waitUntil: "domcontentloaded" });
 console.log("\\nIf CRM asks you to sign in, do it in the window, then press Resume.");
 await page.pause();
@@ -1789,23 +1860,22 @@ for (const [i, it] of ITEMS.entries()) {
   const header = \`[\${i + 1}/\${ITEMS.length}] \${it.label}\`;
   console.log("\\n" + "=".repeat(78) + "\\n" + header + "\\n" + "-".repeat(78));
   it.steps.forEach((s, n) => console.log(\`  \${n + 1}. \${s}\`));
-  if (it.code) { fs.writeFileSync(\`./liftoff-evidence/\${it.id}.deluge\`, it.code); console.log(\`  Deluge code saved to ./liftoff-evidence/\${it.id}.deluge — paste it in.\`); }
-  await page.goto(CRM_BASE + SETUP_URL, { waitUntil: "domcontentloaded" }).catch(() => {});
-  // A banner inside the page with the steps, so you don't have to switch windows.
-  await page.evaluate(({ header, steps }) => {
-    const old = document.getElementById("liftoff-banner"); if (old) old.remove();
-    const b = document.createElement("div"); b.id = "liftoff-banner";
-    b.style.cssText = "position:fixed;top:12px;right:12px;z-index:2147483647;max-width:440px;background:#0B1B3A;color:#fff;font:13px/1.4 system-ui;padding:14px 16px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.35)";
-    b.innerHTML = "<strong style='font-size:14px'>" + header.replace(/</g, "&lt;") + "</strong><ol style='margin:8px 0 0;padding-left:18px'>" +
-      steps.map((s) => "<li style='margin:4px 0'>" + s.replace(/</g, "&lt;") + "</li>").join("") +
-      "</ol><div style='margin-top:10px;color:#C7D2E3'>Do these steps, then press <b>Resume</b> in the Playwright Inspector.</div>";
-    document.body.appendChild(b);
-  }, { header, steps: it.steps }).catch(() => {});
-  await page.pause();   // ← you do the steps (or confirm they're done), then Resume
+  if (it.code) { fs.writeFileSync(\`./liftoff-evidence/\${it.id}.deluge\`, it.code); console.log(\`  Deluge code saved to ./liftoff-evidence/\${it.id}.deluge\`); }
+  let mode = "manual";
+  if (!MANUAL && it.recipe.length) {
+    mode = "auto";
+    console.log("  ▶ doing it for you (" + it.recipe.length + " step(s))…");
+    await banner(header, it.steps, "LiftOff is doing these steps. It pauses before saving.");
+    for (const op of it.recipe) await perform(op);
+  } else {
+    await page.goto(CRM_BASE + SETUP_URL, { waitUntil: "domcontentloaded" }).catch(() => {});
+    await banner(header, it.steps, "Do these steps, then press Resume in the Playwright Inspector.");
+    await page.pause();   // ← you do the steps (or confirm they're done), then Resume
+  }
   const shot = \`./liftoff-evidence/\${it.id}.png\`;
   await page.screenshot({ path: shot, fullPage: false }).catch(() => {});
-  results.push({ id: it.id, label: it.label, done_at: new Date().toISOString(), screenshot: shot });
-  console.log(\`  ✓ recorded \${it.id} (\${shot})\`);
+  results.push({ id: it.id, label: it.label, mode, done_at: new Date().toISOString(), screenshot: shot });
+  console.log(\`  ✓ recorded \${it.id} (\${mode}, \${shot})\`);
 }
 
 fs.writeFileSync("./liftoff-ui-results.json", JSON.stringify({ org: ${JSON.stringify({ id: org.id || "", name: org.name || "" })}, finished_at: new Date().toISOString(), results }, null, 2));

@@ -147,8 +147,10 @@ public class ImplementApplyServlet extends HttpServlet {
                         q.put("label", ImplPlan.describe(section, item));
                         ArrayNode steps = q.putArray("steps");
                         ImplRpa.steps(section, item).forEach(steps::add);
+                        q.set("recipe", ImplRpa.recipe(section, item));
                         q.set("item", item);
-                        r.put("detail", "No reliable create API; " + steps.size() + " UI step(s) queued.");
+                        r.put("detail", "No reliable create API; " + steps.size() + " UI step(s) queued"
+                                + (q.path("recipe").size() > 0 ? " — the runner can do them itself." : "."));
                     } else {
                         r.put("result", "skipped");
                         r.put("detail", "Nothing to build.");
