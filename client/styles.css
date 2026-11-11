@@ -2766,7 +2766,6 @@ footer { display: none; }
   width: 100% !important;
   border: none;
   display: block;
-  min-height: 220px;
 }
 
 /* Zoho 4-colour icon grid used in login + consent */
