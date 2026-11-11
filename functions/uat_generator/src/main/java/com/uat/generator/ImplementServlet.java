@@ -67,7 +67,7 @@ public class ImplementServlet extends HttpServlet {
         final BrdChunker.Chunk chunk;
         Task(String group, BrdChunker.Chunk chunk) { this.group = group; this.chunk = chunk; }
         List<String> sections() { return "automation".equals(group) ? ImplSpec.AUTOMATION : ImplSpec.DATA_MODEL; }
-        String system() { return Products.byId(ImplPrompts.PRODUCT).systemPrompt(group); }
+        String system() { return Products.current().systemPrompt(group); }
     }
 
     @Override
@@ -85,6 +85,7 @@ public class ImplementServlet extends HttpServlet {
 
         try {
             JsonNode body = MAPPER.readTree(req.getInputStream());
+            Products.use(body);
             String brd = body.path("brd").asText("").trim();
             List<String> modules = new ArrayList<>();
             for (JsonNode m : body.path("modules")) {
@@ -128,7 +129,7 @@ public class ImplementServlet extends HttpServlet {
             ImplOrg org = null;
             String orgText = "";
             if (crm != null) {
-                org = ImplOrg.read(crm, modules, false);
+                org = Products.current().readOrg(crm, modules, false);
                 orgText = org.promptText(modules, 3500);
                 for (String e : org.errors) warnings.add("Couldn't read org metadata — " + trim(e, 160));
             } else if (!mock) {
@@ -282,6 +283,8 @@ public class ImplementServlet extends HttpServlet {
         // ---- Response ----
         ObjectNode out = MAPPER.createObjectNode();
         out.put("provider", provider);
+        Product prod = Products.current();
+        out.putObject("product").put("id", prod.id()).put("label", prod.label()).put("builders_ready", prod.buildersReady());
         out.put("llm_calls", calls);
         out.put("chunks", chunks);
         ObjectNode orgOut = out.putObject("org");

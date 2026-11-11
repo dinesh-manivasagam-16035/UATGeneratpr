@@ -40,7 +40,9 @@ public class ImplementVerifyServlet extends HttpServlet {
         resp.setContentType("application/json");
         CorsSupport.apply(req, resp);
         try {
-            JsonNode spec = MAPPER.readTree(req.getInputStream()).path("spec");
+            JsonNode vbody = MAPPER.readTree(req.getInputStream());
+            Products.use(vbody);
+            JsonNode spec = vbody.path("spec");
             if (!spec.isObject()) {
                 ImplementServlet.writeError(resp, 400, "Field 'spec' (object from /implement) is required.");
                 return;
@@ -50,7 +52,7 @@ public class ImplementVerifyServlet extends HttpServlet {
                 ImplementServlet.writeError(resp, 401, "Connect Zoho CRM first — verify reads the org's metadata.");
                 return;
             }
-            ImplOrg org = ImplOrg.read(crm, ImplementApplyServlet.modulesOf(spec), true);
+            ImplOrg org = Products.current().readOrg(crm, ImplementApplyServlet.modulesOf(spec), true);
 
             ArrayNode results = MAPPER.createArrayNode();
             for (String section : new String[]{"modules", "fields", "layouts", "roles", "validation_rules",

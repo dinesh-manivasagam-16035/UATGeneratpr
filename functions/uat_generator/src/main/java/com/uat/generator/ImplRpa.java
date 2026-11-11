@@ -23,7 +23,7 @@ public final class ImplRpa {
         String module = o.path("module").asText("");
         switch (section) {
             case "fields":
-                s.add("Setup → Customization → Modules and Fields → " + module + " → Standard layout.");
+                s.add(Products.current().setupRoot("fields") + " → " + module + " → Standard layout.");
                 s.add("Drag a \"" + o.path("data_type").asText() + "\" field onto the layout, label it \""
                         + o.path("label").asText() + "\".");
                 if (o.path("lookup_module").isTextual()) s.add("Target module: " + o.path("lookup_module").asText() + ".");
@@ -31,7 +31,7 @@ public final class ImplRpa {
                 s.add("Save the layout.");
                 break;
             case "layouts":
-                s.add("Setup → Customization → Modules and Fields → " + module + " → Layouts → "
+                s.add(Products.current().setupRoot("layouts") + " → " + module + " → Layouts → "
                         + (o.path("name").asText("Standard").equalsIgnoreCase("standard") ? "Standard" : "New Layout \"" + o.path("name").asText() + "\"") + ".");
                 for (JsonNode sec : o.path("sections")) {
                     s.add("Section \"" + sec.path("name").asText() + "\": " + join(sec.path("fields")) + ".");
@@ -41,7 +41,7 @@ public final class ImplRpa {
                 s.add("Save the layout.");
                 break;
             case "validation_rules":
-                s.add("Setup → Customization → Modules and Fields → " + module + " → Validation Rules → Create Rule.");
+                s.add(Products.current().setupRoot("validation_rules") + " → " + module + " → Validation Rules → Create Rule.");
                 s.add("Name: " + o.path("name").asText() + ".");
                 s.add("Condition (reject when): " + o.path("condition").asText() + ".");
                 s.add("Alert message: \"" + o.path("error_message").asText() + "\".");

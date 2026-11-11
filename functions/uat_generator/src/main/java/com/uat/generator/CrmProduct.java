@@ -35,6 +35,7 @@ public final class CrmProduct implements Product {
     @Override public String label() { return "Zoho CRM"; }
     @Override public String entityWord() { return "module"; }
     @Override public List<Capability> capabilities() { return MATRIX; }
+    @Override public ImplOrg readOrg(CrmClient client, java.util.Collection<String> modules, boolean withLayouts) { return ImplOrg.read(client, modules, withLayouts); }
 
     @Override public List<String> oauthScopes() {
         return Arrays.asList("ZohoCRM.modules.ALL", "ZohoCRM.settings.ALL", "ZohoCRM.org.READ");

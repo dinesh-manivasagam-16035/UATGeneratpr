@@ -67,7 +67,7 @@ public final class ImplOrg {
         return v != null && ("1".equals(v.trim()) || "true".equalsIgnoreCase(v.trim()) || "yes".equalsIgnoreCase(v.trim()));
     }
 
-    private ImplOrg() {}
+    ImplOrg() {}
 
     public static ImplOrg read(CrmClient crm, Collection<String> moduleNames, boolean withLayouts) {
         ImplOrg o = new ImplOrg();

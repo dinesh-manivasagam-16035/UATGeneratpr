@@ -141,6 +141,7 @@
         requirements:          state.requirements,
         modulesSelected:       state.modulesSelected,
         platform:              state.platform,
+        platformManual:        !!state.platformManual,
         mode:                  state.mode,
         creatorOwner:          state.creatorOwner,
         creatorApp:            state.creatorApp,
@@ -170,6 +171,7 @@
       }
       if (Array.isArray(saved.requirements)) state.requirements = saved.requirements;
       if (saved.platform) state.platform = saved.platform;
+      if (saved.platformManual) state.platformManual = true;
       if (saved.orgChosen) state.orgChosen = true;
       if (saved.mode === "impl" || saved.mode === "uat") state.mode = saved.mode;
       if (saved.creatorOwner)           state.creatorOwner           = saved.creatorOwner;
@@ -426,8 +428,8 @@
     const scopeOk = impl ? true : state.platform === "creator" ? !!getCreatorFormLink() : state.modulesSelected.length > 0;
     const reqs = brdOk ? extractRequirements(state.brd).filter((r) => r.id !== "ACCEPT") : [];
     guide.readiness("input", [
-      { ok: crmOk, label: crmOk ? "CRM connected" : "CRM not connected",
-        text: crmOk ? `${escapeHtml(state.crmOrgName || "Zoho CRM")}${state.modulesAvailable.length ? ` · ${state.modulesAvailable.length} modules loaded` : ""}` : "needed to compare with the org and to build",
+      { ok: crmOk, label: crmOk ? `${state.platform === "desk" ? "Zoho account connected" : "CRM connected"}` : `${state.platform === "desk" ? "Zoho account" : "CRM"} not connected`,
+        text: crmOk ? `${escapeHtml(state.crmOrgName || productLabel())}${state.platform === "desk" ? " · Desk org is read when the blueprint is generated" : state.modulesAvailable.length ? ` · ${state.modulesAvailable.length} modules loaded` : ""}` : "needed to compare with the org and to build",
         action: crmOk ? null : { label: "Connect", proxy: "auth-login-btn" } },
       { ok: brdOk, label: brdOk ? "BRD loaded" : "No BRD yet",
         text: brdOk ? `${escapeHtml(state.fileName || "document")}${reqs.length ? " · " + reqs.slice(0, 3).map((r) => escapeHtml(r.id + (r.title ? " " + r.title : ""))).join(" · ") + (reqs.length > 3 ? ` · +${reqs.length - 3} more` : "") : ""}` : "drop a .txt, .md, .rtf, .pdf or .docx below",
@@ -443,14 +445,14 @@
       title: ready ? (impl ? `Generate the blueprint from ${state.fileName || "the BRD"}` : `Write UAT cases from ${state.fileName || "the BRD"}`)
         : !brdOk ? "Load the requirements document" : !crmOk && impl ? "Connect CRM, then generate the blueprint" : "Pick the modules in scope",
       text: ready ? (impl
-          ? `LiftOff reads ${reqs.length ? reqs.length + " requirement(s)" : "the BRD"}, asks the agent for the data model and automation, and checks every item against ${escapeHtml(state.crmOrgName || "the org")}. About a minute. Nothing is written to CRM.`
+          ? `LiftOff reads ${reqs.length ? reqs.length + " requirement(s)" : "the BRD"}, asks the agent for the ${productLabel()} data model and automation, and checks every item against ${escapeHtml(state.crmOrgName || "the org")}. About a minute. Nothing is written to ${productLabel()}.`
           : `Cases are written per module from the BRD's requirements and acceptance criteria. Nothing is sent to CRM until you run them.`)
         : !brdOk ? "Drop the BRD file into the box below, or build one with the template builder." : "",
       primary: ready ? { label: impl ? "Generate blueprint →" : "Generate UAT cases →", proxy: "generate-btn" } : (!brdOk ? { label: "Choose file", proxy: "brd-file" } : { label: "Show options", act: "", disabled: false, proxy: "", title: "" }),
       note: ready && !crmOk && impl ? "CRM isn't connected: items won't be compared with the org and nothing can be built." : "",
     });
     if (!ready && brdOk) { const b = document.querySelector('#now-input .btn-now.primary'); if (b) b.dataset.openFold = "fold-input"; }
-    guide.sub("input", brdOk ? (state.fileName || "BRD loaded") : "");
+    guide.sub("input", brdOk ? `${state.fileName || "BRD loaded"} · ${productLabel()}` : productLabel());
   }
 
   const PANEL_BUSY_TITLE = {
@@ -776,6 +778,27 @@
     n.classList.add("has-icon");
   });
 
+  // ---- Products: one adapter per Zoho product on the server; the browser only names it ----
+  const PRODUCTS = {
+    crm:     { label: "Zoho CRM",     modules: ["Leads", "Contacts", "Accounts", "Deals"], entity: "modules" },
+    desk:    { label: "Zoho Desk",    modules: ["Tickets", "Contacts", "Accounts", "Tasks"], entity: "modules" },
+    creator: { label: "Zoho Creator", modules: [], entity: "forms" },
+  };
+  function productLabel(p) { return (PRODUCTS[p || state.platform] || PRODUCTS.crm).label; }
+  // Which product a BRD is about, from its vocabulary. Returns null when it isn't clear.
+  function detectProduct(text) {
+    const t = (text || "").slice(0, 20000);
+    const score = (res) => res.reduce((n, re) => n + (t.match(re) || []).length, 0);
+    const desk = score([/\btickets?\b/gi, /\bagents?\b/gi, /\bSLAs?\b/g, /\bhelp ?desk\b/gi, /\bdepartments?\b/gi, /\bzoho desk\b/gi, /\bmacros?\b/gi]);
+    const crm = score([/\bleads?\b/gi, /\bdeals?\b/gi, /\bpipeline\b/gi, /\bzoho crm\b/gi, /\bopportunit(y|ies)\b/gi, /\bcampaigns?\b/gi]);
+    const creator = score([/\bzoho creator\b/gi, /\bforms?\b/gi, /\breports?\b/gi]);
+    if (desk >= 3 && desk > crm * 1.5 && desk >= creator) return "desk";
+    if (crm >= 2 && crm >= desk) return "crm";
+    if (creator >= 4 && creator > crm && creator > desk) return "creator";
+    return null;
+  }
+  window.LiftOff = Object.assign(window.LiftOff || {}, { productLabel, PRODUCTS });
+
   // Sidebar collapse: icons only, remembered per browser.
   (function initSidebarToggle() {
     const app = document.querySelector(".app"), btn = document.getElementById("side-toggle");
@@ -1011,6 +1034,10 @@
       if (!text) throw new Error("File parsed but no text was extracted.");
       state.brd = text;
       state.fileName = file.name;
+      if (!state.platformManual) {
+        const p = detectProduct(text);
+        if (p && p !== state.platform) { switchPlatform(p, { auto: true }); showToast(`${productLabel(p)} detected from the BRD — change it in Brief → details if that's wrong`, "info", 5000); }
+      }
       renderRequirementsTable();
       els.fileMeta.textContent =
         `${file.name} — ${kind.toUpperCase()}, ${text.length.toLocaleString()} chars`;
@@ -2742,6 +2769,12 @@
   }
 
   async function loadModules() {
+    if (state.platform === "desk") {
+      state.modulesAvailable = PRODUCTS.desk.modules.map((m) => ({ api_name: m, plural_label: m, singular_label: m.replace(/s$/, ""), custom: false }));
+      renderModuleChips();
+      if (els.modulesStatus) { els.modulesStatus.textContent = "Desk modules are fixed: Tickets, Contacts, Accounts, Tasks."; els.modulesStatus.className = "status"; }
+      return;
+    }
     if (els.modulesStatus) {
       els.modulesStatus.textContent = "Loading modules...";
       els.modulesStatus.className = "status";
@@ -3008,9 +3041,19 @@
     },
   };
 
-  function switchPlatform(platform) {
+  function switchPlatform(platform, opts) {
+    if (!(opts && opts.auto)) state.platformManual = true;
     if (state.platform === platform) return;
     state.platform = platform;
+    if (platform !== "creator") {
+      // Each product has its own module list; CRM's comes from the org, Desk's is fixed.
+      state.modulesSelected = state.modulesSelected.filter((m) => (PRODUCTS[platform].modules.length ? PRODUCTS[platform].modules : [m]).includes(m));
+      if (platform === "desk") state.modulesAvailable = PRODUCTS.desk.modules.map((m) => ({ api_name: m, plural_label: m, singular_label: m.replace(/s$/, ""), custom: false }));
+      else if (state.modulesAvailable.length && state.modulesAvailable.every((m) => PRODUCTS.desk.modules.includes(m.api_name))) state.modulesAvailable = [];
+      renderModuleChips();
+    }
+    saveStateToStorage();
+    setTimeout(renderGuideBrief, 0);
 
     // Update platform selector button active states
     document.querySelectorAll(".platform-btn").forEach((btn) => {
@@ -3019,7 +3062,7 @@
 
     // Sync auth panel to selected platform
     const platformLabel = document.getElementById("auth-platform-label");
-    if (platformLabel) platformLabel.textContent = platform === "creator" ? "Zoho Creator" : "Zoho CRM";
+    if (platformLabel) platformLabel.textContent = productLabel(platform);
     if (platform === "creator") {
       if (els.authLoginArea)    els.authLoginArea.hidden    = true;
       if (els.authUserInfo)     els.authUserInfo.hidden     = false;
@@ -3032,7 +3075,7 @@
       if (els.authUserInfo)     els.authUserInfo.hidden     = !state.crmAuthorized;
       if (els.authSwitchOrgBtn) els.authSwitchOrgBtn.hidden = false;   // an org id can always be entered by hand
       if (els.authLogoutBtn)    els.authLogoutBtn.hidden    = false;
-      if (els.authOrgName)      els.authOrgName.textContent = state.crmOrgName || "Zoho CRM";
+      if (els.authOrgName)      els.authOrgName.textContent = state.crmOrgName || productLabel(platform);
       if (els.authEmail)        els.authEmail.textContent   = state.crmEmail   || state.authUser || "";
     }
 
@@ -3047,7 +3090,7 @@
     // Update module picker label
     const pickerLabel = document.getElementById("module-picker-label");
     if (pickerLabel) {
-      pickerLabel.textContent = platform === "creator" ? "Target forms" : "Target modules";
+      pickerLabel.textContent = platform === "creator" ? "Target forms" : platform === "desk" ? "Desk modules" : "Target modules";
     }
 
     // Update "Execute in…" button label on Cases tab
@@ -3668,6 +3711,12 @@
   // Restore persisted state (before auth so UI is pre-populated)
   loadStateFromStorage();
   // Sync platform UI to restored state
+  if (state.platform === "desk") {
+    document.querySelectorAll(".platform-btn").forEach((b) => b.classList.toggle("active", b.dataset.platform === "desk"));
+    state.modulesAvailable = PRODUCTS.desk.modules.map((m) => ({ api_name: m, plural_label: m, singular_label: m.replace(/s$/, ""), custom: false }));
+    const lbl = document.getElementById("module-picker-label"); if (lbl) lbl.textContent = "Desk modules";
+    const pl = document.getElementById("auth-platform-label"); if (pl) pl.textContent = "Zoho Desk";
+  }
   if (state.platform === "creator") {
     document.querySelectorAll(".platform-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.platform === "creator");

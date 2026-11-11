@@ -58,6 +58,7 @@ public class ImplementApplyServlet extends HttpServlet {
         CorsSupport.apply(req, resp);
         try {
             JsonNode body = MAPPER.readTree(req.getInputStream());
+            Products.use(body);
             JsonNode spec = body.path("spec");
             if (!spec.isObject()) {
                 ImplementServlet.writeError(resp, 400, "Field 'spec' (object from /implement) is required.");
@@ -75,7 +76,7 @@ public class ImplementApplyServlet extends HttpServlet {
             }
 
             // A single-step run (item_ids) only reads the modules those items touch.
-            ImplOrg org = crm == null ? null : ImplOrg.read(crm, only.isEmpty() ? modulesOf(spec) : modulesOf(spec, only), false);
+            ImplOrg org = crm == null ? null : Products.current().readOrg(crm, only.isEmpty() ? modulesOf(spec) : modulesOf(spec, only), false);
             if (!dryRun) {
                 if (!spec.path("approved").asBoolean(false)) {
                     ImplementServlet.writeError(resp, 409, "The spec hasn't been approved. Review it and click Approve before applying.");

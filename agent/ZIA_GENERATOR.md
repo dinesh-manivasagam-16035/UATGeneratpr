@@ -50,7 +50,7 @@ and JSON shape for that product, and the rule to *prefer the construct the API c
 field update over a Deluge function, a required flag over a validation rule. Workflows come back in the
 structured form only (field updates, tasks, webhooks; assignment rules as rule entries); layout placement is an API item; defaults Zoho already has are recorded as an `assumption` on the item instead of an
 open question; the delivery plan is derived in code from the spec and the lanes (set `IMPL_PLAN_LLM=1`
-to ask the agent for it instead). `IMPL_PRODUCT` selects the adapter (default `crm`).
+to ask the agent for it instead). The browser sends `platform` (`crm`, `desk`, `creator`) with every request and the server picks the adapter; `IMPL_PRODUCT` is only the fallback. The Zoho Desk adapter (`DeskProduct.java`, `DeskOrg.java`) currently connects, reads departments and fields, and briefs the agent; its API builders follow once each Desk endpoint's request shape is confirmed.
 
 ## 2. Collect the agent IDs
 

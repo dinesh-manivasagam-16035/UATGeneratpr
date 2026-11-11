@@ -18,6 +18,7 @@ public class CrmAuthServlet extends HttpServlet {
 
     private static final String SCOPES =
             "ZohoCRM.modules.ALL,ZohoCRM.settings.ALL,ZohoCRM.org.READ," +   // org.READ: sandbox detection (GET /org)
+            "Desk.basic.READ,Desk.settings.READ,Desk.tickets.ALL,Desk.contacts.READ," +   // Zoho Desk adapter (read org; UAT on tickets)
             "ZohoProjects.portals.READ,ZohoProjects.projects.ALL," +
             "ZohoProjects.tasks.ALL,ZohoProjects.bugs.ALL," +
             "ZohoCreator.meta.READ,ZohoCreator.report.READ," +

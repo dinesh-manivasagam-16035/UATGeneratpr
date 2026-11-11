@@ -52,6 +52,18 @@ public interface Product {
     /** System prompt for one blueprint group ("data_model" or "automation"). */
     String systemPrompt(String group);
 
+    /** Reads the connected org into the neutral model the pipeline compares against. */
+    ImplOrg readOrg(CrmClient client, java.util.Collection<String> moduleNames, boolean withLayouts);
+
+    /** Whether LiftOff's API builders exist for this product yet (else every build item goes to the guided runner). */
+    default boolean buildersReady() { return true; }
+
+    /** Setup menu path for a kind of item, for the guided steps: "Setup → Customization → Modules and Fields". */
+    default String setupRoot(String section) { return "Setup → Customization → Modules and Fields"; }
+
+    /** Modules the BRD may target when the org can't be read (the module picker's fallback). */
+    default List<String> defaultModules() { return java.util.Arrays.asList("Leads", "Contacts", "Accounts", "Deals"); }
+
     /** One row of the capability matrix. */
     final class Capability {
         public final String kind, need, lane, how;

@@ -208,7 +208,7 @@
   async function post(path, body, ms, label) {
     const res = await L.fetchWithTimeout(L.FUNCTION_BASE + path, {
       method: "POST", credentials: "include",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ platform: L.state.platform || "crm" }, body)),
     }, ms, label);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `${label} failed (HTTP ${res.status})`);
@@ -566,6 +566,8 @@
       html: `<button type="button" class="ghost small" data-open-fold="fold-blueprint">Open in table</button>` }));
     dupes.forEach((f) => needs.push({ title: `Deluge function “${f.name}” duplicates a workflow rule`, text: esc(f.note || "LiftOff excluded it. Keep it excluded unless you want code instead of a rule."),
       html: `<button type="button" class="ghost small" data-guide-act="include" data-id="${esc(f.id)}">Include anyway</button>` }));
+    const prod = impl.meta && impl.meta.product;
+    if (prod && prod.builders_ready === false) needs.push({ title: `${prod.label}: building through the API isn't wired up yet`, text: "The blueprint and org comparison work; every build item is queued for the guided runner with Desk Setup paths. API builders follow once each endpoint is confirmed.", html: "" });
     // Assumptions: defaults LiftOff chose instead of asking — shown once for a veto, never blocking
     const assumed = [];
     for (const [sct] of SECTIONS) if (sct !== "plan" && sct !== "open_questions") (spec[sct] || []).forEach((o) => { if (o.include !== false && (o.assumption || "").trim() && !o.assumption_ok) assumed.push([sct, o]); });

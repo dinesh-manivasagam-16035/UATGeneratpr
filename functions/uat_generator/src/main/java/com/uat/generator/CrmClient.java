@@ -61,6 +61,10 @@ public class CrmClient {
      * default org whatever they picked; Zoho CRM reads the org from the X-CRM-ORG header.
      */
     private String orgId;
+    private final java.util.Map<String, String> extraHeaders = new java.util.LinkedHashMap<>();
+    /** Adds a header to every call (Zoho Desk wants orgId). */
+    public CrmClient withHeader(String name, String value) { if (value == null || value.isEmpty()) extraHeaders.remove(name); else extraHeaders.put(name, value); return this; }
+
     public CrmClient forOrg(String orgId) { this.orgId = orgId == null || orgId.trim().isEmpty() ? null : orgId.trim(); return this; }
     public String orgId() { return orgId; }
 
@@ -88,6 +92,7 @@ public class CrmClient {
         }
         req.setHeader("Authorization", "Zoho-oauthtoken " + token);
         if (orgId != null) req.setHeader("X-CRM-ORG", orgId);
+        for (java.util.Map.Entry<String, String> h : extraHeaders.entrySet()) req.setHeader(h.getKey(), h.getValue());
         if (jsonBody != null && !jsonBody.isEmpty()
                 && (req instanceof HttpPost || req instanceof HttpPut || req instanceof HttpPatch)) {
             req.setEntity(new StringEntity(jsonBody, ContentType.APPLICATION_JSON));

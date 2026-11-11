@@ -61,6 +61,7 @@ public class ImplementStageServlet extends HttpServlet {
                 return;
             }
             JsonNode body = MAPPER.readTree(req.getInputStream());
+            Products.use(body);
             String stage = body.path("stage").asText("");
             ObjectNode out;
             switch (stage) {
@@ -157,7 +158,7 @@ public class ImplementStageServlet extends HttpServlet {
         orgOut.put("connected", crm != null);
         String orgText = "";
         if (crm != null) {
-            ImplOrg org = ImplOrg.read(crm, modules, false);
+            ImplOrg org = Products.current().readOrg(crm, modules, false);
             orgText = org.promptText(modules, 3500);
             orgOut.put("id", org.orgId);
             orgOut.put("name", org.orgName);
@@ -359,7 +360,7 @@ public class ImplementStageServlet extends HttpServlet {
         Map<String, ObjectNode> seen = new HashMap<>();
         String summary = spec.path("summary").asText("");
         CrmClient crm = Llm.mock() ? null : CrmMetadata.sessionClient(req);
-        ImplOrg org = crm == null ? null : ImplOrg.read(crm, modules, false);
+        ImplOrg org = crm == null ? null : Products.current().readOrg(crm, modules, false);
         ImplementServlet.markStatus(spec, org);
         ImplSpec.finish(spec);
         spec.put("summary", summary);
@@ -422,6 +423,7 @@ public class ImplementStageServlet extends HttpServlet {
         ObjectNode in = MAPPER.createObjectNode();
         in.put("kind", "blueprint");
         in.set("zia", ZiaAgentClient.sharedConfig());   // the worker calls the same agent as this function
+        in.put("platform", Products.current().id());
         in.put("brd", body.path("brd").asText(""));
         in.set("modules", body.path("modules"));
         in.set("answers", body.path("answers"));

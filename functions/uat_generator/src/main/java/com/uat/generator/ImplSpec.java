@@ -81,7 +81,7 @@ public final class ImplSpec {
             "less_than", "greater_equal", "less_equal", "is_empty", "is_not_empty"));
     private static final Set<String> WORKFLOW_TYPES = new HashSet<>(Arrays.asList(
             "workflow", "blueprint", "assignment", "approval", "scoring", "escalation",
-            "schedule", "cadence", "webhook"));
+            "schedule", "cadence", "webhook", "sla", "macro", "view", "notification", "time_based"));
 
     private ImplSpec() {}
 
@@ -434,7 +434,7 @@ public final class ImplSpec {
     }
 
     static String executorFor(String section, JsonNode o) {
-        return Products.byId(ImplPrompts.PRODUCT).laneFor(section, o);
+        return Products.current().laneFor(section, o);
     }
 
     /** CRM-style api name from a label: "Lead Score %" -> "Lead_Score". */
