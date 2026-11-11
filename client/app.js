@@ -2320,8 +2320,9 @@
         if (actionArea) actionArea.hidden = true;
         const widgetWrap = document.getElementById("catalyst-widget-wrap");
         if (widgetWrap) widgetWrap.hidden = false;
-        const cssUrl = location.origin + location.pathname.replace(/[^/]*$/, "") + "login-widget.css";
-        window.catalyst.auth.signIn("loginDivElementId", { service_url: "/app/index.html", css_url: cssUrl });
+        // No css_url: Catalyst replaces Zoho's whole sign-in stylesheet with it (not a supplement),
+        // so anything short of a full re-theme leaves the form unstyled. Zoho's default look stays.
+        window.catalyst.auth.signIn("loginDivElementId", { service_url: "/app/index.html" });
       }, { once: true });
     }
     updateAuthUI();

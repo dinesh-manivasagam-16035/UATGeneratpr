@@ -2751,17 +2751,11 @@ footer { display: none; }
   margin-top: 0.75rem;
   border-radius: 12px;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: #fff;
   border: 1px solid var(--border);
   box-shadow: none;
-  padding: 18px 20px 14px;
-  text-align: left;
 }
 #catalyst-widget-wrap[hidden] { display: none; }
-#catalyst-widget-wrap::before {
-  content: "Sign in with your Zoho account";
-  display: block; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;
-}
 #loginDivElementId iframe {
   width: 100% !important;
   border: none;
