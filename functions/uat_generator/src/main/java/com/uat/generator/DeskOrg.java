@@ -38,6 +38,36 @@ public final class DeskOrg {
         return "https://desk.zoho" + tld;
     }
 
+    /**
+     * Prepares a client for Desk record calls: Desk host, orgId header, and the variables UAT plans may
+     * use before capturing anything: {{departmentId}} (the default department) and {{orgId}}.
+     * Returns the seeds; the client is modified in place.
+     */
+    public static java.util.Map<String, String> prepare(CrmClient crm) {
+        java.util.Map<String, String> seeds = new java.util.LinkedHashMap<>();
+        String base = deskBase(crm);
+        try {
+            JsonNode orgs = get(crm, base + "/api/v1/organizations").path("data");
+            JsonNode org = null;
+            String wantOrg = System.getenv("DESK_ORG_ID") == null ? "" : System.getenv("DESK_ORG_ID");
+            for (JsonNode n : orgs) if (org == null || n.path("id").asText().equals(wantOrg) || (wantOrg.isEmpty() && n.path("isDefault").asBoolean(false))) org = n;
+            if (org != null) { crm.withHeader("orgId", org.path("id").asText("")); seeds.put("orgId", org.path("id").asText("")); }
+            JsonNode deps = get(crm, base + "/api/v1/departments?isEnabled=true").path("data");
+            JsonNode dep = null;
+            for (JsonNode d : deps) if (dep == null || d.path("isDefault").asBoolean(false)) dep = d;
+            if (dep != null) { seeds.put("departmentId", dep.path("id").asText("")); seeds.put("departmentName", dep.path("name").asText("")); }
+        } catch (Exception ignored) { /* the first UAT step will report the real error */ }
+        return seeds;
+    }
+
+    /** A client for Desk record calls built from a CRM-shaped one: same OAuth, Desk host. */
+    public static CrmClient deskClient(CrmClient base, String accountsBase, String clientId, String clientSecret, String refreshToken, String accessToken) {
+        String host = deskBase(base);
+        CrmClient c = accessToken != null && !accessToken.isEmpty() ? CrmClient.withAccessToken(host, accessToken)
+                : new CrmClient(host, accountsBase, clientId, clientSecret, refreshToken);
+        return c;
+    }
+
     public static ImplOrg read(CrmClient crm, Collection<String> moduleNames, boolean withLayouts) {
         ImplOrg o = new ImplOrg();
         String base = deskBase(crm);

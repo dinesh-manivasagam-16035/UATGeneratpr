@@ -80,6 +80,8 @@ public class ExecuteServlet extends HttpServlet {
 
             CrmClient client = client(req, body);
             boolean simulated = !client.hasCredentials();
+            // Desk: route record calls to the Desk host with the orgId header; seed {{departmentId}} for the plans.
+            java.util.Map<String, String> seeds = !simulated && "desk".equalsIgnoreCase(body.path("platform").asText("crm")) ? DeskOrg.prepare(client) : null;
             if (simulated && !body.path("dry_run").asBoolean(false)) {
                 // Never fall back silently: without CRM credentials the caller has to ask
                 // for a dry run explicitly, and the results say so.
@@ -115,7 +117,7 @@ public class ExecuteServlet extends HttpServlet {
                     result.put("not_reached", true);
                 } else {
                     ran++;
-                    result = CrmExecutor.execute(tc, client);
+                    result = CrmExecutor.execute(tc, client, seeds);
                 }
                 caseCopy.set("execution_result", result);
                 out.add(caseCopy);
@@ -160,6 +162,8 @@ public class ExecuteServlet extends HttpServlet {
                             CreatorModulesServlet.creatorBase(),
                             bundle.accountsBase,
                             bundle.clientId, bundle.clientSecret, bundle.refreshToken);
+                } else if ("desk".equalsIgnoreCase(platform)) {
+                    client = DeskOrg.deskClient(bundle.toCrmClient(), bundle.accountsBase, bundle.clientId, bundle.clientSecret, bundle.refreshToken, null);
                 } else {
                     client = bundle.toCrmClient();
                 }

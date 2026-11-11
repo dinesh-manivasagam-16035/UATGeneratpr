@@ -39,8 +39,9 @@ public final class ClaudeClient {
     /** {system, user} prompts for one BRD chunk; shared with the Zia Agent provider (Llm). */
     static String[] chunkPrompts(GenerationRequest r) {
         boolean creator = "creator".equalsIgnoreCase(r.platform);
+        boolean desk = "desk".equalsIgnoreCase(r.platform);
         return new String[]{
-            creator ? creatorSystemPrompt(r.creatorOwner, r.creatorApp) : systemPrompt(),
+            creator ? creatorSystemPrompt(r.creatorOwner, r.creatorApp) : desk ? deskSystemPrompt() : systemPrompt(),
             buildChunkPrompt(r, creator)
         };
     }
@@ -250,6 +251,24 @@ public final class ClaudeClient {
             + "Write actual literal string values (255 real characters, not \"A\".repeat(255)). "
             + "capture paths must be quoted strings like \"data[0].id\". "
             + "Return ONLY a JSON object of the form {\"cases\": [ ... ]} — no markdown fences, no comments, no prose.";
+    }
+
+    /** Same QA brief as CRM, with Zoho Desk's record API: tickets live under /api/v1 and carry departmentId. */
+    private static String deskSystemPrompt() {
+        return systemPrompt()
+            .replace("UAT for Zoho CRM implementations", "UAT for Zoho Desk implementations")
+            .replace("not generic CRM tests that could apply to any org", "not generic help-desk tests that could apply to any org")
+            .replace("a) Identify every module referenced. Note which are standard Zoho CRM modules "
+                   + "(Leads, Contacts, Deals, Accounts, etc.) and which are CUSTOM modules.",
+                     "a) Identify every Desk module referenced (Tickets, Contacts, Accounts, Tasks) and every department.")
+            .replace("API paths are relative to /crm/v3/{Module}. ",
+                     "API paths are Zoho Desk REST paths relative to the Desk host: POST /api/v1/tickets to create a ticket "
+                   + "(body needs subject, departmentId — use the placeholder \"{{departmentId}}\" — and a contact: "
+                   + "\"contact\": {\"lastName\": \"UAT-Smoke\", \"email\": \"uat.smoke@example.com\"}; custom fields go in "
+                   + "\"cf\": {\"cf_api_name\": value}; standard fields: priority, status, channel, dueDate, assigneeId); "
+                   + "GET /api/v1/tickets/{id} to read it back (custom fields come back under cf); PATCH /api/v1/tickets/{id} "
+                   + "to update; DELETE /api/v1/tickets/{id} to remove it. Capture \"id\" from the create response (not data[0].id). "
+                   + "Workflow and SLA effects may take a few seconds: read the ticket back in a separate step after the write. ");
     }
 
     private static String creatorSystemPrompt(String owner, String app) {

@@ -130,6 +130,10 @@ final class UatJob {
         String token = in.path("access_token").asText("");
         CrmClient client = dryRun || token.isEmpty() ? new CrmClient("", "", "", "", "")
                 : CrmClient.withAccessToken(in.path("api_base").asText(""), token);
+        java.util.Map<String, String> seeds = null;
+        if (!dryRun && !token.isEmpty() && "desk".equalsIgnoreCase(in.path("platform").asText("crm"))) {
+            seeds = DeskOrg.prepare(client);     // api_base is already the Desk host (ExecuteServlet built the client)
+        }
         try {
             ArrayNode chunk = MAPPER.createArrayNode();
             for (int i = 0; i < total; i++) {
@@ -144,7 +148,7 @@ final class UatJob {
                 } else {
                     steps.start(i);
                     ImplJob.status(key, "running", i, total, null, steps.label(i), steps);
-                    result = CrmExecutor.execute(tc, client);
+                    result = CrmExecutor.execute(tc, client, seeds);
                 }
                 copy.set("execution_result", result);
                 chunk.add(copy);

@@ -1556,14 +1556,14 @@
     try {
       // Background jobs on impl_worker (short requests when jobs aren't set up); progress shows here.
       L.setStatus("verify", "Writing UAT cases from the blueprint…");
-      const gen = await L.generateCasesStaged({ brd: specToBrd(), modules, platform: "crm" },
+      const gen = await L.generateCasesStaged({ brd: specToBrd(), modules, platform: L.state.platform || "crm" },
         (text, f, st) => { L.setStatus("verify", text); L.busy.update({ detail: text, fraction: typeof f === "number" ? f * 0.5 : undefined, steps: st && st.steps }); });
       const cases = gen.cases || [];
       if (!cases.length) throw new Error((gen.warnings || [])[0] || "No cases were written.");
       const where = live ? "against the sandbox" : "as a dry run";
       L.setStatus("verify", `Running ${cases.length} case(s) ${where}…`);
       L.busy.update({ title: `Running ${cases.length} UAT case(s) ${where}`, detail: live ? "Creating test records in CRM, checking the results, then deleting them." : "Checking each case's plan; nothing is sent to CRM.", steps: [] });
-      const ex = await L.executeBatched(cases, { platform: "crm", dry_run: !live },
+      const ex = await L.executeBatched(cases, { platform: L.state.platform || "crm", dry_run: !live },
         (text, f, st) => { L.setStatus("verify", `${text} (${where})`); L.busy.update({ detail: text, fraction: typeof f === "number" ? 0.5 + f * 0.5 : undefined, steps: st && st.steps }); });
       impl.uat = { cases: ex.cases || cases, live: live && !ex.dry_run, ranAt: new Date().toISOString(), modules };
       save();

@@ -36,7 +36,10 @@ public final class CrmExecutor {
 
     private CrmExecutor() {}
 
-    public static ObjectNode execute(JsonNode testCase, CrmClient client) {
+    public static ObjectNode execute(JsonNode testCase, CrmClient client) { return execute(testCase, client, null); }
+
+    /** @param seeds variables available to the plan before any capture (e.g. Desk's {{departmentId}}). */
+    public static ObjectNode execute(JsonNode testCase, CrmClient client, Map<String, String> seeds) {
         ObjectNode result = MAPPER.createObjectNode();
         ArrayNode trace = result.putArray("trace");
         JsonNode plan = testCase.path("execution_plan");
@@ -51,6 +54,7 @@ public final class CrmExecutor {
         if (simulate) return dryRun(plan, result, trace);
 
         Map<String, String> captured = new HashMap<>();
+        if (seeds != null) captured.putAll(seeds);
         boolean overallPass = true;
         String firstFailure = null;
 
