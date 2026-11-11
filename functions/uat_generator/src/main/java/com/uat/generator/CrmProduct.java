@@ -19,14 +19,15 @@ public final class CrmProduct implements Product {
         new Capability("field",            "custom field of type text, textarea, email, phone, website, picklist, multiselectpicklist, date, datetime, integer, bigint, decimal, currency, percent, boolean or lookup", "api", "POST settings/fields; a required field is marked mandatory on the layout"),
         new Capability("picklist_option",  "new option on an existing picklist",              "api",     "PATCH settings/fields — existing options are kept"),
         new Capability("field_other",      "field of type autonumber, formula, fileupload or multiselectlookup", "ui", "no create API"),
-        new Capability("layout_place",     "placing a field on a layout / making it required", "api",     "PATCH settings/layouts"),
-        new Capability("layout_design",    "new layout, new sections, per-profile layouts",    "ui",      "designed in Setup"),
+        new Capability("layout_place",     "placing fields into sections of the existing layout (new section allowed) / making a field required", "api", "PATCH settings/layouts"),
+        new Capability("layout_design",    "a second layout or per-profile layouts",           "ui",      "designed in Setup"),
         new Capability("role",             "role in the hierarchy",                            "api",     "POST settings/roles; module permissions live on the profile → partial when permissions are listed"),
-        new Capability("rule_field_update","workflow rule on create / edit / field update / delete with field update and task actions", "api", "settings/automation/field_updates + tasks + workflow_rules"),
-        new Capability("rule_other_action","workflow rule action: email alert, webhook, function call", "partial", "the rule is built; the template, webhook or function is attached in Setup"),
+        new Capability("rule_field_update","workflow rule on create / edit / field update / delete with field update, task and webhook actions", "api", "settings/automation/field_updates + tasks + webhooks + workflow_rules"),
+        new Capability("rule_other_action","workflow rule action: email alert, function call",  "partial", "the rule is built; the template or function is attached in Setup"),
+        new Capability("assignment",       "assignment rule (criteria → users or round robin)", "api",     "POST settings/automation/assignment_rules; applies to records entering through web forms, imports and the API"),
         new Capability("rule_time",        "time-based (date/datetime) trigger",               "ui",      "no create API for scheduled triggers"),
         new Capability("validation_rule",  "validation rule (reject a save with a message)",   "ui",      "no create API — prefer a required flag or a workflow field update when it meets the requirement"),
-        new Capability("blueprint",        "Blueprint, approval process, assignment rule, scoring rule, cadence", "ui", "guided runner"),
+        new Capability("blueprint",        "Blueprint, approval process, scoring rule, cadence", "ui", "guided runner"),
         new Capability("function",         "Deluge function",                                  "ui",      "no create API — only when no rule action can do it")
     ));
 
@@ -47,15 +48,27 @@ public final class CrmProduct implements Product {
             case "fields":  return ImplSpec.API_FIELD_TYPES.contains(o.path("data_type").asText()) ? "api" : "rpa";
             case "roles":   return o.path("permissions").size() > 0 ? "partial" : "api";
             case "workflows": {
-                boolean apiRule = "workflow".equals(o.path("type").asText())
+                String type = o.path("type").asText();
+                if ("assignment".equals(type)) {
+                    boolean ok = o.path("rule_entries").size() > 0;
+                    for (JsonNode e : o.path("rule_entries")) if (e.path("conditions").size() == 0 || e.path("assign_to").size() == 0) ok = false;
+                    return ok ? "api" : "rpa";
+                }
+                boolean apiRule = "workflow".equals(type)
                         && ImplSpec.API_TRIGGERS.contains(o.path("trigger_type").asText(""))
-                        && (o.path("field_updates").size() > 0 || o.path("tasks").size() > 0);
+                        && (o.path("field_updates").size() > 0 || o.path("tasks").size() > 0 || o.path("webhooks").size() > 0);
                 if (!apiRule) return "rpa";
                 return o.path("other_actions").size() > 0 ? "partial" : "api";
             }
+            case "layouts": {
+                // Placing fields into sections of an existing layout is an API call; per-profile layouts are not.
+                boolean hasFields = false;
+                for (JsonNode sct : o.path("sections")) if (sct.path("fields").size() > 0) hasFields = true;
+                return hasFields && o.path("profiles").size() == 0 ? "api" : "rpa";
+            }
             case "open_questions": return "review";
             case "plan":    return "projects";
-            default:        return "rpa";   // layouts, validation rules, functions
+            default:        return "rpa";   // validation rules, functions
         }
     }
 
@@ -97,8 +110,8 @@ public final class CrmProduct implements Product {
             + "options to add), lookup_module?, required (bool), unique (bool), default_value?, tooltip?, "
             + "assumption?, req_ids}]\n"
             + "layouts: [{module, name, sections:[{name, fields:[field labels]}], profiles (string[]), notes, req_ids}] — "
-            + "ONLY when the BRD describes how the record page is organised; placing a new field on the standard "
-            + "layout is automatic and needs no layout item\n"
+            + "when the BRD says which section a field belongs in (fields = labels of fields in this spec or the org; "
+            + "an unknown section name creates it); a new field with no stated section needs no layout item\n"
             + "validation_rules: [{module, name, condition (plain-language using field labels), error_message, "
             + "assumption?, req_ids}] — ONLY when the BRD explicitly requires a save to be rejected with a message; "
             + "if a required flag or a workflow field update meets the requirement, use that instead\n"
@@ -123,7 +136,11 @@ public final class CrmProduct implements Product {
             + "ends_with|greater_than|less_than|greater_equal|less_equal|is_empty|is_not_empty), value}] — [] for all records), "
             + "match (and|or), field_updates ([{field (api name), value}]), "
             + "tasks ([{subject, due_in_days (integer), priority (Highest|High|Normal|Low|Lowest)}]), "
-            + "other_actions (string[] — email alerts, webhooks, function calls, each in a few words);\n"
+            + "webhooks ([{name, url, http_method (GET|POST), description?}] — only with a URL the BRD gives), "
+            + "other_actions (string[] — email alerts and function calls only, each in a few words);\n"
+            + "  for type \"assignment\" the structured form: rule_entries ([{conditions (as above), match, "
+            + "assign_to (string[] — user emails or full names from the BRD), round_robin (bool)}]), "
+            + "default_assignee (email, full name, or \"current user\");\n"
             + "  for every other type: trigger, criteria, actions (string[]), states (string[] — blueprint states in order), details}]\n"
             + "functions: [{name (snake_case), module, trigger, purpose, arguments:[{name, type}], code (complete Deluge, "
             + "no placeholders), req_ids}] — ONLY for logic that no workflow action can express (loops, cross-module "

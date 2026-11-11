@@ -166,10 +166,18 @@
     if (section === "fields") return API_FIELD_TYPES.includes(o.data_type) ? "api" : "rpa";
     if (section === "roles") return (o.permissions || []).length ? "partial" : "api";
     if (section === "workflows") {
+      if (o.type === "assignment") {
+        const entries = o.rule_entries || [];
+        return entries.length && entries.every((e) => (e.conditions || []).length && (e.assign_to || []).length) ? "api" : "rpa";
+      }
       const apiRule = o.type === "workflow" && API_TRIGGERS.includes(o.trigger_type || "")
-        && ((o.field_updates || []).length || (o.tasks || []).length);
+        && ((o.field_updates || []).length || (o.tasks || []).length || (o.webhooks || []).length);
       if (!apiRule) return "rpa";
       return (o.other_actions || []).length ? "partial" : "api";
+    }
+    if (section === "layouts") {
+      const hasFields = (o.sections || []).some((sc) => (sc.fields || []).length);
+      return hasFields && !(o.profiles || []).length ? "api" : "rpa";
     }
     if (section === "open_questions") return "review";
     if (section === "plan") return "projects";
@@ -509,16 +517,22 @@
       case "fields": return { title: o.label, sub: `${t} field on ${o.module}${o.required ? ", required" : ", optional"}${(o.picklist_values || []).length ? " · values: " + o.picklist_values.join(", ") : ""}` };
       case "modules": return { title: `${o.plural_label} module`, sub: o.kind === "standard" ? "standard module, already present" : "new custom module" + (o.purpose ? " · " + o.purpose : "") };
       case "workflows": {
-        const when = o.trigger || o.trigger_type || "";
+        const WHEN = { create: "On create", edit: "On edit", create_or_edit: "On create or edit", delete: "On delete", field_update: "On update of " + (o.trigger_fields || []).join(", "), date_or_datetime: "On a date/time" };
+        const when = o.trigger || WHEN[o.trigger_type] || o.trigger_type || "";
         const cond = o.criteria || (o.conditions || []).map((c) => `${c.field} ${String(c.comparator || "").replace(/_/g, " ")} ${c.value || ""}`.trim()).join(" and ");
+        if (o.type === "assignment" && (o.rule_entries || []).length) {
+          const ents = o.rule_entries.map((e) => `${(e.conditions || []).map((c) => `${c.field} ${String(c.comparator || "").replace(/_/g, " ")} ${c.value || ""}`.trim()).join(` ${e.match || "and"} `)} → ${(e.assign_to || []).join(", ")}${e.round_robin ? " (round robin)" : ""}`);
+          return { title: `Assign ${o.module} records: ${ents.join("; ")}`, sub: `assignment rule “${o.name}”${o.default_assignee ? ` · otherwise ${o.default_assignee}` : ""}` };
+        }
         const acts = [].concat((o.field_updates || []).map((f) => `set ${f.field} to “${Array.isArray(f.value) ? f.value.join(", ") : f.value}”`),
-          (o.tasks || []).map((x) => `create task “${x.subject}”`), (o.other_actions || []), (!(o.field_updates || []).length && !(o.tasks || []).length ? (o.actions || []) : []));
+          (o.tasks || []).map((x) => `create task “${x.subject}”`), (o.webhooks || []).map((h) => `call ${h.http_method || "POST"} ${h.url}`), (o.other_actions || []),
+          (!(o.field_updates || []).length && !(o.tasks || []).length && !(o.webhooks || []).length ? (o.actions || []) : []));
         return { title: `${when}${cond && !/all records/i.test(cond) ? `, when ${cond.replace(/^when\s+/i, "")}` : ""}: ${acts.join("; ") || o.name}`, sub: `${o.type || "workflow"} rule “${o.name}” on ${o.module}` };
       }
       case "validation_rules": return { title: `Reject a ${o.module} record when ${o.condition}`, sub: `validation rule “${o.name}”${o.error_message ? ` · “${o.error_message}”` : ""}` };
       case "functions": return { title: o.purpose || o.name, sub: `Deluge function ${o.name}${o.trigger ? " · " + o.trigger : ""}` };
       case "roles": return { title: `Role “${o.name}”`, sub: `${o.reports_to ? "reports to " + o.reports_to : ""}${(o.permissions || []).length ? " · " + o.permissions.join(", ") : ""}` };
-      case "layouts": return { title: `Layout “${o.name}” for ${o.module}`, sub: (o.sections || []).map((x) => x.name).join(", ") };
+      case "layouts": { const secs = (o.sections || []).filter((sc) => (sc.fields || []).length); return { title: secs.length ? secs.map((sc) => `Place ${sc.fields.join(", ")} in section “${sc.name}”`).join("; ") + ` of the ${o.module} layout` : `Layout “${o.name}” for ${o.module}`, sub: `layout “${o.name || "Standard"}”${(o.profiles || []).length ? " · profiles " + o.profiles.join(", ") : ""}` }; }
       default: return { title: describe(section, o), sub: section };
     }
   }

@@ -266,7 +266,31 @@ public final class ImplSpec {
                             .put("due_in_days", Math.max(0, t.path("due_in_days").asInt(0)));
                     if (!text(t, "priority").isEmpty()) to.put("priority", text(t, "priority"));
                 }
+                ArrayNode hooks = o.putArray("webhooks");
+                for (JsonNode h : in.path("webhooks")) {
+                    String url = text(h, "url");
+                    if (url.isEmpty()) continue;
+                    ObjectNode ho = hooks.addObject().put("url", url).put("http_method", text(h, "http_method").isEmpty() ? "POST" : text(h, "http_method").toUpperCase(Locale.ROOT));
+                    putIfText(ho, "name", text(h, "name"));
+                    putIfText(ho, "description", text(h, "description"));
+                }
                 copyStrings(in, o, "other_actions");
+                // Assignment rules: structured entries (users by email or full name)
+                putIfText(o, "default_assignee", text(in, "default_assignee"));
+                ArrayNode entries = o.putArray("rule_entries");
+                for (JsonNode e : in.path("rule_entries")) {
+                    ObjectNode en = entries.addObject();
+                    en.put("match", "or".equalsIgnoreCase(text(e, "match")) ? "or" : "and");
+                    ArrayNode ec = en.putArray("conditions");
+                    for (JsonNode c : e.path("conditions")) {
+                        String field = text(c, "field");
+                        String cmp = text(c, "comparator").toLowerCase(Locale.ROOT);
+                        if (field.isEmpty() || !COMPARATORS.contains(cmp)) continue;
+                        ec.addObject().put("field", field).put("comparator", cmp).put("value", text(c, "value"));
+                    }
+                    copyStrings(e, en, "assign_to");
+                    en.put("round_robin", e.path("round_robin").asBoolean(false));
+                }
                 // Plain-language mirror of the structured form, for the UI (the agent sends only the structured form).
                 if (o.path("trigger").asText("").isEmpty() && !o.path("trigger_type").asText("").isEmpty()) {
                     String tt = o.path("trigger_type").asText();
@@ -283,7 +307,11 @@ public final class ImplSpec {
                     ArrayNode acts = o.putArray("actions");
                     for (JsonNode f : fus) acts.add("Set " + f.path("field").asText() + " to " + (f.path("value").isArray() ? f.path("value").toString() : f.path("value").asText()));
                     for (JsonNode t : tasks) acts.add("Create task \"" + t.path("subject").asText() + "\"");
+                    for (JsonNode h : hooks) acts.add("Call webhook " + h.path("http_method").asText() + " " + h.path("url").asText());
                     for (JsonNode a : o.path("other_actions")) acts.add(a.asText());
+                    if (acts.size() == 0 && entries.size() > 0) {
+                        for (JsonNode e : entries) acts.add("Assign to " + String.join(", ", strings(e.path("assign_to"))) + (e.path("round_robin").asBoolean() ? " (round robin)" : ""));
+                    }
                 }
                 break;
             }

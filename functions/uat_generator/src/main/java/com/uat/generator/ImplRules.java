@@ -150,6 +150,65 @@ public final class ImplRules {
         return body;
     }
 
+    /** {"webhooks":[{module, name, url, http_method, authentication:{type:general}, description?}]} (Create Webhook API). */
+    public static ObjectNode webhook(String moduleApi, String moduleId, String rule, JsonNode w) {
+        ObjectNode h = MAPPER.createObjectNode();
+        h.set("module", ref(moduleApi, moduleId));
+        String name = w.path("name").asText("");
+        h.put("name", trim(name.isEmpty() ? rule + " - webhook" : name, 100));
+        h.put("url", w.path("url").asText(""));
+        String method = w.path("http_method").asText("POST").toUpperCase();
+        h.put("http_method", method.matches("GET|POST|PUT|PATCH|DELETE") ? method : "POST");
+        h.putObject("authentication").put("type", "general");
+        if (!w.path("description").asText("").isEmpty()) h.put("description", trim(w.path("description").asText(), 250));
+        ObjectNode body = MAPPER.createObjectNode();
+        body.putArray("webhooks").add(h);
+        return body;
+    }
+
+    /**
+     * {"assignment_rules":[{name, description?, default_assignee:{type:user,resource:{id}}, rule_entries:[{criteria, assign_to}]}]}
+     * (Create Assignment Rule API). userIdOf resolves an email or full name to a user id (null = unknown, reported).
+     */
+    public static ObjectNode assignmentRule(JsonNode wf, String moduleApi, Function<String, JsonNode> fieldOf,
+                                            Function<String, String> userIdOf) {
+        ObjectNode r = MAPPER.createObjectNode();
+        r.put("name", ruleName(wf.path("name").asText()));
+        if (!wf.path("criteria").asText("").isEmpty()) r.put("description", trim(wf.path("criteria").asText(), 250));
+        String def = wf.path("default_assignee").asText("");
+        ObjectNode da = r.putObject("default_assignee").put("type", "user");
+        if (def.isEmpty() || def.toLowerCase().contains("current")) da.putObject("resource").put("api_name", "${CURRENTUSER}");
+        else da.putObject("resource").put("id", needUser(userIdOf, def));
+        ArrayNode entries = r.putArray("rule_entries");
+        for (JsonNode e : wf.path("rule_entries")) {
+            ObjectNode en = entries.addObject();
+            JsonNode conds = e.path("conditions");
+            if (conds.size() == 0) throw new IllegalStateException("An assignment rule entry needs at least one condition.");
+            if (conds.size() == 1) en.set("criteria", criterion(conds.get(0), fieldOf, moduleApi));
+            else {
+                ObjectNode g = en.putObject("criteria").put("group_operator", e.path("match").asText("and").toUpperCase());
+                ArrayNode arr = g.putArray("group");
+                for (JsonNode c : conds) arr.add(criterion(c, fieldOf, moduleApi));
+            }
+            ObjectNode to = en.putObject("assign_to");
+            ArrayNode res = to.putArray("resources");
+            for (JsonNode u : e.path("assign_to")) res.addObject().put("id", needUser(userIdOf, u.asText()));
+            if (res.size() == 0) throw new IllegalStateException("An assignment rule entry needs assign_to users.");
+            to.put("type", "users");
+            if (e.path("round_robin").asBoolean(false) && res.size() > 1) to.put("type", "round_robin");
+        }
+        if (entries.size() == 0) throw new IllegalStateException("An assignment rule needs rule_entries.");
+        ObjectNode body = MAPPER.createObjectNode();
+        body.putArray("assignment_rules").add(r);
+        return body;
+    }
+
+    private static String needUser(Function<String, String> userIdOf, String who) {
+        String id = userIdOf.apply(who);
+        if (id == null || id.isEmpty()) throw new IllegalStateException("No active CRM user matches \"" + who + "\" (use the user's email or full name).");
+        return id;
+    }
+
     private static ObjectNode criterion(JsonNode c, Function<String, JsonNode> fieldOf, String moduleApi) {
         JsonNode f = need(fieldOf, c.path("field").asText(), moduleApi);
         String cmp = c.path("comparator").asText("equal");

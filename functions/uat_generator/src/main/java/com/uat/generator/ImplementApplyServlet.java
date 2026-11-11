@@ -225,7 +225,10 @@ public class ImplementApplyServlet extends HttpServlet {
                 case "modules": module(item, r); break;
                 case "fields":  field(item, r); break;
                 case "roles":   role(item, r); break;
-                case "workflows": workflow(item, r); break;
+                case "workflows":
+                    if ("assignment".equals(item.path("type").asText())) assignment(item, r); else workflow(item, r);
+                    break;
+                case "layouts": layout(item, r); break;
                 default: throw new IllegalStateException("No API executor for " + section);
             }
         }
@@ -380,6 +383,11 @@ public class ImplementApplyServlet extends HttpServlet {
                 actions.add(new String[]{"tasks", call(requests, "POST", "/crm/" + v + "/settings/automation/tasks",
                         body, "tasks", "task")});
             }
+            for (JsonNode h : wf.path("webhooks")) {
+                ObjectNode body = ImplRules.webhook(module, moduleId, rule, h);
+                actions.add(new String[]{"webhooks", call(requests, "POST", "/crm/" + v + "/settings/automation/webhooks",
+                        body, "webhooks", "webhook")});
+            }
             ObjectNode body = ImplRules.rule(wf, module, moduleId, fieldOf, actions);
             call(requests, "POST", "/crm/" + v + "/settings/automation/workflow_rules", body, "workflow_rules", "rule");
             r.put("result", dryRun ? "would_create" : "created");
@@ -387,6 +395,90 @@ public class ImplementApplyServlet extends HttpServlet {
             if (wf.path("other_actions").size() > 0) {
                 r.put("follow_up", "Add by hand: " + ImplPlan.join(wf.path("other_actions")) + ".");
             }
+        }
+
+        /** Assignment rule through POST settings/automation/assignment_rules?module=X (users resolved by email or name). */
+        void assignment(JsonNode wf, ObjectNode r) throws Exception {
+            String module = moduleApi(wf.path("module").asText());
+            java.util.function.Function<String, JsonNode> fieldOf = (api) -> {
+                JsonNode live = org == null ? null : org.field(module, api);
+                if (live != null || !dryRun) return live;
+                return MAPPER.createObjectNode().put("api_name", api).put("id", "<id of " + api + ">").put("field_label", api);
+            };
+            ObjectNode body = ImplRules.assignmentRule(wf, module, fieldOf, this::userId);
+            send(r, "POST", "/crm/" + v + "/settings/automation/assignment_rules?module=" + enc(module), body, "assignment_rules");
+            r.put("follow_up", "Assignment rules run for records that arrive through web forms, imports and the API "
+                    + "(pass the rule's id as lar_id); records typed in by hand keep their owner.");
+        }
+
+        Map<String, String> users;
+        /** Email or full name (case-insensitive) → active user id; null when unknown. Dry run returns a placeholder. */
+        String userId(String who) {
+            if (who == null || who.trim().isEmpty()) return null;
+            if (users == null) {
+                users = new LinkedHashMap<>();
+                try {
+                    CrmClient.Response res = crm == null ? null : crm.call("GET", "/crm/v3/users?type=ActiveUsers", null);
+                    if (res != null && res.json != null) for (JsonNode u : res.json.path("users")) {
+                        String id = u.path("id").asText("");
+                        users.put(ImplSpec.low(u.path("email").asText("")), id);
+                        users.put(ImplSpec.low(u.path("full_name").asText("")), id);
+                    }
+                } catch (Exception ignored) { /* reported as an unknown user */ }
+            }
+            String id = users.get(ImplSpec.low(who));
+            if (id == null && dryRun) return "<id of user " + who + ">";
+            return id;
+        }
+
+        /**
+         * Places fields into sections of the module's layout: PATCH settings/layouts/{id}?module=X with
+         * {"layouts":[{"sections":[{"id"|"display_label", "fields":[{"id"}]}]}]}. An unknown section is created.
+         */
+        void layout(JsonNode lo, ObjectNode r) throws Exception {
+            String module = moduleApi(lo.path("module").asText());
+            String want = lo.path("name").asText("Standard");
+            JsonNode layouts = crm == null ? null : crm.call("GET", "/crm/" + v + "/settings/layouts?module=" + enc(module), null).json;
+            JsonNode layout = null;
+            if (layouts != null) {
+                for (JsonNode l : layouts.path("layouts")) if (l.path("name").asText("").equalsIgnoreCase(want)) layout = l;
+                if (layout == null) for (JsonNode l : layouts.path("layouts")) if (layout == null || l.path("name").asText("").equalsIgnoreCase("Standard")) layout = l;
+            }
+            if (layout == null && !dryRun) throw new IllegalStateException("Couldn't read the layouts of " + module + ".");
+            String layoutId = layout == null ? "<layout id>" : layout.path("id").asText();
+            ObjectNode body = MAPPER.createObjectNode();
+            ArrayNode secs = body.putArray("layouts").addObject().putArray("sections");
+            int placed = 0; List<String> missing = new ArrayList<>(), created = new ArrayList<>();
+            for (JsonNode sct : lo.path("sections")) {
+                String name = sct.path("name").asText("");
+                JsonNode live = null;
+                if (layout != null) for (JsonNode ls : layout.path("sections")) if (ls.path("display_label").asText("").equalsIgnoreCase(name)) live = ls;
+                ObjectNode so = secs.addObject();
+                if (live != null) so.put("id", live.path("id").asText()); else { so.put("display_label", name); created.add(name); }
+                ArrayNode fs = so.putArray("fields");
+                for (JsonNode fl : sct.path("fields")) {
+                    String label = fl.asText("");
+                    JsonNode f = org == null ? null : org.field(module, label);
+                    if (f == null) { if (dryRun) fs.addObject().put("id", "<id of " + label + ">"); else missing.add(label); continue; }
+                    boolean already = live != null && hasField(live, f.path("id").asText());
+                    if (already) continue;
+                    fs.addObject().put("id", f.path("id").asText());
+                    placed++;
+                }
+                if (fs.size() == 0 && live != null) secs.remove(secs.size() - 1);
+            }
+            if (!missing.isEmpty()) throw new IllegalStateException("Field(s) not in " + module + " yet: " + String.join(", ", missing) + " — build them first.");
+            if (secs.size() == 0) { r.put("result", "skipped"); r.put("detail", "Every field is already in its section."); return; }
+            send(r, "PATCH", "/crm/" + v + "/settings/layouts/" + layoutId + "?module=" + enc(module), body, "layouts");
+            if (!dryRun) r.put("result", "updated");
+            r.put("detail", (dryRun ? "Would place " : "Placed ") + placed + " field(s) in layout \"" + want + "\""
+                    + (created.isEmpty() ? "" : ", creating section(s) " + String.join(", ", created)) + ".");
+            if (lo.path("profiles").size() > 0) r.put("follow_up", "Assign the layout to profiles " + ImplPlan.join(lo.path("profiles")) + " in Setup.");
+        }
+
+        private static boolean hasField(JsonNode section, String fieldId) {
+            for (JsonNode f : section.path("fields")) if (fieldId.equals(f.path("id").asText())) return true;
+            return false;
         }
 
         /** One call of a multi-call build; records the request, returns the new id (a placeholder on a dry run). */
