@@ -449,7 +449,11 @@ details.fold .impl-run, details.fold #impl-spec, details.fold .card { box-shadow
 
 /* Guided layer owns the primary actions and approval: hide the duplicates in page heads (elements stay for proxies) */
 .page-actions #generate-btn, .page-actions #impl-run-all, .page-actions #impl-to-build, .page-actions #impl-apply,
-.page-actions #impl-dry-run, .page-actions #impl-to-verify, .page-actions #impl-verify { display: none; }
+.page-actions #impl-dry-run, .page-actions #impl-to-verify, .page-actions #impl-verify,
+.page-actions #to-execute-btn, .page-actions #execute-btn, .page-actions #to-push-btn, .page-actions #push-btn { display: none; }
+#panel-push .page-head + .card { max-width: 560px; }
+.score.score-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.plain li .pill.p0 { background: var(--err-bg); color: var(--err); } .plain li .pill.p1 { background: var(--warn-bg, #FFF4E5); color: var(--warn, #9A4E00); } .plain li .pill.p2 { background: var(--bg-subtle); color: var(--text-secondary); }
 #impl-meta, #impl-review-bar { display: none; }
 #panel-input .page-head > div > p.muted { display: none; }
 

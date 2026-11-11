@@ -428,8 +428,17 @@
             <button id="to-execute-btn" class="primary" disabled>Run in Zoho CRM &rarr;</button>
           </div>
         </div>
-        <div id="coverage-cases"></div>
-        <div id="cases"></div>
+        <section class="now" id="now-cases" aria-label="What to do now"></section>
+        <section id="score-cases" aria-label="Summary"></section>
+        <section id="needs-cases" aria-label="Needs you"></section>
+        <section id="plain-cases" aria-label="What will be tested"></section>
+        <details class="fold" id="fold-cases">
+          <summary><span class="pill mute">details</span> Every case with Gherkin, steps and execution plan · requirement coverage · edit, export <span class="chev">Show details</span></summary>
+          <div class="fold-body">
+            <div id="coverage-cases"></div>
+            <div id="cases"></div>
+          </div>
+        </details>
         <div class="actions page-foot">
           <button id="back-to-input" class="ghost">&larr; Back</button>
         </div>
@@ -485,10 +494,19 @@
             <button id="to-push-btn" class="primary" disabled>Hand off &rarr;</button>
           </div>
         </div>
-        <div id="exec-summary" class="exec-summary"></div>
-        <div id="coverage-exec"></div>
-        <p id="exec-quote" class="exec-quote" hidden></p>
-        <div id="exec-results"></div>
+        <section class="now" id="now-execute" aria-label="What to do now"></section>
+        <section id="score-execute" aria-label="Results"></section>
+        <section id="needs-execute" aria-label="Needs you"></section>
+        <section id="plain-execute" aria-label="What passed"></section>
+        <details class="fold" id="fold-execute">
+          <summary><span class="pill mute">details</span> Every case with its trace, request and response · requirement coverage <span class="chev">Show details</span></summary>
+          <div class="fold-body">
+            <div id="exec-summary" class="exec-summary"></div>
+            <div id="coverage-exec"></div>
+            <p id="exec-quote" class="exec-quote" hidden></p>
+            <div id="exec-results"></div>
+          </div>
+        </details>
         <div class="actions page-foot">
           <button id="back-to-cases" class="ghost">&larr; Back</button>
         </div>
@@ -551,9 +569,17 @@
             <p class="hint">An existing project with this name is reused; otherwise one is created.</p>
           </div>
         </div>
-        <div id="push-summary" class="exec-summary"></div>
+        <section class="now" id="now-push" aria-label="What to do now"></section>
+        <section id="score-push" aria-label="Summary"></section>
+        <section id="needs-push" aria-label="Needs you"></section>
         <div id="push-link" hidden></div>
-        <div id="push-results"></div>
+        <details class="fold" id="fold-push">
+          <summary><span class="pill mute">details</span> Every case with its task and bug in Zoho Projects <span class="chev">Show details</span></summary>
+          <div class="fold-body">
+            <div id="push-summary" class="exec-summary"></div>
+            <div id="push-results"></div>
+          </div>
+        </details>
         <div class="actions page-foot">
           <button id="back-to-execute" class="ghost">&larr; Back</button>
           <button id="restart-btn" class="ghost">Start over</button>

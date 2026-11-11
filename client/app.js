@@ -455,6 +455,102 @@
     guide.sub("input", brdOk ? `${state.fileName || "BRD loaded"} · ${productLabel()}` : productLabel());
   }
 
+  // ---- Guided layer for UAT mode: Cases → Run → Hand off ----
+  const uatLast = { exec: null, push: null };   // last /execute and /push responses, for the Now cards
+  function renderGuideUat() {
+    if (state.mode === "impl") return;
+    const cases = Array.isArray(state.cases) ? state.cases : [];
+    const n = cases.length;
+    const reqs = Array.isArray(state.requirements) ? state.requirements : [];
+    const covered = reqs.filter((r) => cases.some((c) => (c.req_ids || []).includes(r.id))).length;
+    const uncovered = reqs.filter((r) => r.in_run !== false && !cases.some((c) => (c.req_ids || []).includes(r.id)));
+    const untraced = cases.filter((c) => !(c.req_ids || []).length && c.spec_ref !== "Default API smoke test");
+    const byP = (p) => cases.filter((c) => (c.priority || "P1") === p).length;
+    const st = (c) => c.execution_result && c.execution_result.status;
+    const passed = cases.filter((c) => st(c) === "pass").length, failed = cases.filter((c) => st(c) === "fail").length;
+    const notRun = cases.filter((c) => !st(c) || !["pass", "fail"].includes(st(c))).length;
+    const target = productLabel();
+    const org = state.crmOrgName || target;
+    const tile = (v, label, color) => `<div class="s"><b style="color:${color || "inherit"}">${escapeHtml(String(v))}</b><span>${escapeHtml(label)}</span></div>`;
+    const caseRow = (c) => ({ tag: c.priority || "P1", tone: (c.priority || "P1").toLowerCase(), title: c.title || "", sub: `${c.module || ""}${c.spec_ref ? " · " + c.spec_ref : ""}`, right: (c.req_ids || []).join(", ") });
+
+    // ---- Cases ----
+    const scoreC = document.getElementById("score-cases");
+    if (!n) {
+      guide.now("cases", { tone: "wait", kicker: "First", title: "Generate UAT cases from the BRD", text: "Cases are written per module from the requirements and acceptance criteria.", primary: { label: "← Brief", href: "input" } });
+      if (scoreC) scoreC.innerHTML = ""; guide.needs("cases", []); guide.plain("cases", []); guide.sub("cases", "");
+    } else {
+      guide.now("cases", { tone: state.executed ? "ok" : "act", kicker: state.executed ? "Done" : "Now",
+        title: state.executed ? `${n} case(s) written and run` : `Review ${n} case(s), then run them in ${org}`,
+        text: state.executed ? "Results are on the Run step." : `${covered} of ${reqs.length || "?"} requirement(s) covered · ${byP("P0")} P0, ${byP("P1")} P1, ${byP("P2")} P2. Each case creates its own test record${state.crmAuthorized ? "" : " — connect first, or run a dry run that sends nothing"}.`,
+        primary: { label: state.executed ? "See results →" : state.crmAuthorized ? `Run ${n} case(s) →` : "Dry run (sends nothing) →", proxy: state.executed ? "" : "to-execute-btn", href: state.executed ? "execute" : "" },
+        secondary: { label: "Download JSON", proxy: "download-btn" } });
+      if (scoreC) scoreC.innerHTML = `<div class="score score-4">${tile(n, "test cases")}${tile(`${covered} / ${reqs.length}`, "requirements covered", reqs.length && covered < reqs.length ? "var(--warn)" : "var(--ok)")}${tile(byP("P0"), "P0 — core acceptance", "var(--err)")}${tile(byP("P1") + byP("P2"), "P1 + P2 — rules and edges")}</div>`;
+      const needs = [];
+      uncovered.slice(0, 6).forEach((r) => needs.push({ title: `${r.id} has no test case`, text: escapeHtml(r.title || "Regenerate with this requirement in scope, or accept the gap."), html: `<button type="button" class="ghost small" data-open-fold="fold-cases">See coverage</button>` }));
+      if (untraced.length) needs.push({ title: `${untraced.length} case(s) aren't traced to a requirement`, text: "They still run; they just won't count toward coverage.", html: `<button type="button" class="ghost small" data-open-fold="fold-cases">Open the cases</button>` });
+      guide.needs("cases", needs);
+      const rows = cases.slice(0, 8).map(caseRow);
+      if (n > 8) rows.push({ tag: "…", tone: "mute", title: `and ${n - 8} more`, sub: "open Show details for the full list" });
+      guide.plain("cases", rows, "What will be tested · in plain words", { text: `${covered} of ${reqs.length} requirement(s)`, tone: reqs.length && covered < reqs.length ? "warn" : "ok" });
+      guide.sub("cases", `${n} case(s)${state.executed ? " · run" : ""}`);
+    }
+
+    // ---- Run ----
+    const scoreE = document.getElementById("score-execute");
+    const ex = uatLast.exec;
+    if (!n) {
+      guide.now("execute", { tone: "wait", kicker: "First", title: "Write the cases first", primary: { label: "← Cases", href: "cases" } });
+      if (scoreE) scoreE.innerHTML = ""; guide.needs("execute", []); guide.plain("execute", []); guide.sub("execute", "");
+    } else if (!state.executed) {
+      guide.now("execute", { tone: "act", kicker: "Now", title: state.crmAuthorized ? `Run ${n} case(s) in ${org}` : `Dry-run ${n} case(s)`,
+        text: state.crmAuthorized ? `Each case creates its test records through the ${target} API, checks every assertion and deletes what it created. You'll see pass or fail per case.` : `${target} isn't connected: the plans are checked for mistakes but nothing is sent.`,
+        primary: { label: state.crmAuthorized ? "Run cases →" : "Dry run →", proxy: "execute-btn" } });
+      if (scoreE) scoreE.innerHTML = ""; guide.needs("execute", []); guide.plain("execute", []); guide.sub("execute", "ready");
+    } else {
+      const dry = !!(ex && ex.dry_run);
+      guide.now("execute", { tone: failed ? "fail" : "ok", kicker: dry ? "Dry run done" : "Done",
+        title: dry ? `${ex.plans_ok || 0} plan(s) runnable, ${ex.plans_with_issues || 0} need fixes` : failed ? `${failed} of ${n} case(s) failed` : `All ${passed} case(s) passed`,
+        text: dry ? "Nothing was sent. Connect to run for real." : failed ? "Open the failures below, fix the org or the case, and re-run. Hand-off creates a bug for each failure." : "Every acceptance check held. Hand off to Zoho Projects for the record.",
+        primary: { label: "Hand off →", proxy: "to-push-btn" }, secondary: { label: "Run again", proxy: "execute-btn" } });
+      if (scoreE) scoreE.innerHTML = `<div class="score">${tile(`${passed} / ${n}`, "passed", failed ? "var(--err)" : "var(--ok)")}${tile(failed, "failed", failed ? "var(--err)" : "inherit")}${tile(notRun, "not run / skipped", notRun ? "var(--warn)" : "inherit")}</div>`;
+      const fails = cases.filter((c) => st(c) === "fail");
+      guide.needs("execute", fails.slice(0, 8).map((c) => ({ title: c.title || "case", text: escapeHtml((c.execution_result && (c.execution_result.first_failure || c.execution_result.reason)) || "an assertion failed"), html: `<button type="button" class="ghost small" data-open-fold="fold-execute">See the trace</button>` })), { title: "Failed", tone: "err" });
+      const okRows = cases.filter((c) => st(c) === "pass").slice(0, 8).map((c) => Object.assign(caseRow(c), { tag: "pass", tone: "ok" }));
+      if (passed > 8) okRows.push({ tag: "…", tone: "mute", title: `and ${passed - 8} more passed` });
+      guide.plain("execute", okRows, "What passed", { text: `test records were ${dry ? "not created (dry run)" : "deleted afterwards"}`, tone: "ok" });
+      guide.sub("execute", dry ? "dry run" : `${passed} passed${failed ? ` · ${failed} failed` : ""}`);
+    }
+
+    // ---- Hand off ----
+    const scoreP = document.getElementById("score-push");
+    const pu = uatLast.push;
+    const project = (els.projectName && els.projectName.value.trim()) || "";
+    if (!state.executed) {
+      guide.now("push", { tone: "wait", kicker: "First", title: "Run the cases first", text: "Hand-off records each case as a task in Zoho Projects and each failure as a bug.", primary: { label: "← Run", href: "execute" } });
+      if (scoreP) scoreP.innerHTML = ""; guide.needs("push", []); guide.sub("push", "");
+    } else if (!state.pushed) {
+      guide.now("push", { tone: "act", kicker: "Now", title: `Push ${n} case(s) and ${failed} bug(s) to Zoho Projects`,
+        text: `Project: ${project ? `“${escapeHtml(project)}” (reused if it exists)` : "type a name in the box above"}. One task per case with its result; one bug per failure with the trace.`,
+        primary: { label: "Push to Projects →", proxy: "push-btn" }, secondary: { label: "Download CSV", proxy: "download-csv-btn" } });
+      if (scoreP) scoreP.innerHTML = `<div class="score">${tile(n, "tasks to create")}${tile(failed, "bugs to create", failed ? "var(--err)" : "inherit")}${tile(project ? "set" : "—", "project name", project ? "var(--ok)" : "var(--warn)")}</div>`;
+      guide.needs("push", project ? [] : [{ title: "Name the Zoho Projects project", text: "An existing project with this name is reused; otherwise one is created.", html: `<button type="button" class="ghost small" data-proxy="project_name">Type a name</button>` }]);
+      guide.sub("push", "ready");
+    } else {
+      const tf = pu ? (pu.tasks_failed || 0) + (pu.bugs_failed || 0) : 0;
+      guide.now("push", { tone: tf ? "fail" : "ok", kicker: "Done", title: pu ? `${pu.tasks_created || 0} task(s) and ${pu.bugs_created || 0} bug(s) in Zoho Projects` : "Pushed to Zoho Projects",
+        text: pu && pu.project_name ? `Project “${escapeHtml(pu.project_name)}”${pu.mock ? " (mock push)" : ""}.` : "", primary: pu && pu.project_url && !pu.mock ? { label: "Open in Zoho Projects →", act: "open-url", title: pu.project_url } : null, secondary: { label: "Start over", proxy: "restart-btn" } });
+      if (scoreP) scoreP.innerHTML = `<div class="score">${tile(pu ? pu.tasks_created || 0 : n, "tasks created", "var(--ok)")}${tile(pu ? pu.bugs_created || 0 : failed, "bugs created", failed ? "var(--err)" : "inherit")}${tile(tf, "failed to create", tf ? "var(--err)" : "inherit")}</div>`;
+      guide.needs("push", tf ? [{ title: `${tf} item(s) weren't created in Projects`, text: "See which ones in the details and push again; existing ones are reused.", html: `<button type="button" class="ghost small" data-open-fold="fold-push">See details</button>` }] : []);
+      guide.sub("push", "done");
+    }
+  }
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest('[data-guide-act="open-url"]');
+    if (t && t.title) window.open(t.title, "_blank", "noopener");
+  });
+  document.addEventListener("input", (e) => { if (e.target && e.target.id === "project_name") renderGuideUat(); });
+
   const PANEL_BUSY_TITLE = {
     input: "Reading the document", cases: "Writing UAT cases", execute: "Running cases in Zoho CRM",
     push: "Pushing to Zoho Projects", blueprint: "Drafting the implementation blueprint", build: "Building", verify: "Verifying",
@@ -832,6 +928,7 @@
     const btn = getTabBtn(name);
     if (btn && btn.classList.contains("locked")) return;
     state.activeTab = name;
+    if (["cases", "execute", "push"].includes(name)) setTimeout(renderGuideUat, 0);
     els.tabs.forEach((b) => {
       const isActive = b.dataset.tab === name;
       b.classList.toggle("active", isActive);
@@ -2121,6 +2218,8 @@
         (breakdown ? `  •  ${escapeHtml(breakdown)}` : "");
       animateCountUp(document.getElementById("cases-count"), state.cases.length);
       renderCasesList(els.cases, { showExec: false, showPush: false, streamReveal: true });
+      uatLast.exec = null; uatLast.push = null;
+      renderGuideUat();
 
       const have = state.cases.length > 0;
       els.toExecute.disabled = !have;
@@ -2999,6 +3098,7 @@
     ["cases", "execute", "push"].forEach((t) => { const b = getTabBtn(t); if (b) b.hidden = impl; });
     IMPL_TABS.forEach((t) => { const b = getTabBtn(t); if (b) b.hidden = !impl; });
     els.generate.innerHTML = impl ? "Generate blueprint &rarr;" : "Generate UAT cases &rarr;";
+    if (!impl) setTimeout(renderGuideUat, 0);
     if (!TABS.includes(state.activeTab) || (impl && ["cases", "execute", "push"].includes(state.activeTab))
         || (!impl && IMPL_TABS.includes(state.activeTab))) {
       showTab("input");
@@ -3198,6 +3298,7 @@
       state.executed = true;
       saveStateToStorage();
       renderCasesList(els.execResults, { showExec: true, showPush: false });
+      uatLast.exec = data; renderGuideUat();
 
       if (data.dry_run) {
         const bad = data.plans_with_issues || 0;
@@ -3274,6 +3375,7 @@
       );
       state.pushed = true;
       renderCasesList(els.pushResults, { showExec: true, showPush: true });
+      uatLast.push = data; renderGuideUat();
 
       const mock = data.mock ? " (mock — set ZOHO_REFRESH_TOKEN for live push)" : "";
       const kind = data.tasks_failed || data.bugs_failed ? "warn" : "ok";
@@ -3760,6 +3862,7 @@
   // First-paint
   renderModuleChips();
   renderGuideBrief();
+  renderGuideUat();
 
   if (isLocal) {
     console.info("UAT Generator running in local mode. API base: " + FUNCTION_BASE);
