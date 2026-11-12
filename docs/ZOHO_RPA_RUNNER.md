@@ -98,7 +98,22 @@ progress) or one call at the end with all results. The last result per item wins
 `/implement/rpa-status` every 15 s while Build is open; `done` items are ticked as "done by Zoho RPA"
 with the screenshot link, `failed` items show the note and fall back to the manual steps.
 
-## 5. Security notes
+## 5. Where the approval sits
+
+Two modes, chosen on the LiftOff side:
+
+- **Approve each save (default).** Recipes contain `confirm` ops; the bot raises an approval before every
+  Save and continues only when a person approves.
+- **Run through, approve after** — `RPA_AUTO_APPROVE=1` on `uat_generator`. LiftOff strips the `confirm`
+  ops from the job (`job.auto_approve: true`), the bot performs every item without stopping, and the
+  person's approval is the Build step's **Approve build → Verify & UAT**, which is still required
+  before anything is verified or tested. Use this when the approver works in LiftOff, not in RPA.
+
+The webhook payload's *structure* never changes between jobs (only values do), so Zoho Flow's
+"review new data" prompt on the trigger appears once, after the first job; approve it with a real
+job as the sample and later jobs flow without it.
+
+## 6. Security notes
 
 - The callback token is per job, random, 32 chars, stored with the job for 24 h; the endpoint needs no
   Zoho session (the bot has none). Keep `RPA_WEBHOOK_TOKEN` secret if you set it.
@@ -107,7 +122,7 @@ with the screenshot link, `failed` items show the note and fall back to the manu
 - Set `PUBLIC_FUNCTION_BASE` on `uat_generator` (e.g. `https://<app-host>/server/uat_generator`) if the
   app is served behind a different host than the function sees.
 
-## 6. One generic bot for every item (build this once)
+## 7. One generic bot for every item (build this once)
 
 Every item, for every product, is the same shape: `recipe[]` of ops. So the bot is a loop and a
 switch, and never needs editing when LiftOff adds a product or an item kind.
@@ -159,11 +174,11 @@ every item, API-less or not, flows through the same loop.
 | `op.text` (confirm) | Human task / approval with screenshot | decline → skipped |
 | `op.text` (expect) | Verify text exists | else failed |
 
-## 7. Building it in RPA Studio (outline)
+## 8. Building it in RPA Studio (outline)
 
 1. Flow: Webhook trigger (JSON payload; paste a job as the sample so `setup_url`, `callback.*`,
    `items[]` become variables) → the RPA bot action with the payload as its input.
-2. Bot: implement §6 with a **Loop** over `items` and, inside, a **Loop** over `item.recipe` with a
+2. Bot: implement §7 with a **Loop** over `items` and, inside, a **Loop** over `item.recipe` with a
    **Decision/Switch** on `op.op`. Record each Web Automation action once with the recorder on your
    validation-rule screen, then replace the recorded literals with the op fields from the table.
 3. After each item: Screenshot → upload → **HTTP POST** to `job.callback.url` with the result

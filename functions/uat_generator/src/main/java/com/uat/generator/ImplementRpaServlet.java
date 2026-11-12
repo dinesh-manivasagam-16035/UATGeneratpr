@@ -82,6 +82,11 @@ public class ImplementRpaServlet extends HttpServlet {
         ops.put("type",    "paste {value} into the code editor");
         ops.put("confirm", "pause for a human approval showing {text}; continue only when approved");
         ops.put("expect",  "verify {text} is visible; report failed when it isn't");
+        // Approval point: by default the bot pauses before every Save ("confirm" ops). With RPA_AUTO_APPROVE=1
+        // (or {"auto_approve": true} in the request) those ops are dropped — the bot runs straight through and
+        // the person approves afterwards on the Build step, which stays the gate before Verify and UAT.
+        boolean auto = "1".equals(System.getenv("RPA_AUTO_APPROVE")) || body.path("auto_approve").asBoolean(false);
+        job.put("auto_approve", auto);
         ArrayNode its = job.putArray("items");
         for (JsonNode it : items) {
             ObjectNode o = its.addObject();
@@ -90,7 +95,9 @@ public class ImplementRpaServlet extends HttpServlet {
             o.put("label", it.path("label").asText());
             o.put("module", it.path("module").asText(""));
             o.set("steps", it.path("steps").isArray() ? it.path("steps") : MAPPER.createArrayNode());
-            o.set("recipe", it.path("recipe").isArray() ? it.path("recipe") : MAPPER.createArrayNode());
+            ArrayNode recipe = MAPPER.createArrayNode();
+            for (JsonNode op : it.path("recipe")) if (!(auto && "confirm".equals(op.path("op").asText()))) recipe.add(op);
+            o.set("recipe", recipe);
             o.put("mode", it.path("recipe").size() > 0 ? "auto" : "manual");
             if (it.has("code")) o.put("code", it.path("code").asText());
         }

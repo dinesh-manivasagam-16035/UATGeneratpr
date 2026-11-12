@@ -644,7 +644,7 @@
       const doneN = job ? job.results.filter((r) => r.status === "done" && known.has(r.id)).length : 0, failN = job ? job.results.filter((r) => r.status === "failed" && known.has(r.id)).length : 0;
       const strayN = job ? job.results.filter((r) => !known.has(r.id)).length : 0;
       needs.push({ title: job ? `Zoho RPA job ${job.id} · ${doneN} of ${job.items.length} done${failN ? ` · ${failN} failed` : ""}${job.finished ? " · finished" : job.pushed ? " · running" : " · waiting for the bot"}` : `${pending.length} Setup item(s) — who does them?`,
-        text: job ? esc(job.push_error || "The bot does each item in Setup and pauses for approval before every save; results land here as it goes.") + (strayN ? ` <span class="pill warn">${strayN} result(s) for unknown item id(s)</span> — the bot must report the ids shown on each item (${esc(job.items.join(", "))}).` : "") : "Send them to Zoho RPA (the bot performs the recipes, you approve each save), run the Playwright runner on your machine, or do them by hand below.",
+        text: job ? esc(job.push_error || (job.auto_approve ? "The bot does each item in Setup without pausing; you approve the result here before Verify and UAT." : "The bot does each item in Setup and pauses for approval before every save; results land here as it goes.")) + (strayN ? ` <span class="pill warn">${strayN} result(s) for unknown item id(s)</span> — the bot must report the ids shown on each item (${esc(job.items.join(", "))}).` : "") : "Send them to Zoho RPA (the bot performs the recipes, you approve each save), run the Playwright runner on your machine, or do them by hand below.",
         html: job ? `<button type="button" class="ghost small" data-guide-act="rpa-refresh">Refresh</button><button type="button" class="ghost small" data-guide-act="rpa-send" title="Create a new job for the items still pending">Send again</button>`
                   : `<button type="button" class="primary small" data-guide-act="rpa-send">Send to Zoho RPA</button><button type="button" class="ghost small" data-rpa="script">Playwright runner</button>` });
     }
@@ -1798,7 +1798,7 @@
       const items = queue.map((q) => { const f = findItem(q.id); const it = f ? f.item : {};
         return { id: q.id, section: q.section, label: q.label, module: it.module || "", steps: q.steps || [], recipe: q.recipe || [], code: q.section === "functions" ? it.code : undefined }; });
       const data = await post("/implement/rpa-job", { org: run.org || {}, items, runner: "zoho-rpa" }, 30_000, "RPA job");
-      impl.rpaJob = { id: data.job_id, created_at: new Date().toISOString(), pushed: !!data.pushed, push_error: data.push_error || "", items: queue.map((q) => q.id), results: [] };
+      impl.rpaJob = { id: data.job_id, created_at: new Date().toISOString(), pushed: !!data.pushed, push_error: data.push_error || "", auto_approve: !!(data.job && data.job.auto_approve), items: queue.map((q) => q.id), results: [] };
       save();
       if (!data.pushed) download(`liftoff-rpa-job-${data.job_id}.json`, data.job);
       L.setStatus("build", data.pushed ? `Job ${data.job_id} sent to Zoho RPA. Results appear here as the bot finishes each item.` : `Job ${data.job_id} created and downloaded (no RPA_WEBHOOK_URL set). Start the bot with this file.`, data.pushed ? "ok" : "warn");
