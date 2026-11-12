@@ -2323,6 +2323,24 @@
         // No css_url: Catalyst replaces Zoho's whole sign-in stylesheet with it (not a supplement),
         // so anything short of a full re-theme leaves the form unstyled. Zoho's default look stays.
         window.catalyst.auth.signIn("loginDivElementId", { service_url: "/app/index.html" });
+        // The SDK puts Zoho's form in an <iframe id="iam_iframe">. Give it room, and offer the same
+        // sign-in as a full page for browsers that block the frame (third-party cookies, strict privacy modes).
+        let tries = 0;
+        const tick = setInterval(() => {
+          const frame = document.getElementById("iam_iframe");
+          if (frame) {
+            clearInterval(tick);
+            frame.style.minHeight = "440px";
+            frame.setAttribute("title", "Zoho sign-in");
+            if (widgetWrap && !document.getElementById("signin-fallback")) {
+              const p = document.createElement("p");
+              p.id = "signin-fallback";
+              p.className = "login-footnote";
+              p.innerHTML = `Form not showing? <a href="${frame.src.replace(/"/g, "&quot;")}">Open the sign-in page</a> instead.`;
+              widgetWrap.after(p);
+            }
+          } else if (++tries > 40) clearInterval(tick);
+        }, 250);
       }, { once: true });
     }
     updateAuthUI();
