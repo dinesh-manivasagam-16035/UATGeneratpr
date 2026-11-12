@@ -149,6 +149,16 @@ catalyst deploy --only client
 After deploy, the web client is served from your Catalyst app domain, and the
 function is reachable at `/server/uat_generator/{generate,push,health}`.
 
+## Setup work on Zoho RPA
+
+Items the API can't create carry a machine-readable recipe. Build → Needs you → **Send to Zoho RPA**
+creates a job (`POST /implement/rpa-job`), pushes it to `RPA_WEBHOOK_URL` (a Zoho Flow webhook that
+runs the bot; optional `X-LiftOff-Token: RPA_WEBHOOK_TOKEN`) or downloads it, and the bot reports per
+item to `/implement/rpa-result` with the job's token; the browser polls `/implement/rpa-status` and
+ticks items done. The bot spec, op by op, is in [docs/ZOHO_RPA_RUNNER.md](docs/ZOHO_RPA_RUNNER.md).
+The Playwright runner remains as the no-licence alternative. Set `PUBLIC_FUNCTION_BASE` when the
+function's public URL differs from the app's origin.
+
 ## Self-check
 
 `functions/uat_generator/selfcheck.sh` compiles the function and runs `SelfCheck` (no test framework

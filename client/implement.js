@@ -40,6 +40,7 @@
   const API_FIELD_TYPES = ["text", "textarea", "email", "phone", "website", "picklist", "multiselectpicklist",
     "date", "datetime", "integer", "bigint", "decimal", "currency", "percent", "boolean", "lookup"];
 
+  let rpaTimer = null;   // Zoho RPA job polling (declared early: renderBuild runs on restore)
   const impl = {
     meta: null,      // full /implement response minus spec
     spec: null,
@@ -66,7 +67,7 @@
   // ---- persistence (per-browser convenience only) ----
   function save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta: impl.meta, spec: impl.spec, dryRun: impl.dryRun, build: impl.build,
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ rpaJob: impl.rpaJob || null, meta: impl.meta, spec: impl.spec, dryRun: impl.dryRun, build: impl.build,
         verify: impl.verify, uat: impl.uat }));
     } catch (e) {}
   }
@@ -76,7 +77,7 @@
       if (!raw) return;
       const saved = JSON.parse(raw);
       if (saved && saved.spec) {
-        impl.spec = saved.spec; impl.meta = saved.meta || {};
+        impl.spec = saved.spec; impl.meta = saved.meta || {}; impl.rpaJob = saved.rpaJob || null;
         impl.dryRun = saved.dryRun || null; impl.build = saved.build || null;
         impl.verify = saved.verify || null; impl.uat = saved.uat || null;
         if (impl.build) impl.build.steps.forEach((st) => { if (st.status === "running") st.status = "waiting"; });
@@ -637,8 +638,17 @@
     }
     if (dry && org && !org.sandbox) needs.push({ title: `${org.name} can't be written to`, text: `Not a sandbox. Add id <code>${esc(org.id)}</code>${org.zgid ? ` or <code>${esc(org.zgid)}</code>` : ""} to IMPL_BUILD_ORG_IDS, or set IMPL_ALLOW_PRODUCTION=1 on uat_generator, redeploy, then dry-run again.` });
     conflicts.forEach((r) => needs.push({ title: `${r.label} conflicts with the org`, text: esc(r.detail || ""), html: `<button type="button" class="ghost small" data-open-fold="fold-build">Open in table</button>` }));
-    pending.forEach((q) => needs.push({ title: q.label, text: "No API for this — do it in CRM Setup:", steps: q.steps || [],
-      html: `<button type="button" class="ghost small" data-rpa="script">Guided runner</button><button type="button" class="primary small" data-guide-act="manual-done" data-id="${esc(q.id)}">I've done this</button>` }));
+    const job = impl.rpaJob;
+    if (pending.length) {
+      const doneN = job ? job.results.filter((r) => r.status === "done").length : 0, failN = job ? job.results.filter((r) => r.status === "failed").length : 0;
+      needs.push({ title: job ? `Zoho RPA job ${job.id} · ${doneN} of ${job.items.length} done${failN ? ` · ${failN} failed` : ""}${job.finished ? " · finished" : job.pushed ? " · running" : " · waiting for the bot"}` : `${pending.length} Setup item(s) — who does them?`,
+        text: job ? esc(job.push_error || "The bot does each item in Setup and pauses for approval before every save; results land here as it goes.") : "Send them to Zoho RPA (the bot performs the recipes, you approve each save), run the Playwright runner on your machine, or do them by hand below.",
+        html: job ? `<button type="button" class="ghost small" data-guide-act="rpa-refresh">Refresh</button><button type="button" class="ghost small" data-guide-act="rpa-send" title="Create a new job for the items still pending">Send again</button>`
+                  : `<button type="button" class="primary small" data-guide-act="rpa-send">Send to Zoho RPA</button><button type="button" class="ghost small" data-rpa="script">Playwright runner</button>` });
+    }
+    pending.forEach((q) => { const f = findItem(q.id); const rf = f && f.item.rpa_failed;
+      needs.push({ title: q.label, text: rf ? `<span class="pill err">RPA failed</span> ${esc(rf.note || "the bot couldn't finish this item")} — do it by hand:` : "No API for this — do it in CRM Setup:", steps: q.steps || [],
+      html: `<button type="button" class="primary small" data-guide-act="manual-done" data-id="${esc(q.id)}">I've done this</button>` }); });
     G.needs("build", needs, { title: needs.length && pending.length === needs.length ? "Needs you · in CRM Setup" : "Needs you" });
     // Now
     if (!dry) G.now("build", { tone: "act", kicker: "Now", title: "Run everything", text: "Dry run, build via API, verify and UAT in one go. You confirm once before anything is written.", primary: { label: "Run everything →", proxy: "impl-run-all" }, secondary: { label: "Dry run only", proxy: "impl-dry-run" } });
@@ -703,6 +713,8 @@
     else if (act === "include" && id) { const f = findItem(id); if (f) { f.item.include = true; f.item.manual_include = true; f.item.note = ""; changed(); render(); } }
     else if (act === "assume-ok" && id) { const f = findItem(id); if (f) { f.item.assumption_ok = true; save(); render(); } }
     else if (act === "manual-done" && id) { const f = findItem(id); if (f) { f.item.manual_done = { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() }; save(); renderBuild(); renderVerify(); refreshButtons(); } }
+    else if (act === "rpa-send") rpaJobCreate();
+    else if (act === "rpa-refresh") rpaJobPoll(true);
     else if (act === "retry-stuck" || act === "skip-stuck") {
       const b = impl.build; const i = b ? b.steps.findIndex((x) => x.status === "failed" || x.status === "conflict") : -1;
       if (i < 0) return;
@@ -780,7 +792,7 @@
     L.showTab("blueprint");
     L.setStatus("blueprint", "");
     progressView.begin();
-    impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null; impl.uat = null;
+    impl.spec = null; impl.meta = null; impl.dryRun = null; impl.applied = null; impl.verify = null; impl.build = null; impl.uat = null; impl.rpaJob = null;
     els.run.innerHTML = "";
     els.verifyArea.innerHTML = "";
     render();
@@ -1249,6 +1261,7 @@
   }
 
   function renderBuild() {
+    if (impl.rpaJob && !impl.rpaJob.finished && !rpaTimer) rpaTimer = setTimeout(() => rpaJobPoll(false), 3_000);
     const b = impl.build;
     if (!b && impl.dryRun) { renderRun("Dry run — nothing was changed", impl.dryRun, "apply"); return; }
     const queue = (impl.dryRun && impl.dryRun.rpa_queue) || [];
@@ -1746,6 +1759,53 @@
   function rpaQueue() {
     const run = impl.applied || impl.dryRun;
     download("rpa-queue.json", { org: run.org || null, generated_at: new Date().toISOString(), items: run.rpa_queue || [] });
+  }
+
+  // ---- Zoho RPA runner: the queue becomes a job the bot performs; results come back per item ----
+  function pendingQueue() {
+    const run = impl.applied || impl.dryRun;
+    return ((run && run.rpa_queue) || []).filter((q) => { const f = findItem(q.id); return !(f && f.item.manual_done); });
+  }
+  async function rpaJobCreate() {
+    const run = impl.applied || impl.dryRun;
+    const queue = pendingQueue();
+    if (!queue.length) { L.setStatus("build", "Every UI item is already ticked as done.", "ok"); return; }
+    L.busy.start("Sending the Setup work to Zoho RPA", `${queue.length} item(s) with their recipes`);
+    try {
+      const items = queue.map((q) => { const f = findItem(q.id); const it = f ? f.item : {};
+        return { id: q.id, section: q.section, label: q.label, module: it.module || "", steps: q.steps || [], recipe: q.recipe || [], code: q.section === "functions" ? it.code : undefined }; });
+      const data = await post("/implement/rpa-job", { org: run.org || {}, items, runner: "zoho-rpa" }, 30_000, "RPA job");
+      impl.rpaJob = { id: data.job_id, created_at: new Date().toISOString(), pushed: !!data.pushed, push_error: data.push_error || "", items: queue.map((q) => q.id), results: [] };
+      save();
+      if (!data.pushed) download(`liftoff-rpa-job-${data.job_id}.json`, data.job);
+      L.setStatus("build", data.pushed ? `Job ${data.job_id} sent to Zoho RPA. Results appear here as the bot finishes each item.` : `Job ${data.job_id} created and downloaded (no RPA_WEBHOOK_URL set). Start the bot with this file.`, data.pushed ? "ok" : "warn");
+      renderGuideBuild();
+      rpaJobPoll(true);
+    } catch (e) {
+      L.setStatus("build", "Couldn't create the RPA job: " + e.message, "err");
+    } finally { L.busy.end(); }
+  }
+  async function rpaJobPoll(start) {
+    clearTimeout(rpaTimer); rpaTimer = null;
+    const job = impl.rpaJob;
+    if (!job || job.finished) return;
+    try {
+      const st = await post("/implement/rpa-status", { job_id: job.id }, 20_000, "RPA status");
+      job.results = st.results || [];
+      let changed = false;
+      job.results.forEach((r) => {
+        const f = findItem(r.id);
+        if (!f) return;
+        if (r.status === "done" && !f.item.manual_done) { f.item.manual_done = { by: "Zoho RPA", at: r.at || new Date().toISOString(), note: r.note || "", screenshot_url: r.screenshot_url || "" }; changed = true; }
+        if (r.status === "failed") f.item.rpa_failed = { at: r.at, note: r.note || "" };
+      });
+      job.finished = !!st.finished;
+      save();
+      if (changed) { renderBuild(); renderVerify(); refreshButtons(); } else renderGuideBuild();
+      if (!job.finished && L.state.activeTab === "build") rpaTimer = setTimeout(() => rpaJobPoll(false), 15_000);
+    } catch (e) {
+      if (start) L.setStatus("build", "RPA status: " + e.message, "warn");
+    }
   }
 
   // A Playwright runner for the UI work queue: opens CRM Setup in the consultant's own browser
