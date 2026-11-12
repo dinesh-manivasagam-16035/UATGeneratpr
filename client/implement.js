@@ -1866,7 +1866,7 @@ import fs from "node:fs";
 const MANUAL = process.argv.includes("--manual");
 const CONFIRM = !process.argv.includes("--no-confirm");
 const CRM_BASE = process.env.CRM_BASE || "https://crm.zoho.${tld}";        // change if your DC differs
-const SETUP_URL = ${JSON.stringify(org.zgid ? "/crm/org" + org.zgid + "/settings" : "/crm/settings")};
+const SETUP_URL = ${JSON.stringify(org.domain ? "/crm/" + org.domain + "/settings" : org.zgid ? "/crm/org" + org.zgid + "/settings" : "/crm/settings")};
 const ITEMS = ${JSON.stringify(items, null, 2)};
 
 const browser = await chromium.launchPersistentContext("./.liftoff-profile", { headless: false, viewport: { width: 1440, height: 900 } });

@@ -160,7 +160,14 @@ public final class SelfCheck {
         check("recipe: 'is not empty' before 'is empty'", "is not empty".equals(cw.invoke(null, "Email is not empty")));
         ObjectNode vr = M.createObjectNode().put("module", "Leads").put("name", "Flag").put("condition", "PIDG Code is empty").put("error_message", "Required");
         check("recipe: validation rule has steps", ImplRpa.recipe("validation_rules", vr).size() >= 8);
-        check("recipe: blueprint is manual", ImplRpa.recipe("workflows", M.createObjectNode().put("type", "blueprint")).size() == 0);
+        check("recipe: blueprint opens Setup and hands over", ImplRpa.recipe("workflows", M.createObjectNode().put("type", "blueprint").put("name", "B")).toString().contains("\"confirm\""));
+        java.lang.reflect.Method cs = ImplRpa.class.getDeclaredMethod("conditions", String.class); cs.setAccessible(true);
+        @SuppressWarnings("unchecked") java.util.List<String[]> parts = (java.util.List<String[]>) cs.invoke(null, "Lead Status is 'Qualified' and PIDG Code is empty");
+        check("recipe: two conditions parsed", parts.size() == 2 && "Qualified".equals(parts.get(0)[2]) && "is empty".equals(parts.get(1)[1]));
+        ObjectNode vr2 = M.createObjectNode().put("module", "Leads").put("name", "Block").put("condition", "Lead Status is 'Qualified' and PIDG Code is empty").put("error_message", "Enter the PIDG code");
+        String rec = ImplRpa.recipe("validation_rules", vr2).toString();
+        check("recipe: deep link to the module's validation rules", rec.contains("/settings/modules/Leads/validation-rules"));
+        check("recipe: second criterion added", rec.contains("Add criteria"));
     }
 
     static void deskFieldMapping() throws Exception {

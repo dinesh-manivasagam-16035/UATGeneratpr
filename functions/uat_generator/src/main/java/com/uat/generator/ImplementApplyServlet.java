@@ -170,6 +170,7 @@ public class ImplementApplyServlet extends HttpServlet {
                 o.put("allow_listed", org.allowListed);
                 o.put("production_allowed", org.productionAllowed);
                 o.put("zgid", org.zgid);
+                o.put("domain", org.domain);
             }
             Map<String, Integer> counts = new LinkedHashMap<>();
             for (JsonNode r : results) counts.merge(r.path("result").asText(), 1, Integer::sum);

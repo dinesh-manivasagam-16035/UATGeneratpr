@@ -107,13 +107,66 @@ with the screenshot link, `failed` items show the note and fall back to the manu
 - Set `PUBLIC_FUNCTION_BASE` on `uat_generator` (e.g. `https://<app-host>/server/uat_generator`) if the
   app is served behind a different host than the function sees.
 
-## 6. Building it in RPA Studio (outline)
+## 6. One generic bot for every item (build this once)
 
-1. Flow: Webhook trigger → RPA "Run bot" with `payload` → the bot's input variable `job`.
-2. Bot: parse `job` (JSON); loop over `items`; for each `recipe` entry a `switch` on `op` mapping to
-   the Web Automation actions (Open URL, Click element by text, Set text by label, Select dropdown,
-   Human task, Verify text). Use the recorder once per product to confirm the Setup screens, then
-   keep selectors text-based so recipes stay portable.
-3. On finish of each item: Screenshot → upload → HTTP POST to `callback.url` with the result.
-4. Error branch: any unhandled error → result `failed` with the exception text, then continue with the
-   next item.
+Every item, for every product, is the same shape: `recipe[]` of ops. So the bot is a loop and a
+switch, and never needs editing when LiftOff adds a product or an item kind.
+
+```
+job   = parse(webhook.payload)                      // the JSON LiftOff posted
+base  = job.setup_url                               // e.g. https://crm.zoho.in/crm/<org domain>
+for item in job.items:
+    status = "done"; note = ""
+    if item.recipe is empty:                        // manual item: open Setup, hand over
+        human_task(item.label, item.steps)          // the person does it and confirms
+    else:
+        for op in item.recipe:
+            switch op.op:
+              "goto":    open_url(base + op.path)                // deep link into Setup
+              "click":   click_by_text(op.text)                  // regex, case-insensitive, "a|b" = either
+              "fill":    set_text(find_by_label(op.label), op.value)
+              "choose":  pick_option(find_near(op.near), op.option)
+              "type":    paste_into_editor(op.value)
+              "confirm": approval(op.text)                       // the human gate before Save; on decline → status="skipped", break
+              "expect":  if not visible(op.text): status="failed"; note="expected "+op.text
+            on any error in click/fill/choose/type:
+              human_task("Please " + describe(op), [item.steps])  // person does that one op, then the loop continues
+    screenshot → upload → url
+    POST job.callback.url  {job_id, token: job.callback.token, results:[{id: item.id, status, note, screenshot_url}]}
+```
+
+`job.setup_url` is the org's own Setup base (CRM: `https://crm.zoho.<dc>/crm/<org domain>`; Desk:
+`https://desk.zoho.<dc>`), so `goto` paths are the same for every org. Recipes use deep links —
+`/settings/modules/<Module>/validation-rules`, `/settings/functions`, `/settings/workflow-rules`,
+`/settings/blueprint`, … — so the first op lands on the right page and the clicks that follow are
+the ones on that page only. A validation rule with two conditions carries an `Add criteria` click
+between them and a `Pattern` choose (AND/OR) after.
+
+Items whose screen LiftOff doesn't script yet (per-profile layouts, Blueprints, approvals, field types
+without a create API) still get a `goto` to the right Setup page and a single `confirm` whose text is
+the full instruction — the bot opens the page, the person finishes, the bot records it. That is why
+every item, API-less or not, flows through the same loop.
+
+### Variable mapping in Studio
+
+| Op field | Studio action | Notes |
+|---|---|---|
+| `op.path` | Open URL: `${job.setup_url}${op.path}` | wait for page idle |
+| `op.text` | Click element — selector by *text* (regex) | prefer button/link/tab roles |
+| `op.label`, `op.value` | Set text — element by *label or placeholder* (regex) | clear first |
+| `op.near`, `op.option` | Click element near text → click option by text | native select: select by label |
+| `op.value` (type) | Focus editor, Select all, Paste | code editors |
+| `op.text` (confirm) | Human task / approval with screenshot | decline → skipped |
+| `op.text` (expect) | Verify text exists | else failed |
+
+## 7. Building it in RPA Studio (outline)
+
+1. Flow: Webhook trigger (JSON payload; paste a job as the sample so `setup_url`, `callback.*`,
+   `items[]` become variables) → the RPA bot action with the payload as its input.
+2. Bot: implement §6 with a **Loop** over `items` and, inside, a **Loop** over `item.recipe` with a
+   **Decision/Switch** on `op.op`. Record each Web Automation action once with the recorder on your
+   validation-rule screen, then replace the recorded literals with the op fields from the table.
+3. After each item: Screenshot → upload → **HTTP POST** to `job.callback.url` with the result
+   (the same call proven by hand with curl).
+4. Error branch: any unhandled error → result `failed` with the exception text; continue with the
+   next item. Never auto-approve a `confirm`.

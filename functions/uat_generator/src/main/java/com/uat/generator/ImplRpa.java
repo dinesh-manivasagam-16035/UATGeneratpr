@@ -88,20 +88,25 @@ public final class ImplRpa {
     public static ArrayNode recipe(String section, JsonNode o) {
         ArrayNode r = MAPPER.createArrayNode();
         String module = o.path("module").asText("");
+        String modPath = module.isEmpty() ? "" : "/" + module;
         switch (section) {
             case "validation_rules": {
-                String field = fieldLabel(o.path("condition").asText(""));
-                String cond = conditionWord(o.path("condition").asText(""));
-                op(r, "goto", "path", "/settings/modules");
-                op(r, "click", "text", module);
-                op(r, "click", "text", "Validation Rules");
-                op(r, "click", "text", "Create Rule|New Rule|Create Validation Rule|\\+ Rule");
+                // Deep link straight to the module's validation rules (Setup → Customization → Modules and Fields → <module> → Validation Rules).
+                op(r, "goto", "path", "/settings/modules" + modPath + "/validation-rules");
+                op(r, "click", "text", "Create Rule|New Rule|Create Validation Rule|\\+ Rule|Create");
                 op(r, "fill", "label", "Rule Name|Name", "value", o.path("name").asText());
-                if (!field.isEmpty()) op(r, "choose", "near", "Field|Choose field|Select field", "option", field);
-                if (!cond.isEmpty()) op(r, "choose", "near", "Condition|Operator|is", "option", cond);
+                java.util.List<String[]> conds = conditions(o.path("condition").asText(""));
+                for (int i = 0; i < conds.size(); i++) {
+                    String[] c = conds.get(i);
+                    if (i > 0) op(r, "click", "text", "Add criteria|Add condition|Add another|\\+");
+                    if (!c[0].isEmpty()) op(r, "choose", "near", "Field|Choose field|Select field|Pick field", "option", c[0]);
+                    if (!c[1].isEmpty()) op(r, "choose", "near", "Condition|Operator|is", "option", c[1]);
+                    if (!c[2].isEmpty()) op(r, "fill", "label", "Value|Enter value|Choose value", "value", c[2]);
+                }
+                if (conds.size() > 1) op(r, "choose", "near", "Pattern|Criteria pattern|Match", "option", joinWord(o.path("condition").asText("")));
                 op(r, "click", "text", "Next|Continue");
                 op(r, "fill", "label", "Alert|Error message|Alert message|Message", "value", o.path("error_message").asText());
-                op(r, "confirm", "text", "Check the rule, then Resume to save (or press Save yourself).");
+                op(r, "confirm", "text", "Check the rule (" + o.path("condition").asText("") + " → \"" + o.path("error_message").asText("") + "\"), then approve to save.");
                 op(r, "click", "text", "Save");
                 op(r, "expect", "text", o.path("name").asText());
                 break;
@@ -114,14 +119,81 @@ public final class ImplRpa {
                 op(r, "choose", "near", "Category", "option", o.path("trigger").asText("").toLowerCase(Locale.ROOT).contains("button") ? "Button" : "Automation");
                 op(r, "click", "text", "Create|Next");
                 op(r, "type", "value", o.path("code").asText(""));
-                op(r, "confirm", "text", "Deluge pasted. Check it compiles (Save & Execute), then Resume.");
+                op(r, "confirm", "text", "Deluge pasted. Check it compiles (Save & Execute), then approve.");
                 op(r, "click", "text", "Save");
                 break;
             }
+            case "fields": {
+                // Field types with no create API (formula, autonumber, file upload, multi-lookup): the bot opens the
+                // layout editor and hands over, with the exact values to enter.
+                op(r, "goto", "path", "/settings/modules" + modPath + "/layouts");
+                op(r, "click", "text", "Standard|Standard Layout");
+                op(r, "confirm", "text", "Drag a \"" + o.path("data_type").asText() + "\" field onto the layout, label it \"" + o.path("label").asText() + "\""
+                        + (o.path("required").asBoolean(false) ? ", tick Mandatory" : "") + ", save the layout, then approve.");
+                break;
+            }
+            case "layouts": {
+                op(r, "goto", "path", "/settings/modules" + modPath + "/layouts");
+                op(r, "confirm", "text", "Open or create layout \"" + o.path("name").asText("Standard") + "\", place the fields per section as listed"
+                        + (o.path("profiles").size() > 0 ? ", assign profiles " + join(o.path("profiles")) : "") + ", save, then approve.");
+                break;
+            }
+            case "workflows": {
+                String type = o.path("type").asText("workflow");
+                op(r, "goto", "path", automationPath(type));
+                op(r, "click", "text", "Create Rule|New Rule|Create Blueprint|New Blueprint|Create Approval Process|New Scoring Rule|Create Schedule|Create Cadence|Configure Webhook|Create|New");
+                op(r, "fill", "label", "Rule Name|Name|Blueprint Name|Process Name", "value", o.path("name").asText());
+                if (!module.isEmpty()) op(r, "choose", "near", "Module|Choose module|Select module", "option", module);
+                StringBuilder what = new StringBuilder();
+                if (!o.path("trigger").asText("").isEmpty()) what.append("Trigger: ").append(o.path("trigger").asText()).append(". ");
+                if (!o.path("criteria").asText("").isEmpty()) what.append("Criteria: ").append(o.path("criteria").asText()).append(". ");
+                if (o.path("states").size() > 0) what.append("States: ").append(join(o.path("states"))).append(". ");
+                for (JsonNode a : o.path("actions")) what.append("Action: ").append(a.asText()).append(". ");
+                if (!o.path("details").asText("").isEmpty()) what.append(o.path("details").asText());
+                op(r, "confirm", "text", "Complete the " + type + " in Setup — " + what.toString().trim() + " Save and activate, then approve.");
+                break;
+            }
             default:
-                break;   // manual: blueprints, approvals, per-profile layouts, unknown field types
+                break;
         }
         return r;
+    }
+
+    /** Setup deep link for an automation type (CRM). */
+    static String automationPath(String type) {
+        switch (type == null ? "" : type) {
+            case "blueprint":  return "/settings/blueprint";
+            case "approval":   return "/settings/approval-process";
+            case "assignment": return "/settings/assignment-rules";
+            case "scoring":    return "/settings/scoring-rules";
+            case "schedule":   return "/settings/schedules";
+            case "cadence":    return "/settings/cadences";
+            case "webhook":    return "/settings/webhooks";
+            default:           return "/settings/workflow-rules";
+        }
+    }
+
+    /** "PIDG Code is empty and Lead Status is 'Qualified'" → [[PIDG Code, is empty, ""], [Lead Status, is, Qualified]] */
+    static java.util.List<String[]> conditions(String condition) {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        String c = condition == null ? "" : condition.trim().replaceAll("^(when|if)\\s+", "");
+        for (String part : c.split("(?i)\\s+(and|or)\\s+")) {
+            part = part.trim();
+            if (part.isEmpty()) continue;
+            String field = fieldLabel(part);
+            String word = conditionWord(part);
+            String value = "";
+            if (!word.isEmpty() && !word.endsWith("empty")) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:is not|is|equals|==|!=|<>|>=|<=|>|<|contains)\\s*['\"“”]?([^'\"“”]+?)['\"“”]?\\s*$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(part);
+                if (m.find()) value = m.group(1).trim();
+            }
+            out.add(new String[]{field, word, value});
+        }
+        return out;
+    }
+
+    static String joinWord(String condition) {
+        return condition != null && condition.toLowerCase(Locale.ROOT).matches(".*\\s+or\\s+.*") ? "OR" : "AND";
     }
 
     private static void op(ArrayNode r, String op, String... kv) {

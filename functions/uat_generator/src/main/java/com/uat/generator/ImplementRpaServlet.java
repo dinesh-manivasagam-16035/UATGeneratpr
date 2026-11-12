@@ -68,13 +68,14 @@ public class ImplementRpaServlet extends HttpServlet {
         job.put("product", Products.use(body).id());
         job.put("runner", body.path("runner").asText("zoho-rpa"));
         job.set("org", body.path("org").isObject() ? body.path("org") : MAPPER.createObjectNode());
+        job.put("setup_url", setupUrl(req, job.path("org"), job.path("product").asText("crm")));
         ObjectNode cb = job.putObject("callback");
         cb.put("url", base + "/implement/rpa-result");
         cb.put("token", token);
         cb.put("method", "POST");
         cb.put("body_example", "{\"job_id\":\"" + jobId + "\",\"token\":\"" + token + "\",\"results\":[{\"id\":\"VR-1\",\"status\":\"done\",\"note\":\"\",\"screenshot_url\":\"\"}]}");
         ObjectNode ops = job.putObject("recipe_ops");
-        ops.put("goto",    "open Setup at {path} (relative to the product's Setup URL)");
+        ops.put("goto",    "open setup_url + {path} (e.g. setup_url + /settings/modules/Leads/validation-rules)");
         ops.put("click",   "click the control whose visible text matches {text} (regex, case-insensitive; '|' = alternatives)");
         ops.put("fill",    "type {value} into the field whose label or placeholder matches {label}");
         ops.put("choose",  "open the dropdown near {near} and pick {option}");
@@ -174,6 +175,26 @@ public class ImplementRpaServlet extends HttpServlet {
         int total = stored.path("job").path("items").size();
         out.put("finished", total > 0 && stored.path("results").size() >= total);
         return out;
+    }
+
+    /** The org's Setup base: https://crm.zoho.<dc>/crm/<org domain name> (falls back to /crm/org<zgid>, then /crm). */
+    static String setupUrl(HttpServletRequest req, JsonNode org, String product) {
+        String dc = ".com";
+        try {
+            CrmClient c = CrmMetadata.sessionClient(req);
+            if (c != null) {
+                String api = c.apiBase();
+                String t = api.replaceAll("^https?://[^.]+\\.zohoapis", "").replaceAll("/.*$", "");
+                if (t.startsWith(".")) dc = t;
+            }
+        } catch (Exception ignored) { /* default dc */ }
+        String env = System.getenv("ZOHO_DC");
+        if (env != null && !env.trim().isEmpty() && !env.trim().equalsIgnoreCase("com")) dc = "." + env.trim().replaceFirst("^\\.", "");
+        if ("desk".equals(product)) return "https://desk.zoho" + dc;
+        String domain = org.path("domain").asText("");
+        String zgid = org.path("zgid").asText("");
+        String seg = !domain.isEmpty() ? domain : !zgid.isEmpty() ? "org" + zgid : "";
+        return "https://crm.zoho" + dc + "/crm" + (seg.isEmpty() ? "" : "/" + seg);
     }
 
     private static String token() {
