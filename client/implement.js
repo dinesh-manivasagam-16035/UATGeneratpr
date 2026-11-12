@@ -589,15 +589,15 @@
     const ui = rows.filter((r) => !r.off && r.tag !== "API" && r.tag !== "already there").length;
     const canRun = !blocking.length && connected;
     if (spec.approved) {
-      G.now("blueprint", { tone: "act", kicker: "Approved", title: "Run everything",
-        text: `Dry run, then build ${api} item(s) through the API, read the org back and run the acceptance tests. You'll confirm once before anything is written.${ui ? ` ${ui} item(s) have no API and will wait for you in Setup.` : ""}`,
-        primary: { label: "Run everything →", proxy: "impl-run-all", disabled: !connected, title: connected ? "" : "Connect CRM first" },
+      G.now("blueprint", { tone: "act", kicker: "Approved", title: "Build it",
+        text: `Dry run, then build ${api} item(s) through the API. The results come back to you for approval before anything is verified or tested.${ui ? ` ${ui} item(s) have no API and will wait for you in Setup.` : ""}`,
+        primary: { label: "Build →", act: "build-only", disabled: !connected, title: connected ? "" : "Connect CRM first" },
         secondary: { label: "Un-approve", act: "unapprove" } });
     } else {
       G.now("blueprint", { tone: open.length || conflicts.length ? "wait" : "act", kicker: "Now",
-        title: open.length ? `Answer ${open.length} question(s), then approve and run` : conflicts.length ? `Resolve ${conflicts.length} conflict(s), then approve and run` : "Approve and run",
-        text: `The blueprint has ${rows.filter((r) => !r.off).length} item(s): ${api} built through the API${ui ? `, ${ui} for you in Setup` : ""}. Approving starts the run; you confirm once before anything is written to ${esc((impl.meta && impl.meta.org && impl.meta.org.name) || "the org")}.`,
-        primary: { label: "Approve & run everything →", act: "approve-run", disabled: !canRun, title: blocking.length ? `${blocking.length} blocking question(s) first` : !connected ? "Connect CRM first" : "" },
+        title: open.length ? `Answer ${open.length} question(s), then approve and build` : conflicts.length ? `Resolve ${conflicts.length} conflict(s), then approve and build` : "Approve and build",
+        text: `The blueprint has ${rows.filter((r) => !r.off).length} item(s): ${api} built through the API${ui ? `, ${ui} for you in Setup` : ""}. Approving starts the build; you confirm once before anything is written to ${esc((impl.meta && impl.meta.org && impl.meta.org.name) || "the org")}, and the results come back to you before Verify and UAT.`,
+        primary: { label: "Approve & build →", act: "approve-run", disabled: !canRun, title: blocking.length ? `${blocking.length} blocking question(s) first` : !connected ? "Connect CRM first" : "" },
         secondary: { label: "Approve only", act: "approve", disabled: !!blocking.length },
         note: blocking.length ? `${blocking.length} blocking question(s) must be answered` : open.length ? "Unanswered questions aren't blocking — you can still approve" : "" });
     }
@@ -651,12 +651,14 @@
       html: `<button type="button" class="primary small" data-guide-act="manual-done" data-id="${esc(q.id)}">I've done this</button>` }); });
     G.needs("build", needs, { title: needs.length && pending.length === needs.length ? "Needs you · in CRM Setup" : "Needs you" });
     // Now
-    if (!dry) G.now("build", { tone: "act", kicker: "Now", title: "Run everything", text: "Dry run, build via API, verify and UAT in one go. You confirm once before anything is written.", primary: { label: "Run everything →", proxy: "impl-run-all" }, secondary: { label: "Dry run only", proxy: "impl-dry-run" } });
+    if (!dry) G.now("build", { tone: "act", kicker: "Now", title: "Build", text: "Dry run, then build via API. You confirm once before anything is written; the results come back here for your approval before Verify and UAT.", primary: { label: "Build →", act: "build-only" }, secondary: { label: "Dry run only", proxy: "impl-dry-run" } });
     else if (running) G.now("build", { tone: "run", kicker: `Running · ${done} of ${b.steps.length}`, title: "Building…", text: "Creating items through the CRM API, one at a time." });
     else if (stuck) G.now("build", { tone: "fail", kicker: "Paused", title: `Step ${b.steps.indexOf(stuck) + 1} failed: ${stuck.label}`, text: esc((stuck.failure && stuck.failure.cause) || stuck.detail || ""), primary: { label: "Retry this step", act: "retry-stuck" }, secondary: { label: "See why & the log", act: "open-fold" }, note: "Or skip it in “Needs you” and continue." });
-    else if (b && b.finishedAt) G.now("build", { tone: "ok", kicker: "Built", title: `${done} item(s) created in ${esc(b.org.name)}${pending.length ? ` · ${pending.length} for you in Setup` : ""}`, text: pending.length ? "Do the Setup item(s) below, tick them, then verify." : "Everything the API can do is done.", primary: { label: "Continue to Verify →", proxy: "impl-to-verify" } });
+    else if (b && b.finishedAt) G.now("build", { tone: b.approved ? "ok" : "act", kicker: b.approved ? "Approved" : "Built · needs your approval", title: `${done} item(s) created in ${esc(b.org.name)}${pending.length ? ` · ${pending.length} for you in Setup` : ""}`,
+      text: b.approved ? `Approved${b.approved.by ? " by " + esc(b.approved.by) : ""}. Verify reads the org back and runs the acceptance tests.` : `Check the results below (each created item with its id)${pending.length ? ", finish the Setup item(s) below" : ""}, then approve to read the org back and run UAT. Nothing else is written.`,
+      primary: b.approved ? { label: "Continue to Verify →", proxy: "impl-to-verify" } : { label: "Approve build → Verify & UAT", act: "approve-build" }, secondary: b.approved ? null : { label: "Download run log", act: "build-log" } });
     else if (conflicts.length || (org && !org.sandbox)) G.now("build", { tone: "wait", kicker: "Paused", title: conflicts.length ? `${conflicts.length} conflict(s) to resolve` : "This org can't be written to", text: "See “Needs you” below, then dry-run again.", primary: { label: "Dry run again", proxy: "impl-dry-run" } });
-    else G.now("build", { tone: "act", kicker: "Ready", title: `Apply ${steps.length} item(s) to ${esc(org ? org.name : "the org")}`, text: "You'll confirm once; then each item is created through the API and the run continues to Verify and UAT.", primary: { label: "Apply & continue →", proxy: "impl-run-all" }, secondary: { label: "Apply only", proxy: "impl-apply" } });
+    else G.now("build", { tone: "act", kicker: "Ready", title: `Build ${steps.length} item(s) in ${esc(org ? org.name : "the org")}`, text: "You'll confirm once; then each item is created through the API and the results come back here for approval.", primary: { label: "Build →", act: "build-only" }, secondary: { label: "Run everything without pausing", act: "run-all" } });
     if (stuck) { const bt = document.querySelector('#now-build .btn-now.ghost'); if (bt) bt.dataset.openFold = "fold-build"; }
     G.sub("build", b ? `${done} built${pending.length ? ` · ${pending.length} for you` : ""}` : dry ? `${steps.length} to build` : "");
   }
@@ -664,7 +666,11 @@
   function renderGuideVerify() {
     const score = document.getElementById("score-verify");
     if (!impl.verify && !impl.uat) {
-      G.now("verify", { tone: impl.build && impl.build.finishedAt ? "act" : "wait", kicker: "Now", title: "Check the org and run the acceptance tests", text: "Reads the org back against the blueprint, then writes UAT cases from the acceptance criteria and runs them.", primary: { label: "Check & run UAT →", act: "verify-uat", disabled: !(impl.spec && impl.spec.approved) } });
+      const builtNotApproved = impl.build && impl.build.finishedAt && !impl.build.approved;
+      G.now("verify", { tone: impl.build && impl.build.finishedAt && !builtNotApproved ? "act" : "wait", kicker: builtNotApproved ? "First" : "Now",
+        title: builtNotApproved ? "Approve the build first" : "Check the org and run the acceptance tests",
+        text: builtNotApproved ? "Review what was created on the Build step and approve it; Verify and UAT start from there." : "Reads the org back against the blueprint, then writes UAT cases from the acceptance criteria and runs them.",
+        primary: builtNotApproved ? { label: "← Build", href: "build" } : { label: "Check & run UAT →", act: "verify-uat", disabled: !(impl.spec && impl.spec.approved) } });
       if (score) score.innerHTML = ""; G.needs("verify", []); G.plain("verify", []); G.sub("verify", ""); return;
     }
     const c = impl.verify ? verifyCounts() : null;
@@ -707,7 +713,16 @@
     if (act === "approve" || act === "approve-run") {
       if (blockingOpen().length) return;
       setApproved(true); els.approve.checked = true; render();
-      if (act === "approve-run") runAll();
+      if (act === "approve-run") runAll("build");
+    }
+    else if (act === "build-only") runAll("build");
+    else if (act === "run-all") runAll("all");
+    else if (act === "build-log") { const b = impl.build; if (b) download("build-run-log.json", { org: b.org, started_at: b.startedAt, finished_at: b.finishedAt || null, steps: b.steps, log: b.log }); }
+    else if (act === "approve-build") {
+      if (!impl.build || !impl.build.finishedAt) return;
+      impl.build.approved = { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() };
+      save(); renderBuild();
+      L.showTab("verify"); if (await verify()) await runUat();
     } else if (act === "unapprove") { setApproved(false); els.approve.checked = false; render(); }
     else if (act === "skip-q" && id) { const f = findItem(id); if (f) { f.item.include = false; changed(); render(); } }
     else if (act === "include" && id) { const f = findItem(id); if (f) { f.item.include = true; f.item.manual_include = true; f.item.note = ""; changed(); render(); } }
@@ -1067,13 +1082,14 @@
   }
 
   // ---- Run everything: one approval, then dry run → apply → verify → UAT, pausing only on exceptions ----
-  async function runAll() {
+  async function runAll(mode) {
+    const stopAfterBuild = mode !== "all";
     if (!impl.spec) return;
     if (!impl.spec.approved) { L.setStatus("blueprint", "Approve the blueprint first.", "warn"); return; }
     const connected = !!(impl.meta && impl.meta.org && impl.meta.org.connected) || !!L.state.crmAuthorized;
     if (!connected) { L.setStatus("blueprint", "Connect CRM on the Brief step first.", "warn"); return; }
     const stop = (tab, msg, kind) => { L.setStatus(tab, msg, kind || "warn"); L.showToast(msg, kind || "warn", 7000); };
-    L.busy.start("Running everything", "Dry run → apply → verify → UAT. It pauses only when something needs you.");
+    L.busy.start(stopAfterBuild ? "Building" : "Running everything", stopAfterBuild ? "Dry run → build via API. Verify and UAT wait for your approval." : "Dry run → apply → verify → UAT. It pauses only when something needs you.");
     try {
       // 1. Dry run
       L.showTab("build");
@@ -1088,12 +1104,17 @@
       if (steps.length) {
         L.busy.end();   // the confirmation needs the page
         const go = await confirmApply(org, steps);
-        L.busy.start("Running everything", "Applying…");
+        L.busy.start(stopAfterBuild ? "Building" : "Running everything", "Applying…");
         if (!go) return stop("build", "Stopped before Apply — nothing was written.", "");
         impl.build = { org, steps, log: [], startedAt: new Date().toISOString() };
         save();
         await runFrom(0);
         if (!impl.build.finishedAt) return stop("build", "Paused: a build step failed. Retry or skip it in the table, then continue from Verify.");
+      }
+      if (stopAfterBuild) {
+        const queue = (impl.dryRun.rpa_queue || []).filter((q) => { const f = findItem(q.id); return !(f && f.item.manual_done); });
+        L.showTab("build");
+        return stop("build", `Built ${steps.length} item(s). Review the results${queue.length ? ` and the ${queue.length} Setup item(s)` : ""}, then approve to verify and run UAT.`, "ok");
       }
       // 3. Verify
       L.showTab("verify");
@@ -2001,7 +2022,7 @@ await browser.close();
   });
   els.back.addEventListener("click", () => L.showTab("input"));
   els.toBuild.addEventListener("click", () => L.showTab("build"));
-  if (els.runAll) els.runAll.addEventListener("click", runAll);
+  if (els.runAll) els.runAll.addEventListener("click", () => runAll("build"));
   els.toVerify.addEventListener("click", () => { L.showTab("verify"); if (!impl.verify) verify(); });
   els.backBlueprint.addEventListener("click", () => L.showTab("blueprint"));
   els.backBuild.addEventListener("click", () => L.showTab("build"));
