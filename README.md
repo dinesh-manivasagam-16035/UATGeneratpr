@@ -149,6 +149,15 @@ catalyst deploy --only client
 After deploy, the web client is served from your Catalyst app domain, and the
 function is reachable at `/server/uat_generator/{generate,push,health}`.
 
+## Self-check
+
+`functions/uat_generator/selfcheck.sh` compiles the function and runs `SelfCheck` (no test framework
+needed): agent-JSON parsing and normalisation, the plain-language → API rule structurer, lanes vs. the
+capability matrix for every product adapter, the derived execution plan, duplicate-function exclusion,
+failure diagnostics, the runner's recipe parsers and the Desk field mapping. Run it before a deploy;
+it exits non-zero on the first regression. See [docs/ADDING_A_PRODUCT.md](docs/ADDING_A_PRODUCT.md)
+for the product adapter contract.
+
 ## Local dev
 
 ```bash
