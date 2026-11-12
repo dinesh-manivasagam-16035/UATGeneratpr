@@ -94,6 +94,10 @@ public final class DeskOrg {
             }
         } catch (Exception e) { o.errors.add("departments: " + e.getMessage()); }
 
+        List<String> departmentIds = new java.util.ArrayList<>();
+        try {
+            for (JsonNode d : get(crm, base + "/api/v1/departments?isEnabled=true").path("data")) departmentIds.add(d.path("id").asText(""));
+        } catch (Exception ignored) { /* already reported above */ }
         Set<String> names = new LinkedHashSet<>(MODULES);
         for (String m : MODULES) {
             ObjectNode mod = MAPPER.createObjectNode().put("api_name", m).put("plural_label", m)
@@ -112,6 +116,19 @@ public final class DeskOrg {
                 o.fields.put(ImplSpec.low(api), list);
             } catch (Exception e) {
                 if (moduleNames.contains(name)) o.errors.add("fields of " + name + ": " + e.getMessage());
+            }
+            if (withLayouts) {
+                // Desk layouts are per department: collect their names so Verify can confirm a layout item.
+                List<String> layoutNames = new java.util.ArrayList<>();
+                for (String dep : departmentIds) {
+                    try {
+                        for (JsonNode l : get(crm, base + "/api/v1/layouts?module=" + api.toLowerCase(Locale.ROOT) + "&departmentId=" + dep).path("data")) {
+                            String n = l.path("name").asText(l.path("layoutName").asText(""));
+                            if (!n.isEmpty() && !layoutNames.contains(n)) layoutNames.add(n);
+                        }
+                    } catch (Exception e) { /* a department without this module's layouts */ }
+                }
+                if (!layoutNames.isEmpty()) o.layouts.put(ImplSpec.low(api), layoutNames);
             }
         }
         return o;

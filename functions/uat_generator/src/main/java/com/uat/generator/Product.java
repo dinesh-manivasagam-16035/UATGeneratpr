@@ -61,6 +61,21 @@ public interface Product {
     /** Setup menu path for a kind of item, for the guided steps: "Setup → Customization → Modules and Fields". */
     default String setupRoot(String section) { return "Setup → Customization → Modules and Fields"; }
 
+    /** Setup menu path for an automation type ("workflow", "blueprint", "assignment", "sla", …), for the guided steps. */
+    default String automationMenu(String type) {
+        switch (type == null ? "" : type) {
+            case "blueprint":  return "Setup → Process Management → Blueprint → Create Blueprint.";
+            case "assignment": return "Setup → Automation → Assignment Rules → New Rule.";
+            case "approval":   return "Setup → Process Management → Approval Processes → Create Approval Process.";
+            case "scoring":    return "Setup → Automation → Scoring Rules → New Scoring Rule.";
+            case "escalation": return "Setup → Automation → Workflow Rules → Create Rule (date/time based) for the escalation.";
+            case "schedule":   return "Setup → Automation → Schedules → Create Schedule.";
+            case "cadence":    return "Setup → Automation → Cadences → Create Cadence.";
+            case "webhook":    return "Setup → Automation → Actions → Webhooks → Configure Webhook.";
+            default:           return "Setup → Automation → Workflow Rules → Create Rule.";
+        }
+    }
+
     /** Modules the BRD may target when the org can't be read (the module picker's fallback). */
     default List<String> defaultModules() { return java.util.Arrays.asList("Leads", "Contacts", "Accounts", "Deals"); }
 

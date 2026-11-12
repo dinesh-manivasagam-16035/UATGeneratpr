@@ -57,6 +57,21 @@ public final class DeskProduct implements Product {
     }
 
     @Override
+    public String automationMenu(String type) {
+        switch (type == null ? "" : type) {
+            case "time_based":   return "Setup → Automation → Workflows → Rules → New Rule → execute on a time basis.";
+            case "assignment":   return "Setup → Automation → Assignment Rules → New Rule (direct or round robin).";
+            case "sla":          return "Setup → Automation → SLAs → New SLA → targets and escalations.";
+            case "blueprint":    return "Setup → Automation → Blueprints → New Blueprint.";
+            case "macro":        return "Setup → Automation → Macros → New Macro.";
+            case "view":         return "Tickets → Views → Create View (then share it with the roles named).";
+            case "notification": return "Setup → Automation → Notification Rules.";
+            case "webhook":      return "Setup → Developer Space → Webhooks.";
+            default:             return "Setup → Automation → Workflows → Rules → New Rule.";
+        }
+    }
+
+    @Override
     public String laneFor(String section, JsonNode o) {
         if ("exists".equals(o.path("status").asText())) return "none";
         switch (section) {

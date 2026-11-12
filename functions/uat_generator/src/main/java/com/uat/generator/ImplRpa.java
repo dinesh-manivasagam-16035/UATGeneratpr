@@ -171,19 +171,7 @@ public final class ImplRpa {
         return s;
     }
 
-    private static String menuFor(String type) {
-        switch (type) {
-            case "blueprint":  return "Setup → Process Management → Blueprint → Create Blueprint.";
-            case "assignment": return "Setup → Automation → Assignment Rules → New Rule.";
-            case "approval":   return "Setup → Process Management → Approval Processes → Create Approval Process.";
-            case "scoring":    return "Setup → Automation → Scoring Rules → New Scoring Rule.";
-            case "escalation": return "Setup → Automation → Workflow Rules → Create Rule (date/time based) for the escalation.";
-            case "schedule":   return "Setup → Automation → Schedules → Create Schedule.";
-            case "cadence":    return "Setup → Automation → Cadences → Create Cadence.";
-            case "webhook":    return "Setup → Automation → Actions → Webhooks → Configure Webhook.";
-            default:           return "Setup → Automation → Workflow Rules → Create Rule.";
-        }
-    }
+    private static String menuFor(String type) { return Products.current().automationMenu(type); }
 
     private static String join(JsonNode arr) {
         List<String> s = new ArrayList<>();
