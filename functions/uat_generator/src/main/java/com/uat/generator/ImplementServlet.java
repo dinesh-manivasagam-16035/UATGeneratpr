@@ -449,7 +449,30 @@ public class ImplementServlet extends HttpServlet {
                 }
             }
         }
+        excludeEmptyWorkflows(spec);
         excludeDuplicateFunctions(spec);
+    }
+
+    /**
+     * A "workflow" with a trigger but no action at all can't do anything in CRM — agents produce these when
+     * the BRD wants a save blocked (only a validation rule can). Exclude it, pointing at the validation rule
+     * or rule that serves the same requirement.
+     */
+    static void excludeEmptyWorkflows(ObjectNode spec) {
+        for (JsonNode wn : spec.path("workflows")) {
+            ObjectNode w = (ObjectNode) wn;
+            if (!w.path("include").asBoolean(true) || w.has("manual_include")) continue;
+            if (!"workflow".equals(w.path("type").asText("workflow"))) continue;
+            boolean hasAction = w.path("field_updates").size() > 0 || w.path("tasks").size() > 0 || w.path("webhooks").size() > 0
+                    || w.path("other_actions").size() > 0 || w.path("actions").size() > 0;
+            if (hasAction) continue;
+            java.util.Set<String> reqs = new java.util.HashSet<>(ImplSpec.strings(w.path("req_ids")));
+            String twin = null;
+            for (JsonNode v : spec.path("validation_rules")) if (v.path("include").asBoolean(true) && ImplSpec.strings(v.path("req_ids")).stream().anyMatch(reqs::contains)) twin = "validation rule \"" + v.path("name").asText() + "\"";
+            w.put("include", false);
+            w.put("executor", "none");
+            w.put("note", "A workflow rule without an action does nothing" + (twin != null ? "; " + twin + " covers this requirement (a rule can't block a save)." : "; excluded."));
+        }
     }
 
     /**
@@ -462,16 +485,18 @@ public class ImplementServlet extends HttpServlet {
             if (!f.path("include").asBoolean(true) || f.has("manual_include")) continue;
             java.util.Set<String> reqs = new java.util.HashSet<>(ImplSpec.strings(f.path("req_ids")));
             String module = ImplSpec.low(f.path("module").asText(""));
-            for (JsonNode w : spec.path("workflows")) {
-                if (!w.path("include").asBoolean(true)) continue;
-                String lane = w.path("executor").asText("");
-                if (!lane.equals("api") && !lane.equals("partial")) continue;
+            java.util.List<JsonNode> twins = new java.util.ArrayList<>();
+            for (JsonNode w : spec.path("workflows")) if (w.path("include").asBoolean(true)) twins.add(w);
+            for (JsonNode v : spec.path("validation_rules")) if (v.path("include").asBoolean(true)) twins.add(v);
+            for (JsonNode w : twins) {
                 boolean sameReq = !reqs.isEmpty() && ImplSpec.strings(w.path("req_ids")).stream().anyMatch(reqs::contains);
                 boolean sameModule = module.isEmpty() || module.equals(ImplSpec.low(w.path("module").asText("")));
                 if (sameReq && sameModule) {
+                    boolean rule = w.has("trigger_type") || w.has("type");
                     f.put("include", false);
                     f.put("executor", "none");
-                    f.put("note", "Duplicates workflow rule \"" + w.path("name").asText() + "\", which the API builds; excluded.");
+                    f.put("note", "Duplicates " + (rule ? "workflow rule" : "validation rule") + " \"" + w.path("name").asText()
+                            + "\" for the same requirement — code where a rule will do; excluded.");
                     break;
                 }
             }

@@ -640,14 +640,16 @@
     conflicts.forEach((r) => needs.push({ title: `${r.label} conflicts with the org`, text: esc(r.detail || ""), html: `<button type="button" class="ghost small" data-open-fold="fold-build">Open in table</button>` }));
     const job = impl.rpaJob;
     if (pending.length) {
-      const doneN = job ? job.results.filter((r) => r.status === "done").length : 0, failN = job ? job.results.filter((r) => r.status === "failed").length : 0;
+      const known = new Set(job ? job.items : []);
+      const doneN = job ? job.results.filter((r) => r.status === "done" && known.has(r.id)).length : 0, failN = job ? job.results.filter((r) => r.status === "failed" && known.has(r.id)).length : 0;
+      const strayN = job ? job.results.filter((r) => !known.has(r.id)).length : 0;
       needs.push({ title: job ? `Zoho RPA job ${job.id} · ${doneN} of ${job.items.length} done${failN ? ` · ${failN} failed` : ""}${job.finished ? " · finished" : job.pushed ? " · running" : " · waiting for the bot"}` : `${pending.length} Setup item(s) — who does them?`,
-        text: job ? esc(job.push_error || "The bot does each item in Setup and pauses for approval before every save; results land here as it goes.") : "Send them to Zoho RPA (the bot performs the recipes, you approve each save), run the Playwright runner on your machine, or do them by hand below.",
+        text: job ? esc(job.push_error || "The bot does each item in Setup and pauses for approval before every save; results land here as it goes.") + (strayN ? ` <span class="pill warn">${strayN} result(s) for unknown item id(s)</span> — the bot must report the ids shown on each item (${esc(job.items.join(", "))}).` : "") : "Send them to Zoho RPA (the bot performs the recipes, you approve each save), run the Playwright runner on your machine, or do them by hand below.",
         html: job ? `<button type="button" class="ghost small" data-guide-act="rpa-refresh">Refresh</button><button type="button" class="ghost small" data-guide-act="rpa-send" title="Create a new job for the items still pending">Send again</button>`
                   : `<button type="button" class="primary small" data-guide-act="rpa-send">Send to Zoho RPA</button><button type="button" class="ghost small" data-rpa="script">Playwright runner</button>` });
     }
     pending.forEach((q) => { const f = findItem(q.id); const rf = f && f.item.rpa_failed;
-      needs.push({ title: q.label, text: rf ? `<span class="pill err">RPA failed</span> ${esc(rf.note || "the bot couldn't finish this item")} — do it by hand:` : "No API for this — do it in CRM Setup:", steps: q.steps || [],
+      needs.push({ title: `${q.label}`, text: `<code>${esc(q.id)}</code> · ` + (rf ? `<span class="pill err">RPA failed</span> ${esc(rf.note || "the bot couldn't finish this item")} — do it by hand:` : "No API for this — do it in CRM Setup:"), steps: q.steps || [],
       html: `<button type="button" class="primary small" data-guide-act="manual-done" data-id="${esc(q.id)}">I've done this</button>` }); });
     G.needs("build", needs, { title: needs.length && pending.length === needs.length ? "Needs you · in CRM Setup" : "Needs you" });
     // Now
@@ -1815,7 +1817,8 @@
       job.results = st.results || [];
       let changed = false;
       job.results.forEach((r) => {
-        const f = findItem(r.id);
+        let f = findItem(r.id);
+        if (!f) { const q = ((impl.applied || impl.dryRun || {}).rpa_queue || []).find((x) => x.label === r.id || x.label.endsWith(": " + r.id)); if (q) { r.id = q.id; f = findItem(q.id); } }
         if (!f) return;
         if (r.status === "done" && !f.item.manual_done) { f.item.manual_done = { by: "Zoho RPA", at: r.at || new Date().toISOString(), note: r.note || "", screenshot_url: r.screenshot_url || "" }; changed = true; }
         if (r.status === "failed") f.item.rpa_failed = { at: r.at, note: r.note || "" };

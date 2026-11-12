@@ -124,6 +124,19 @@ public final class SelfCheck {
         fn.put("include", true).put("manual_include", true);
         ImplementServlet.excludeDuplicateFunctions(spec);
         check("dupes: manual include respected", spec.path("functions").get(0).path("include").asBoolean());
+        // a function twinning a validation rule, and a workflow with no action at all
+        ObjectNode spec2 = emptySpec();
+        ObjectNode vr = M.createObjectNode().put("id", "VAL-1").put("module", "Leads").put("name", "Block qualification").put("include", true); vr.putArray("req_ids").add("FR-3");
+        spec2.withArray("validation_rules").add(vr);
+        ObjectNode fn2 = M.createObjectNode().put("id", "FN-2").put("module", "Leads").put("name", "validate_on_qualify").put("include", true); fn2.putArray("req_ids").add("FR-3");
+        spec2.withArray("functions").add(fn2);
+        ObjectNode w2 = M.createObjectNode().put("id", "WF-2").put("type", "workflow").put("module", "Leads").put("name", "Block qualification").put("trigger_type", "field_update").put("include", true);
+        w2.putArray("req_ids").add("FR-3"); w2.putArray("field_updates"); w2.putArray("tasks"); w2.putArray("webhooks"); w2.putArray("other_actions"); w2.putArray("actions");
+        spec2.withArray("workflows").add(w2);
+        ImplementServlet.excludeEmptyWorkflows(spec2);
+        ImplementServlet.excludeDuplicateFunctions(spec2);
+        check("dupes: function twinning a validation rule excluded", !spec2.path("functions").get(0).path("include").asBoolean(true));
+        check("empty workflow: excluded with a pointer to the validation rule", !spec2.path("workflows").get(0).path("include").asBoolean(true) && spec2.path("workflows").get(0).path("note").asText().contains("validation rule"));
     }
 
     static void diagnostics() throws Exception {

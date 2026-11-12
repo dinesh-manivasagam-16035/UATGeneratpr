@@ -149,6 +149,9 @@ public final class CrmProduct implements Product {
             + "open_questions: [{question, context, blocking (bool), req_ids}]\n\n"
             + "A rule that sets a picklist field to a value the org doesn't have is fine: LiftOff adds the option first. "
             + "Record it in assumption.\n"
+            + "A workflow rule can only act after a save (update fields, create tasks, call webhooks); it can NEVER reject or "
+            + "block a save. A requirement that says a record must not be saved unless… belongs in validation_rules "
+            + "(data-model call), not here — do not emit a workflow for it, and do not emit a function for it either.\n"
             + COMMON_RULES
             + "\nDeluge code goes in a JSON string: escape quotes and use \\n for line breaks.";
     }
