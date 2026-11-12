@@ -514,6 +514,8 @@ details.fold .impl-run, details.fold #impl-spec, details.fold .card { box-shadow
 .busy-steps li.is-working .busy-step-label, .busy-steps li.is-running .busy-step-label { font-weight: 600; }
 .busy-steps li.is-working .busy-step-state::after, .busy-steps li.is-running .busy-step-state::after { content: "…"; display: inline-block; width: 1.2em; text-align: left; animation: lo-ellipsis 1.2s steps(4, end) infinite; overflow: hidden; vertical-align: bottom; }
 @keyframes lo-ellipsis { 0% { width: 0; } 100% { width: 1.2em; } }
+.busy-hint { margin: 0; font-size: 13.5px; color: var(--text-secondary); min-height: 20px; transition: opacity .18s; font-style: italic; }
+.busy-hint.swap { opacity: 0; }
 .busy-note { display: flex; align-items: center; gap: 8px; }
 .busy-note::before { content: ""; width: 12px; height: 12px; flex: none; border-radius: 3px; border: 1.5px solid currentColor; border-top: 0; margin-top: 3px; position: relative; box-shadow: 0 -5px 0 -1.5px currentColor inset; opacity: .7; }
 

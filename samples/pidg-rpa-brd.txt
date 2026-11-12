@@ -1,0 +1,37 @@
+BRD: PIDG code on Leads — with a hard validation rule
+Product: Zoho CRM · Module: Leads
+Purpose: a small requirement set that exercises every LiftOff lane — two items the API builds,
+one item that has no create API and must be configured in Setup (the Zoho RPA runner's job).
+
+Background
+Partner leads arrive with a PIDG partner code. Sales must see at a glance which leads still
+lack one, and nobody should be able to move a lead to "Qualified" without a code.
+
+Functional requirements
+
+FR-1: PIDG Code field
+- Add a custom text field "PIDG Code" to the Leads module.
+- Maximum 50 characters. Optional on create (a lead can be saved without it).
+
+FR-2: Flag leads created without a code
+- When a lead is created and PIDG Code is empty, set Lead Status to "PIDG Pending".
+- "PIDG Pending" is a new Lead Status option.
+- A lead created with a PIDG Code keeps the Lead Status it was created with.
+
+FR-3: Block qualification without a code
+- A lead must not be saved with Lead Status "Qualified" while PIDG Code is empty.
+- Show the message: "Enter the PIDG code before qualifying this lead."
+- This must be enforced in the Leads edit form itself (a validation rule), not by a later
+  automation.
+
+Acceptance criteria
+A. Create a lead with no PIDG Code → Lead Status becomes "PIDG Pending".
+B. Create a lead with PIDG Code "PIDG-2026-0001" and Lead Status "Contacted" → status stays
+   "Contacted".
+C. Set a lead with no PIDG Code to Lead Status "Qualified" → save is rejected with the message in
+   FR-3.
+D. Set the same lead's PIDG Code to "PIDG-2026-0002" and Lead Status "Qualified" → save succeeds.
+
+Out of scope
+- Reports and dashboards.
+- Changes to Contacts or Deals.

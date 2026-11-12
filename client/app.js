@@ -281,6 +281,26 @@
     } else { el.classList.add("indeterminate"); el.classList.remove("has-pct"); el.querySelector(".prog").style.strokeDashoffset = ""; }
   }
 
+  // Lines for the busy overlay: what the BRD asks for, what the run is doing, and why it's fine to wait.
+  function busyHints() {
+    const reqs = (Array.isArray(state.requirements) && state.requirements.length ? state.requirements : (state.brd ? extractRequirements(state.brd) : []))
+      .filter((r) => r && r.id && r.id !== "ACCEPT").slice(0, 8);
+    const org = state.crmOrgName || productLabel();
+    const file = state.fileName || "your BRD";
+    const out = [];
+    reqs.forEach((r) => out.push(`${r.id}${r.title ? " — " + r.title : ""}: covered in this run.`));
+    if (state.modulesSelected && state.modulesSelected.length) out.push(`Working in ${state.modulesSelected.join(", ")} of ${org}.`);
+    out.push(`Every item is compared with ${org} before anything is proposed.`);
+    out.push("Nothing is written until you confirm; test records are deleted afterwards.");
+    out.push(`Reading ${file} the way a consultant would: requirements first, then acceptance criteria.`);
+    out.push("The agent decides what to build; the code decides how. You decide whether.");
+    out.push("You can leave this tab open — it unlocks by itself when the run finishes.");
+    // interleave BRD lines with the calm ones so neither runs long
+    const brd = out.slice(0, reqs.length), calm = out.slice(reqs.length), mixed = [];
+    for (let i = 0; i < Math.max(brd.length, calm.length); i++) { if (brd[i]) mixed.push(brd[i]); if (calm[i]) mixed.push(calm[i]); }
+    return mixed.length ? mixed : ["Working…"];
+  }
+
   const busy = (() => {
     let el = null, t0 = 0, timer = null, depth = 0;
     const fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -295,9 +315,10 @@
       el.innerHTML = `<div class="busy-card">
           <div class="busy-head">${orbitHtml(64)}
             <div><h3 class="busy-title"></h3><p class="busy-detail"></p></div>
-            <span class="busy-time" title="Elapsed">0:00</span></div>
+          </div>
           <div class="busy-barrow"><div class="busy-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div><span class="busy-pct"></span></div>
           <ol class="busy-steps" hidden></ol>
+          <p class="busy-hint" aria-live="off"></p>
           <p class="busy-note">Working in the background. Other controls are locked until this finishes.</p>
         </div>`;
       document.body.appendChild(el);
@@ -354,8 +375,13 @@
           const app = document.getElementById("app");
           if (app) app.setAttribute("inert", "");
           clearInterval(timer);
-          timer = setInterval(() => { b.querySelector(".busy-time").textContent = fmt(Date.now() - t0); }, 1000);
-          b.querySelector(".busy-time").textContent = "0:00";
+          // Calm, specific lines drawn from the attached BRD instead of a ticking clock.
+          const hints = busyHints();
+          let hi = 0;
+          const hintEl = b.querySelector(".busy-hint");
+          const showHint = () => { hintEl.classList.add("swap"); setTimeout(() => { hintEl.textContent = hints[hi++ % hints.length]; hintEl.classList.remove("swap"); }, 180); };
+          hintEl.textContent = hints[hi++ % hints.length];
+          timer = setInterval(showHint, 4500);
         } else {
           render({ title, detail });
         }
