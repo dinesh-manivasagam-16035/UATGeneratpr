@@ -2749,13 +2749,11 @@ footer { display: none; }
 /* Catalyst login widget wrapper */
 #catalyst-widget-wrap {
   margin-top: 0.75rem;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: #fff;
-  border: 1px solid var(--border);
-  box-shadow: none;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
 }
-#catalyst-widget-wrap[hidden] { display: none; }
 #loginDivElementId iframe {
   width: 100% !important;
   border: none;
