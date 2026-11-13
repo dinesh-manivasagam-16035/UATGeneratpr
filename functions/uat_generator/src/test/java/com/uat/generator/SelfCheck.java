@@ -27,6 +27,7 @@ public final class SelfCheck {
         executionPlan();
         functionDefinitions();
         blueprintPayload();
+        profilePermissions();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -103,6 +104,29 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void profilePermissions() {
+        ArrayNode perms = M.createArrayNode().add("View Leads").add("Create and Edit Deals").add("No Delete on Deals").add("Export").add("Fly to the moon");
+        List<ImplProfiles.Want> wants = ImplProfiles.parse(perms);
+        check("profiles: words parsed into actions", wants.size() == 6 && "View".equals(wants.get(0).action) && "Leads".equals(wants.get(0).module)
+                && "Create".equals(wants.get(1).action) && "Edit".equals(wants.get(2).action) && "Deals".equals(wants.get(2).module)
+                && "Delete".equals(wants.get(3).action) && !wants.get(3).enabled && "Export".equals(wants.get(4).action) && wants.get(4).module.isEmpty());
+        ArrayNode pds = M.createArrayNode();
+        pds.addObject().put("id", "1").put("name", "Crm_Implied_View_Leads").put("display_label", "View").put("module", "Leads").put("enabled", false);
+        pds.addObject().put("id", "2").put("name", "Crm_Implied_Create_Deals").put("display_label", "Create").put("module", "Deals").put("enabled", false);
+        pds.addObject().put("id", "3").put("name", "Crm_Implied_Edit_Deals").put("display_label", "Edit").put("module", "Deals").put("enabled", false);
+        pds.addObject().put("id", "4").put("name", "Crm_Implied_Delete_Deals").put("display_label", "Delete").put("module", "Deals").put("enabled", true);
+        pds.addObject().put("id", "5").put("name", "Crm_Implied_Delete_Leads").put("display_label", "Delete").put("module", "Leads").put("enabled", true);
+        pds.addObject().put("id", "6").put("name", "Crm_Implied_Export").put("display_label", "Export").put("module", "null").put("enabled", false);
+        ObjectNode m = ImplProfiles.match(wants, pds, null);
+        List<String> ids = new java.util.ArrayList<>(); for (JsonNode c : m.path("changes")) ids.add(c.path("id").asText() + ":" + c.path("enabled").asBoolean());
+        check("profiles: matched by module + action, delete only on Deals, export module-less", ids.equals(Arrays.asList("1:true", "2:true", "3:true", "4:false", "6:true")));
+        check("profiles: unmatched reported", m.path("unmatched").size() == 1 && m.path("unmatched").path(0).asText().startsWith("Fly"));
+        ObjectNode body = ImplProfiles.updateBody(m.withArray("changes"));
+        check("profiles: PUT body shape", body.path("profiles").path(0).path("permissions_details").size() == 5 && body.path("profiles").path(0).path("permissions_details").path(0).has("enabled"));
+        check("profiles: clone body", "Sales Rep".equals(ImplProfiles.cloneBody("Sales Rep", "").path("profiles").path(0).path("name").asText()));
+        check("crm: role with permissions is api", "api".equals(CrmProduct.INSTANCE.laneFor("roles", M.createObjectNode().put("status", "new").set("permissions", perms))));
     }
 
     static void blueprintPayload() {

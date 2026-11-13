@@ -581,6 +581,64 @@ public class ImplementApplyServlet extends HttpServlet {
             payload.putArray("roles").add(ro);
             String newId = send(r, "POST", "/crm/" + v + "/settings/roles", payload, "roles");
             if (!dryRun && newId != null) ids.put(ImplSpec.low(role.path("name").asText()), newId);
+            if (role.path("permissions").size() > 0) profile(role, r);
+        }
+
+        Map<String, String> profileByName;
+        Map<String, String> profileNames() throws Exception {
+            if (profileByName != null) return profileByName;
+            profileByName = new LinkedHashMap<>();
+            if (crm == null) return profileByName;
+            CrmClient.Response res = crm.call("GET", "/crm/" + v + "/settings/profiles", null);
+            if (res.json != null) for (JsonNode p : res.json.path("profiles")) profileByName.put(ImplSpec.low(p.path("name").asText(p.path("display_label").asText())), p.path("id").asText());
+            return profileByName;
+        }
+
+        /**
+         * Profile for a role whose permissions are listed: clone the base profile (the spec's "profile" when it
+         * exists in the org, else Standard) under the role's profile name, then PUT the permissions parsed from
+         * the spec's words. Permissions that match nothing are reported as a follow-up.
+         */
+        void profile(JsonNode role, ObjectNode r) throws Exception {
+            ArrayNode requests = r.withArray("requests");
+            Map<String, String> names = profileNames();
+            String wanted = role.path("profile").asText("").trim();
+            String baseName = names.containsKey(ImplSpec.low(wanted)) ? wanted : "Standard";
+            String baseId = names.get(ImplSpec.low(baseName));
+            if (baseId == null) baseId = names.values().stream().findFirst().orElse(null);
+            String newName = wanted.isEmpty() || names.containsKey(ImplSpec.low(wanted)) ? role.path("name").asText() + " Profile" : wanted;
+            if (newName.length() > 50) newName = newName.substring(0, 50);
+            r.put("profile", newName);
+            String profileId;
+            if (names.containsKey(ImplSpec.low(newName))) {
+                profileId = names.get(ImplSpec.low(newName));
+                requests.addObject().put("note", "Profile \"" + newName + "\" already exists; permissions updated on it.");
+            } else {
+                if (baseId == null && !dryRun) throw new IllegalStateException("Couldn't read the org's profiles to clone one.");
+                profileId = call(requests, "POST", "/crm/" + v + "/settings/profiles/" + (baseId == null ? "<Standard profile id>" : baseId) + "/actions/clone",
+                        ImplProfiles.cloneBody(newName, role.path("description").asText("")), "profiles", "profile");
+                if (!dryRun) names.put(ImplSpec.low(newName), profileId);
+            }
+            List<ImplProfiles.Want> wants = ImplProfiles.parse(role.path("permissions"));
+            if (dryRun) {
+                ObjectNode preview = requests.addObject(); preview.put("method", "PUT"); preview.put("path", "/crm/" + v + "/settings/profiles/" + profileId);
+                ArrayNode asked = preview.putArray("permissions");
+                for (ImplProfiles.Want w : wants) asked.add((w.enabled ? "enable " : "disable ") + (w.action.isEmpty() ? "" : w.action + " ") + w.module);
+                r.put("detail", "Would create the role, clone \"" + baseName + "\" as \"" + newName + "\" and set " + wants.size() + " permission(s).");
+                return;
+            }
+            JsonNode detail = crm.call("GET", "/crm/" + v + "/settings/profiles/" + profileId, null).json;
+            JsonNode pds = detail == null ? MAPPER.createArrayNode() : detail.path("profiles").path(0).path("permissions_details");
+            ObjectNode matched = ImplProfiles.match(wants, pds, org);
+            if (matched.path("changes").size() > 0) {
+                call(requests, "PUT", "/crm/" + v + "/settings/profiles/" + profileId, ImplProfiles.updateBody(matched.withArray("changes")), "profiles", "profile permissions");
+            }
+            r.set("permissions_set", matched.path("changes"));
+            r.put("detail", "Created the role and profile \"" + newName + "\" (from " + baseName + "); " + matched.path("changes").size() + " permission(s) set.");
+            if (matched.path("unmatched").size() > 0) {
+                r.put("follow_up", "No profile permission matched: " + ImplPlan.join(matched.path("unmatched")) + " — set these in Setup → Security Control → Profiles → " + newName + ".");
+            }
+            if (org != null && org.roles != null) r.put("note", "Assign the profile to the role's users (profiles are per user).");
         }
 
         /**

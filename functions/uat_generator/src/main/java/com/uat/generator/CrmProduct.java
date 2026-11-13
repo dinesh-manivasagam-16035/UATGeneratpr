@@ -69,10 +69,10 @@ public final class CrmProduct implements Product {
         c("record_locking",   "record locking configuration",                                   "ui", "API exists; builder not written",
             "POST /settings/record_locking_configurations?module=X", "ZohoCRM.settings.record_locking_configurations.CREATE", "planned", "add-record-locking-config"),
         // ---- access ----
-        c("role",             "role in the hierarchy",                                          "api", "module permissions live on the profile → partial when permissions are listed",
+        c("role",             "role in the hierarchy",                                          "api", "with permissions listed, a profile is cloned and set too (see profile)",
             "POST /settings/roles", "ZohoCRM.settings.roles.CREATE", "builds", "create-role"),
-        c("profile",          "profile (clone + permission changes)",                           "ui", "API clones a profile and updates permissions; builder not written",
-            "POST /settings/profiles/{id}/actions/clone; PATCH permissions", "ZohoCRM.settings.profiles.CREATE", "planned", "create-profile"),
+        c("profile",          "profile (clone + module permissions view/create/edit/delete, export, import, mass update…)", "api", "cloned from the named profile (else Standard), permissions matched by module and action; unmatched ones are listed for Setup. Users are given the profile when they are added",
+            "POST /settings/profiles/{id}/actions/clone; PUT /settings/profiles/{id}", "ZohoCRM.settings.profiles.CREATE, UPDATE", "builds", "create-profile"),
         c("user",             "add a user",                                                     "ui", "API exists; builder not written (invites a real person)",
             "POST /users", "ZohoCRM.users.CREATE", "planned", "add-user"),
         c("territory",        "territory",                                                      "ui", "API exists; builder not written",
@@ -205,7 +205,7 @@ public final class CrmProduct implements Product {
         switch (section) {
             case "modules": return "standard".equals(o.path("kind").asText()) ? "none" : "api";
             case "fields":  return ImplSpec.API_FIELD_TYPES.contains(o.path("data_type").asText()) ? "api" : "rpa";
-            case "roles":   return o.path("permissions").size() > 0 ? "partial" : "api";
+            case "roles":   return "api";   // role, and when permissions are listed a cloned profile with them set
             case "workflows": {
                 String type = o.path("type").asText();
                 if ("assignment".equals(type)) {
@@ -279,7 +279,9 @@ public final class CrmProduct implements Product {
             + "validation_rules: [{module, name, condition (plain-language using field labels), error_message, "
             + "assumption?, req_ids}] — ONLY when the BRD explicitly requires a save to be rejected with a message; "
             + "if a required flag or a workflow field update meets the requirement, use that instead\n"
-            + "roles: [{name, reports_to, profile, share_with_peers (bool), description, permissions (string[]), req_ids}]\n"
+            + "roles: [{name, reports_to, profile (name of the new profile, or an existing one to clone from), share_with_peers (bool), "
+            + "description, permissions (string[] — one per line as \"<View|Create|Edit|Delete|Export|Import|Mass Update|Convert> <Module>\" "
+            + "or \"No <action> <Module>\", e.g. \"View Leads\", \"No Delete Deals\", \"Export\"; only what the BRD states), req_ids}]\n"
             + "open_questions: [{question, context (what the BRD says), blocking (bool), req_ids}]\n\n"
             + COMMON_RULES;
     }
