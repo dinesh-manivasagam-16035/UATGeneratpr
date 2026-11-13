@@ -41,11 +41,11 @@ public final class ImplSpec {
             .configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
 
     public static final List<String> DATA_MODEL = Arrays.asList(
-            "modules", "fields", "layouts", "validation_rules", "roles", "open_questions");
+            "modules", "fields", "layouts", "dependencies", "validation_rules", "roles", "open_questions");
     public static final List<String> AUTOMATION = Arrays.asList(
             "workflows", "functions", "open_questions");
     public static final List<String> SECTIONS = Arrays.asList(
-            "modules", "fields", "layouts", "validation_rules", "workflows", "roles",
+            "modules", "fields", "layouts", "dependencies", "validation_rules", "workflows", "roles",
             "functions", "open_questions", "plan");
 
     private static final Map<String, String> PREFIX = new LinkedHashMap<>();
@@ -53,6 +53,7 @@ public final class ImplSpec {
         PREFIX.put("modules", "MOD");
         PREFIX.put("fields", "FLD");
         PREFIX.put("layouts", "LAY");
+        PREFIX.put("dependencies", "DEP");
         PREFIX.put("validation_rules", "VAL");
         PREFIX.put("workflows", "WF");
         PREFIX.put("roles", "ROLE");
@@ -260,6 +261,26 @@ public final class ImplSpec {
                 o.put("notes", text(in, "notes"));
                 break;
             }
+            case "dependencies": {
+                // Picklist dependency: {module, parent, child, mapping:{parentOption:[childOptions]}}
+                String module = text(in, "module");
+                String parent = firstText(in, "parent", "parent_field");
+                String child = firstText(in, "child", "child_field");
+                if (module.isEmpty() || parent.isEmpty() || child.isEmpty() || !in.path("mapping").isObject()) return null;
+                o.put("module", module);
+                o.put("parent", parent);
+                o.put("child", child);
+                ObjectNode map = o.putObject("mapping");
+                java.util.Iterator<Map.Entry<String, JsonNode>> it = in.path("mapping").fields();
+                while (it.hasNext()) {
+                    Map.Entry<String, JsonNode> e = it.next();
+                    ArrayNode vals = map.putArray(e.getKey());
+                    for (String v : strings(e.getValue())) vals.add(v);
+                }
+                if (map.size() == 0) return null;
+                o.put("name", parent + " → " + child);
+                break;
+            }
             case "validation_rules": {
                 String module = text(in, "module");
                 String name = text(in, "name");
@@ -451,6 +472,7 @@ public final class ImplSpec {
             case "fields":           return low(o.path("module").asText()) + "|" + low(o.path("api_name").asText());
             case "layouts":          return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "validation_rules": return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
+            case "dependencies":     return low(o.path("module").asText()) + "|" + low(o.path("parent").asText()) + ">" + low(o.path("child").asText());
             case "workflows":        return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "roles":            return low(o.path("name").asText());
             case "functions":        return low(o.path("name").asText());

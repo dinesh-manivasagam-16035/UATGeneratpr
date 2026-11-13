@@ -19,6 +19,7 @@
     ["modules",          "Modules"],
     ["fields",           "Fields"],
     ["layouts",          "Layouts"],
+    ["dependencies",     "Picklist dependencies"],
     ["validation_rules", "Validation rules"],
     ["roles",            "Roles"],
     ["workflows",        "Automation"],
@@ -29,7 +30,7 @@
   const FILTERS = [["all", "All items"], ["attention", "Needs attention"], ["new", "New"], ["exists", "Already in org"],
     ["api", "Builds via API"], ["manual", "Needs UI work"]];
   const GROUPS = [
-    ["data_model", "Data model", "modules, fields, layouts, validation rules, roles", ["modules", "fields", "layouts", "validation_rules", "roles"]],
+    ["data_model", "Data model", "modules, fields, layouts, picklist dependencies, validation rules, roles", ["modules", "fields", "layouts", "dependencies", "validation_rules", "roles"]],
     ["automation", "Automation", "workflows, approvals, Deluge functions", ["workflows", "functions"]],
   ];
   const KIND_LABEL = { modules: "module", fields: "field", layouts: "layout", validation_rules: "validation rule", roles: "role",
@@ -92,6 +93,7 @@
       case "fields":           return `${o.module} · ${o.label}`;
       case "layouts":          return `${o.module} · ${o.name}`;
       case "validation_rules": return `${o.module} · ${o.name}`;
+      case "dependencies":     return `${o.module} · ${o.parent} → ${o.child}`;
       case "workflows":        return `${o.type}: ${o.module ? o.module + " · " : ""}${o.name}`;
       case "roles":            return o.name;
       case "functions":        return o.name;
@@ -116,6 +118,9 @@
       case "layouts":
         (o.sections || []).forEach((s) => parts.push(`${s.name}: ${(s.fields || []).join(", ")}`));
         if (o.profiles && o.profiles.length) parts.push("profiles: " + o.profiles.join(", "));
+        break;
+      case "dependencies":
+        Object.keys(o.mapping || {}).forEach((k) => parts.push(`${k}: ${(o.mapping[k] || []).join(", ")}`));
         break;
       case "validation_rules":
         parts.push("when " + o.condition);
@@ -413,7 +418,7 @@
     const tile = (cls, label, value, sub, bar) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}${bar || ""}</div>`;
     const pct = cov && cov.requirements ? Math.round(100 * cov.covered / cov.requirements) : 0;
     const count = (sct) => (impl.spec[sct] || []).filter((o) => o.include !== false).length;
-    const breakdown = [["fields", "field"], ["workflows", "rule"], ["functions", "function"], ["validation_rules", "validation"], ["roles", "role"], ["layouts", "layout"]]
+    const breakdown = [["fields", "field"], ["workflows", "rule"], ["functions", "function"], ["dependencies", "dependency"], ["validation_rules", "validation"], ["roles", "role"], ["layouts", "layout"]]
       .map(([sct, l]) => [count(sct), l]).filter(([n]) => n).map(([n, l]) => `${n} ${l}${n === 1 ? "" : "s"}`).join(" · ");
     const tiles = `<div class="tiles tiles-5">
       ${cov && cov.requirements ? tile(pct === 100 ? "ok" : "warn", "Requirements covered", `${cov.covered} <span class="unit">/ ${cov.requirements}</span>`,
@@ -530,6 +535,7 @@
           (!(o.field_updates || []).length && !(o.tasks || []).length && !(o.webhooks || []).length ? (o.actions || []) : []));
         return { title: `${when}${cond && !/all records/i.test(cond) ? `, when ${cond.replace(/^when\s+/i, "")}` : ""}: ${acts.join("; ") || o.name}`, sub: `${o.type || "workflow"} rule “${o.name}” on ${o.module}` };
       }
+      case "dependencies": return { title: `${o.child} options depend on ${o.parent} (${Object.keys(o.mapping || {}).length} mapped)`, sub: `picklist dependency on ${o.module}` };
       case "validation_rules": return { title: `Reject a ${o.module} record when ${o.condition}`, sub: `validation rule “${o.name}”${o.error_message ? ` · “${o.error_message}”` : ""}` };
       case "functions": return { title: o.purpose || o.name, sub: `Deluge function ${o.name}${o.trigger ? " · " + o.trigger : ""}` };
       case "roles": return { title: `Role “${o.name}”`, sub: `${o.reports_to ? "reports to " + o.reports_to : ""}${(o.permissions || []).length ? " · " + o.permissions.join(", ") : ""}` };

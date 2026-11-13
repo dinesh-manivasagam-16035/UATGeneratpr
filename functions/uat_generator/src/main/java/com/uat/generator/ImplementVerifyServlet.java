@@ -55,7 +55,7 @@ public class ImplementVerifyServlet extends HttpServlet {
             ImplOrg org = Products.current().readOrg(crm, ImplementApplyServlet.modulesOf(spec), true);
 
             ArrayNode results = MAPPER.createArrayNode();
-            for (String section : new String[]{"modules", "fields", "layouts", "roles", "validation_rules",
+            for (String section : new String[]{"modules", "fields", "layouts", "dependencies", "roles", "validation_rules",
                                                "workflows", "functions"}) {
                 for (JsonNode item : spec.path(section)) {
                     if (!item.path("include").asBoolean(true) && !"exists".equals(item.path("status").asText())) continue;

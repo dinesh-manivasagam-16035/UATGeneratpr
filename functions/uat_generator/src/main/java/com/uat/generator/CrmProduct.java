@@ -58,8 +58,8 @@ public final class CrmProduct implements Product {
             "POST /settings/variables", "ZohoCRM.settings.variables.CREATE", "planned", "create-variables"),
         c("tag",              "tags on a module",                                               "ui", "API exists; builder not written",
             "POST /settings/tags?module=X", "ZohoCRM.settings.tags.CREATE", "planned", "create-tag"),
-        c("map_dependency",   "picklist dependency (parent option → allowed child options)",    "ui", "API exists; builder not written",
-            "POST /settings/layouts/{layout_id}/map_dependency?module=X", "ZohoCRM.settings.map_dependency.CREATE", "planned", "map-dependency"),
+        c("map_dependency",   "picklist dependency (parent option → allowed child options)",    "api", "both picklists by name, options the org lacks added first, the whole mapping in one call; an already-mapped pair is left as is",
+            "POST /settings/layouts/{layout_id}/map_dependency?module=X", "ZohoCRM.settings.map_dependency.CREATE", "builds", "map-dependency"),
         c("module_settings",  "rename / show / hide a module, module settings",                 "ui", "API exists; builder not written",
             "PUT /settings/modules/{api_name}", "ZohoCRM.settings.modules.UPDATE", "planned", "update-custom-module-api"),
         c("subform",          "subform (line items) on a module",                                "ui", "no create API",
@@ -234,6 +234,7 @@ public final class CrmProduct implements Product {
                 return hasFields && o.path("profiles").size() == 0 ? "api" : "rpa";
             }
             case "functions": return "api";          // POST settings/functions publishes Deluge with its code
+            case "dependencies": return o.path("mapping").size() > 0 ? "api" : "rpa";
             case "open_questions": return "review";
             case "plan":    return "projects";
             default:        return "rpa";   // validation rules
@@ -280,6 +281,9 @@ public final class CrmProduct implements Product {
             + "layouts: [{module, name, sections:[{name, fields:[field labels]}], profiles (string[]), notes, req_ids}] — "
             + "when the BRD says which section a field belongs in (fields = labels of fields in this spec or the org; "
             + "an unknown section name creates it); a new field with no stated section needs no layout item\n"
+            + "dependencies: [{module, parent (picklist api name), child (picklist api name), mapping ({\"<parent option>\": [child options]} — "
+            + "every parent option the BRD maps; options reuse the org's values and new ones are added), req_ids}] — only when the BRD says "
+            + "a picklist's options depend on another picklist's value\n"
             + "validation_rules: [{module, name, condition (plain-language using field labels), error_message, "
             + "assumption?, req_ids}] — ONLY when the BRD explicitly requires a save to be rejected with a message; "
             + "if a required flag or a workflow field update meets the requirement, use that instead\n"

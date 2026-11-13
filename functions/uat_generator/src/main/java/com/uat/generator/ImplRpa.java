@@ -40,6 +40,14 @@ public final class ImplRpa {
                 if (!o.path("notes").asText("").isEmpty()) s.add(o.path("notes").asText());
                 s.add("Save the layout.");
                 break;
+            case "dependencies": {
+                s.add(Products.current().setupRoot("fields") + " → " + module + " → Layouts → Standard → Map Dependency Fields → New Mapping.");
+                s.add("Parent: " + o.path("parent").asText() + ", child: " + o.path("child").asText() + ".");
+                java.util.Iterator<java.util.Map.Entry<String, JsonNode>> it = o.path("mapping").fields();
+                while (it.hasNext()) { java.util.Map.Entry<String, JsonNode> e = it.next(); s.add(e.getKey() + " → " + join(e.getValue()) + "."); }
+                s.add("Save.");
+                break;
+            }
             case "validation_rules":
                 s.add(Products.current().setupRoot("validation_rules") + " → " + module + " → Validation Rules → Create Rule.");
                 s.add("Name: " + o.path("name").asText() + ".");
@@ -136,6 +144,11 @@ public final class ImplRpa {
                 op(r, "goto", "path", "/settings/modules" + modPath + "/layouts");
                 op(r, "confirm", "text", "Open or create layout \"" + o.path("name").asText("Standard") + "\", place the fields per section as listed"
                         + (o.path("profiles").size() > 0 ? ", assign profiles " + join(o.path("profiles")) : "") + ", save, then approve.");
+                break;
+            }
+            case "dependencies": {
+                op(r, "goto", "path", "/settings/modules" + modPath + "/layouts");
+                op(r, "confirm", "text", "Open the Standard layout → Map Dependency Fields → New Mapping: parent " + o.path("parent").asText() + ", child " + o.path("child").asText() + ", map each option as the spec lists, save, then approve.");
                 break;
             }
             case "workflows": {

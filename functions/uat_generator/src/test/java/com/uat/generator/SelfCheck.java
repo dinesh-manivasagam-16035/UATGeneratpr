@@ -31,6 +31,7 @@ public final class SelfCheck {
         timeBasedRules();
         pipelinePayload();
         emailAlerts();
+        dependencies();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -107,6 +108,27 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void dependencies() throws Exception {
+        String reply = "{\"summary\":\"x\",\"dependencies\":[{\"module\":\"Leads\",\"parent\":\"Industry\",\"child\":\"Sub_Industry\","
+                + "\"mapping\":{\"Banking\":[\"Retail Banking\",\"Investment\"],\"Insurance\":[\"Life\"]},\"req_ids\":[\"FR-5\"]}],\"open_questions\":[]}";
+        ImplSpec.Parsed p = ImplSpec.parse(reply, Arrays.asList("dependencies", "open_questions"));
+        ObjectNode d = p.items.get("dependencies").get(0);
+        ObjectNode spec = emptySpec(); spec.withArray("dependencies").add(d); ImplSpec.finish(spec);
+        check("deps: normalised with id prefix and mapping", spec.path("dependencies").get(0).path("id").asText().equals("DEP-1") && d.path("mapping").path("Banking").size() == 2 && "Industry → Sub_Industry".equals(d.path("name").asText()));
+        check("crm: dependency lane is api", "api".equals(CrmProduct.INSTANCE.laneFor("dependencies", d.deepCopy().put("status", "new"))));
+        ObjectNode parent = M.createObjectNode().put("api_name", "Industry").put("id", "P").put("data_type", "picklist");
+        ArrayNode pp = parent.putArray("pick_list_values"); pp.addObject().put("id", "p1").put("actual_value", "Banking").put("display_value", "Banking"); pp.addObject().put("id", "p2").put("actual_value", "Insurance").put("display_value", "Insurance");
+        ObjectNode child = M.createObjectNode().put("api_name", "Sub_Industry").put("id", "C").put("data_type", "picklist");
+        ArrayNode cp = child.putArray("pick_list_values"); cp.addObject().put("id", "c1").put("actual_value", "Retail Banking").put("display_value", "Retail Banking"); cp.addObject().put("id", "c3").put("actual_value", "Life").put("display_value", "Life");
+        check("deps: missing options detected", ImplDependencies.missing(child, ImplDependencies.childValues(d.path("mapping"))).equals(Arrays.asList("Investment")) && ImplDependencies.missing(parent, ImplDependencies.parentValues(d.path("mapping"))).isEmpty());
+        cp.addObject().put("id", "c2").put("actual_value", "Investment").put("display_value", "Investment");
+        JsonNode body = ImplDependencies.payload(parent, child, d.path("mapping")).path("map_dependency").path(0);
+        check("deps: payload maps parent option ids to child option ids", "P".equals(body.path("parent").path("id").asText()) && body.path("pick_list_values").size() == 2
+                && "p1".equals(body.path("pick_list_values").get(0).path("id").asText()) && body.path("pick_list_values").get(0).path("maps").size() == 2 && "c2".equals(body.path("pick_list_values").get(0).path("maps").get(1).path("id").asText()));
+        ObjectNode have = M.createObjectNode(); ObjectNode ex = have.putArray("map_dependency").addObject(); ex.putObject("parent").put("api_name", "Industry"); ex.putObject("child").put("api_name", "Sub_Industry");
+        check("deps: existing pair detected", ImplDependencies.existing(have, "industry", "Sub_Industry") != null && ImplDependencies.existing(have, "Industry", "Other") == null);
     }
 
     static void emailAlerts() {

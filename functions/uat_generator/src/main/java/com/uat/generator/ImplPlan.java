@@ -57,6 +57,11 @@ public final class ImplPlan {
                     names(e.getValue(), "label") + ".", "LiftOff", "api", 0.05 * e.getValue().size(), "P0",
                     e.getValue(), afterModules, "each field exists with the specified type, length and options");
         }
+        for (JsonNode d : included(spec, "dependencies", "api")) {
+            lastApi = add(tasks, "2. Build via API", "Map " + d.path("child").asText() + " options to " + d.path("parent").asText() + " on " + d.path("module").asText(),
+                    d.path("mapping").size() + " parent option(s) mapped.", "LiftOff", "api", 0.05, "P1", List.of(d), lastApi,
+                    "dependency listed by GET settings/layouts/{id}/map_dependency");
+        }
         List<JsonNode> roles = included(spec, "roles", "api");
         roles.addAll(included(spec, "roles", "partial"));
         if (!roles.isEmpty()) {
@@ -92,7 +97,7 @@ public final class ImplPlan {
         // ---- 3. Setup lane: what the runner walks you through ----
         String lastUi = lastApi;
         List<JsonNode> ui = new ArrayList<>();
-        for (String sct : new String[]{"fields", "layouts", "validation_rules", "workflows", "functions"}) ui.addAll(included(spec, sct, "rpa"));
+        for (String sct : new String[]{"fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) ui.addAll(included(spec, sct, "rpa"));
         for (JsonNode w : included(spec, "workflows", "partial")) {
             if (w.path("other_actions").size() > 0) ui.add(w);
         }
@@ -150,6 +155,7 @@ public final class ImplPlan {
             case "fields":           return "field " + o.path("module").asText() + "." + o.path("label").asText()
                                             + " (" + o.path("data_type").asText() + ")";
             case "layouts":          return "layout " + o.path("module").asText() + " / " + o.path("name").asText();
+            case "dependencies":     return "picklist dependency " + o.path("parent").asText() + " → " + o.path("child").asText() + " on " + o.path("module").asText();
             case "validation_rules": return "validation rule " + o.path("module").asText() + ": " + o.path("name").asText();
             case "workflows":        return o.path("type").asText() + " " + o.path("module").asText() + ": " + o.path("name").asText();
             case "roles":            return "role " + o.path("name").asText();

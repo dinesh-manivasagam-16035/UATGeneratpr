@@ -105,7 +105,7 @@ public class ImplementApplyServlet extends HttpServlet {
             ArrayNode results = MAPPER.createArrayNode();
             ArrayNode rpaQueue = MAPPER.createArrayNode();
 
-            for (String section : new String[]{"modules", "fields", "roles", "layouts", "validation_rules",
+            for (String section : new String[]{"modules", "fields", "roles", "layouts", "dependencies", "validation_rules",
                                                "workflows", "functions"}) {
                 for (JsonNode item : spec.path(section)) {
                     String id = item.path("id").asText();
@@ -189,7 +189,7 @@ public class ImplementApplyServlet extends HttpServlet {
     /** Module names the given items refer to (their own module and lookup target). */
     static Set<String> modulesOf(JsonNode spec, Set<String> ids) {
         Set<String> out = new LinkedHashSet<>();
-        for (String section : new String[]{"modules", "fields", "layouts", "validation_rules", "workflows", "functions"}) {
+        for (String section : new String[]{"modules", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) {
             for (JsonNode item : spec.path(section)) {
                 if (!ids.contains(item.path("id").asText())) continue;
                 out.add("modules".equals(section) ? item.path("api_name").asText() : item.path("module").asText());
@@ -236,6 +236,7 @@ public class ImplementApplyServlet extends HttpServlet {
                     else workflow(item, r);
                     break;
                 case "layouts": layout(item, r); break;
+                case "dependencies": dependency(item, r); break;
                 case "functions": function(item, r); break;
                 default: throw new IllegalStateException("No API executor for " + section);
             }
@@ -702,6 +703,69 @@ public class ImplementApplyServlet extends HttpServlet {
                 r.put("follow_up", "No profile permission matched: " + ImplPlan.join(matched.path("unmatched")) + " — set these in Setup → Security Control → Profiles → " + newName + ".");
             }
             if (org != null && org.roles != null) r.put("note", "Assign the profile to the role's users (profiles are per user).");
+        }
+
+        /**
+         * Picklist dependency through POST settings/layouts/{layout}/map_dependency: the parent and child
+         * picklists by api name or label (fields created earlier in this run included), options the spec names
+         * added to either picklist first, then the whole mapping in one call. A pair already mapped is skipped.
+         */
+        void dependency(JsonNode d, ObjectNode r) throws Exception {
+            String module = moduleApi(d.path("module").asText());
+            ArrayNode requests = r.putArray("requests");
+            JsonNode layouts = crm == null ? null : crm.call("GET", "/crm/" + v + "/settings/layouts?module=" + enc(module), null).json;
+            JsonNode layout = null;
+            if (layouts != null) for (JsonNode l : layouts.path("layouts")) if (layout == null || l.path("name").asText("").equalsIgnoreCase("Standard")) layout = l;
+            if (layout == null && !dryRun) throw new IllegalStateException("Couldn't read the layouts of " + module + ".");
+            String layoutId = layout == null ? "<layout id>" : layout.path("id").asText();
+            JsonNode parent = liveField(module, d.path("parent").asText()), child = liveField(module, d.path("child").asText());
+            if (parent == null || child == null) {
+                if (!dryRun) throw new IllegalStateException("Field " + (parent == null ? d.path("parent").asText() : d.path("child").asText()) + " isn't in " + module + " yet.");
+                if (parent == null) parent = MAPPER.createObjectNode().put("api_name", d.path("parent").asText()).put("id", "<id>").put("data_type", "picklist");
+                if (child == null) child = MAPPER.createObjectNode().put("api_name", d.path("child").asText()).put("id", "<id>").put("data_type", "picklist");
+            }
+            if (!parent.path("data_type").asText("").contains("picklist") || !child.path("data_type").asText("").contains("picklist")) {
+                throw new IllegalStateException("A dependency needs two picklists; " + parent.path("api_name").asText() + " is " + parent.path("data_type").asText() + ", " + child.path("api_name").asText() + " is " + child.path("data_type").asText() + ".");
+            }
+            if (crm != null && !dryRun) {
+                JsonNode have = crm.call("GET", "/crm/" + v + "/settings/layouts/" + layoutId + "/map_dependency?module=" + enc(module), null).json;
+                if (ImplDependencies.existing(have, parent.path("api_name").asText(), child.path("api_name").asText()) != null) {
+                    r.put("result", "skipped"); r.put("detail", "These two fields are already mapped on this layout (change it in Setup)."); return;
+                }
+            }
+            JsonNode mapping = d.path("mapping");
+            List<String> addedP = ImplDependencies.missing(parent, ImplDependencies.parentValues(mapping));
+            List<String> addedC = ImplDependencies.missing(child, ImplDependencies.childValues(mapping));
+            for (String val : addedP) ensurePicklistValue(module, parent, MAPPER.getNodeFactory().textNode(val), requests);
+            for (String val : addedC) ensurePicklistValue(module, child, MAPPER.getNodeFactory().textNode(val), requests);
+            if (!dryRun && crm != null && (!addedP.isEmpty() || !addedC.isEmpty())) {
+                JsonNode fj = crm.call("GET", "/crm/" + v + "/settings/fields?module=" + enc(module), null).json;
+                if (fj != null) for (JsonNode f : fj.path("fields")) {
+                    if (f.path("api_name").asText().equals(parent.path("api_name").asText())) parent = f;
+                    if (f.path("api_name").asText().equals(child.path("api_name").asText())) child = f;
+                }
+            }
+            ObjectNode body = ImplDependencies.payload(parent, child, mapping);
+            if (dryRun) {   // placeholders for options that don't exist yet
+                ArrayNode pvs = ((ObjectNode) body.path("map_dependency").path(0)).withArray("pick_list_values");
+                if (pvs.size() == 0) pvs.addObject().put("id", "<parent option ids>").putArray("maps").addObject().put("id", "<child option ids>");
+            }
+            call(requests, "POST", "/crm/" + v + "/settings/layouts/" + layoutId + "/map_dependency?module=" + enc(module), body, "map_dependency", "picklist dependency");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would map " : "Mapped ") + child.path("api_name").asText() + " to " + parent.path("api_name").asText() + " for " + mapping.size() + " parent option(s)"
+                    + (addedP.isEmpty() && addedC.isEmpty() ? "" : "; added options " + String.join(", ", addedP) + (addedP.isEmpty() || addedC.isEmpty() ? "" : ", ") + String.join(", ", addedC)) + ".");
+        }
+
+        /** A live field of the module by api name or label, including ones created earlier in this run (re-read). */
+        JsonNode liveField(String module, String apiOrLabel) throws Exception {
+            JsonNode f = org == null ? null : org.field(module, apiOrLabel);
+            if (f != null || crm == null || dryRun) return f;
+            JsonNode fj = crm.call("GET", "/crm/" + v + "/settings/fields?module=" + enc(module), null).json;
+            if (fj == null) return null;
+            for (JsonNode x : fj.path("fields")) {
+                if (x.path("api_name").asText().equalsIgnoreCase(apiOrLabel) || x.path("field_label").asText().equalsIgnoreCase(apiOrLabel)) return x;
+            }
+            return null;
         }
 
         /**

@@ -338,7 +338,7 @@ public class ImplementServlet extends HttpServlet {
         return Arrays.asList(
                 Arrays.asList("modules", "roles", "open_questions"),
                 Arrays.asList("fields"),
-                Arrays.asList("layouts", "validation_rules"));
+                Arrays.asList("layouts", "dependencies", "validation_rules"));
     }
 
     /** System prompt for one call that returns only some of the part's sections. */
