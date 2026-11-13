@@ -80,11 +80,28 @@ public interface Product {
     default List<String> defaultModules() { return java.util.Arrays.asList("Leads", "Contacts", "Accounts", "Deals"); }
 
     /** One row of the capability matrix. */
+    /**
+     * One row of the capability sheet. {@code lane} is what LiftOff does today (api | partial | ui);
+     * {@code api} is the product's create/update endpoint when one exists (verified against the API
+     * reference on {@code verified}); {@code status} says how far LiftOff is:
+     * builds · partial · runner · planned (API exists, builder not written) · verify (API unconfirmed).
+     */
     final class Capability {
-        public final String kind, need, lane, how;
+        public final String kind, need, lane, how, api, scope, status, doc, verified;
 
         public Capability(String kind, String need, String lane, String how) {
+            this(kind, need, lane, how, "", "", "api".equals(lane) ? "builds" : "partial".equals(lane) ? "partial" : "runner", "", "");
+        }
+
+        public Capability(String kind, String need, String lane, String how, String api, String scope, String status, String doc, String verified) {
             this.kind = kind; this.need = need; this.lane = lane; this.how = how == null ? "" : how;
+            this.api = api == null ? "" : api; this.scope = scope == null ? "" : scope; this.status = status == null ? "" : status;
+            this.doc = doc == null ? "" : doc; this.verified = verified == null ? "" : verified;
+        }
+
+        /** Short label for sheets and the UI. */
+        public String laneLabel() {
+            switch (lane) { case "api": return "API"; case "partial": return "API + one Setup step"; default: return "Setup (runner)"; }
         }
     }
 }

@@ -92,6 +92,14 @@ public final class SelfCheck {
         check(prod.id() + ": validation rule is rpa", "rpa".equals(prod.laneFor("validation_rules", vr)));
         check(prod.id() + ": matrix has api rows", anyApi);
         check(prod.id() + ": prompt carries the matrix", prod.systemPrompt("automation").contains("WHAT LIFTOFF CAN BUILD"));
+        boolean consistent = true;
+        for (Product.Capability c : prod.capabilities()) {
+            if (!Arrays.asList("api", "partial", "ui").contains(c.lane)) consistent = false;
+            if ("builds".equals(c.status) && !"api".equals(c.lane)) consistent = false;        // builds ⇒ API lane
+            if ("planned".equals(c.status) && "api".equals(c.lane)) consistent = false;         // planned ⇒ not yet an API lane
+            if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
+        }
+        check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
     }
 
     static void executionPlan() {

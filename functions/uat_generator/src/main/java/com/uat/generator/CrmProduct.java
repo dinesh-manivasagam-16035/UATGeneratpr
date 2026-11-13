@@ -14,21 +14,99 @@ public final class CrmProduct implements Product {
 
     static final CrmProduct INSTANCE = new CrmProduct();
 
+    private static final String V = "2026-11-13";                       // last check against the API reference
+    private static final String D = "https://www.zoho.com/crm/developer/docs/api/v8/";
+    private static Capability c(String kind, String need, String lane, String how, String api, String scope, String status, String docSlug) {
+        return new Capability(kind, need, lane, how, api, scope, status, docSlug.isEmpty() ? "" : docSlug.startsWith("http") ? docSlug : D + docSlug + ".html", V);
+    }
+
+    /**
+     * The Zoho CRM capability sheet — every activity an implementation can need, what the API offers,
+     * and what LiftOff does with it today. One table drives the agent's brief, the build lane and the
+     * exported sheet (/implement/capabilities), so the three can't disagree. Rows marked "planned"
+     * have a verified create API that LiftOff doesn't call yet; "verify" rows have no confirmed API page.
+     */
     private static final List<Capability> MATRIX = Collections.unmodifiableList(Arrays.asList(
-        new Capability("module",           "custom module",                                   "api",     "POST settings/modules"),
-        new Capability("field",            "custom field of type text, textarea, email, phone, website, picklist, multiselectpicklist, date, datetime, integer, bigint, decimal, currency, percent, boolean or lookup", "api", "POST settings/fields; a required field is marked mandatory on the layout"),
-        new Capability("picklist_option",  "new option on an existing picklist",              "api",     "PATCH settings/fields — existing options are kept"),
-        new Capability("field_other",      "field of type autonumber, formula, fileupload or multiselectlookup", "ui", "no create API"),
-        new Capability("layout_place",     "placing fields into sections of the existing layout (new section allowed) / making a field required", "api", "PATCH settings/layouts"),
-        new Capability("layout_design",    "a second layout or per-profile layouts",           "ui",      "designed in Setup"),
-        new Capability("role",             "role in the hierarchy",                            "api",     "POST settings/roles; module permissions live on the profile → partial when permissions are listed"),
-        new Capability("rule_field_update","workflow rule on create / edit / field update / delete with field update, task and webhook actions", "api", "settings/automation/field_updates + tasks + webhooks + workflow_rules"),
-        new Capability("rule_other_action","workflow rule action: email alert, function call",  "partial", "the rule is built; the template or function is attached in Setup"),
-        new Capability("assignment",       "assignment rule (criteria → users or round robin)", "api",     "POST settings/automation/assignment_rules; applies to records entering through web forms, imports and the API"),
-        new Capability("rule_time",        "time-based (date/datetime) trigger",               "ui",      "no create API for scheduled triggers"),
-        new Capability("validation_rule",  "validation rule (reject a save with a message)",   "ui",      "no create API — prefer a required flag or a workflow field update when it meets the requirement"),
-        new Capability("blueprint",        "Blueprint, approval process, scoring rule, cadence", "ui", "guided runner"),
-        new Capability("function",         "Deluge function",                                  "ui",      "no create API — only when no rule action can do it")
+        // ---- data model ----
+        c("module",           "custom module",                                                  "api", "created with the profiles that may see it",
+            "POST /settings/modules", "ZohoCRM.settings.modules.CREATE", "builds", "create-custom-module-api"),
+        c("field",            "custom field: text, textarea, email, phone, website, picklist, multiselectpicklist, date, datetime, integer, bigint, decimal, currency, percent, boolean, lookup", "api", "required fields are then marked mandatory on the layout",
+            "POST /settings/fields?module=X", "ZohoCRM.settings.fields.CREATE", "builds", "create-custom-field"),
+        c("picklist_option",  "new option on an existing picklist",                             "api", "existing options are kept; added before a rule uses the value",
+            "PATCH /settings/fields/{id}?module=X", "ZohoCRM.settings.fields.UPDATE", "builds", "update-custom-fields"),
+        c("field_other",      "field of type autonumber, formula, fileupload, multiselectlookup, image, subform", "ui", "no create API for these types",
+            "", "", "runner", ""),
+        c("global_picklist",  "global picklist (shared option set)",                            "ui", "API exists; builder not written",
+            "POST /settings/global_picklists", "ZohoCRM.settings.global_picklist.CREATE", "planned", "create-global-picklists"),
+        c("layout_place",     "placing fields into sections of the existing layout (new section allowed), marking a field required", "api", "",
+            "PATCH /settings/layouts/{id}?module=X", "ZohoCRM.settings.layouts.UPDATE", "builds", "update-custom-layout"),
+        c("layout_design",    "a second layout, per-profile layouts",                            "ui", "designed in Setup → Modules and Fields → Layouts",
+            "", "", "runner", ""),
+        c("layout_rule",      "layout rule (show/hide/require fields by condition)",            "ui", "no create API",
+            "", "", "runner", ""),
+        c("validation_rule",  "validation rule (reject a save with a message)",                 "ui", "no create API — prefer a required flag or a rule action when it meets the requirement",
+            "", "", "runner", ""),
+        c("related_list",     "related list / linking",                                         "ui", "no create API",
+            "", "", "runner", ""),
+        c("custom_view",      "custom list view",                                               "ui", "create API not confirmed in v8 reference",
+            "", "", "verify", ""),
+        c("pipeline",         "deal pipeline / stages",                                         "ui", "API exists; builder not written",
+            "POST /settings/pipeline?layout_id=X", "ZohoCRM.settings.pipeline.CREATE", "planned", "create-pipeline"),
+        c("variable",         "CRM variable (org-level constant)",                              "ui", "API exists; builder not written",
+            "POST /settings/variables", "ZohoCRM.settings.variables.CREATE", "planned", "create-variables"),
+        c("tag",              "tags on a module",                                               "ui", "create API not confirmed in v8 reference",
+            "", "", "verify", ""),
+        // ---- access ----
+        c("role",             "role in the hierarchy",                                          "api", "module permissions live on the profile → partial when permissions are listed",
+            "POST /settings/roles", "ZohoCRM.settings.roles.CREATE", "builds", "create-role"),
+        c("profile",          "profile (clone + permission changes)",                           "ui", "API clones a profile and updates permissions; builder not written",
+            "POST /settings/profiles/{id}/actions/clone; PATCH permissions", "ZohoCRM.settings.profiles.CREATE", "planned", "create-profile"),
+        c("user",             "add a user",                                                     "ui", "API exists; builder not written (invites a real person)",
+            "POST /users", "ZohoCRM.users.CREATE", "planned", "add-user"),
+        c("territory",        "territory",                                                      "ui", "read-only API",
+            "GET /settings/territories", "ZohoCRM.settings.territories.READ", "runner", "territories"),
+        c("sharing_rule",     "data sharing rule",                                              "ui", "read-only API",
+            "GET /settings/data_sharing/rules", "ZohoCRM.settings.data_sharing.READ", "runner", "data-sharing-rules"),
+        // ---- automation ----
+        c("rule_field_update","workflow rule on create / edit / field update / delete, with field update, task and webhook actions", "api", "one call per action, then the rule",
+            "POST /settings/automation/workflow_rules (+ field_updates, tasks, webhooks)", "ZohoCRM.settings.workflow_rules.CREATE, automation_actions.CREATE", "builds", "config-workflow"),
+        c("rule_email",       "workflow rule action: email alert",                              "partial", "the alert API needs an existing email template (templates are read-only) — the template is made in Setup",
+            "POST /settings/automation/email_notifications", "ZohoCRM.settings.automation_actions.CREATE", "planned", "create-email-notification"),
+        c("rule_function",    "workflow rule action: call a Deluge function",                   "partial", "the rule is built; the function is written in Setup",
+            "", "", "partial", ""),
+        c("rule_time",        "time-based (date/datetime) trigger",                             "ui", "no create API for scheduled triggers",
+            "", "", "runner", ""),
+        c("assignment",       "assignment rule (criteria → users or round robin)",              "api", "applies to records entering through web forms, imports and the API",
+            "POST /settings/automation/assignment_rules?module=X", "ZohoCRM.settings.assignment_rules.CREATE", "builds", "create-assignment-rules"),
+        c("scoring",          "scoring rule",                                                   "ui", "API exists; builder not written",
+            "POST /settings/automation/scoring_rules", "ZohoCRM.settings.scoring_rules.CREATE", "planned", "create-scoring-rules"),
+        c("blueprint",        "Blueprint (process with states and transitions)",                "ui", "read API only",
+            "", "", "runner", ""),
+        c("approval",         "approval process",                                               "ui", "no create API",
+            "", "", "runner", ""),
+        c("cadence",          "cadence / schedule",                                             "ui", "no create API",
+            "", "", "runner", ""),
+        c("webhook_standalone","webhook used outside a rule",                                   "api", "",
+            "POST /settings/automation/webhooks", "ZohoCRM.settings.automation_actions.CREATE", "builds", "create-webhook"),
+        c("function",         "Deluge function (standalone, automation, button)",               "ui", "no create API",
+            "", "", "runner", ""),
+        c("button",           "custom button",                                                  "ui", "no create API",
+            "", "", "runner", ""),
+        c("email_template",   "email template",                                                 "ui", "read-only API",
+            "GET /settings/email_templates", "ZohoCRM.templates.email.READ", "runner", "email-templates"),
+        c("inventory_template","inventory / mail-merge template",                               "ui", "no create API",
+            "", "", "runner", ""),
+        c("web_form",         "web form",                                                       "ui", "no create API",
+            "", "", "runner", ""),
+        c("wizard",           "wizard / canvas page",                                           "ui", "no create API",
+            "", "", "runner", ""),
+        // ---- org ----
+        c("currency",         "multi-currency / exchange rate",                                 "ui", "create API not confirmed in v8 reference",
+            "", "", "verify", ""),
+        c("business_hours",   "business hours, holidays, fiscal year",                          "ui", "no create API",
+            "", "", "runner", ""),
+        c("sandbox_deploy",   "sandbox → production deployment",                                "ui", "done in Setup → Sandbox; LiftOff hands over the promotion package",
+            "", "", "runner", "")
     ));
 
     @Override public String id() { return "crm"; }

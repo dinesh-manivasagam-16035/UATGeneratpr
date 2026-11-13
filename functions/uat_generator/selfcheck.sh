@@ -8,3 +8,4 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 CP="$(ls lib/*.jar | tr '\n' ':')"
 javac -nowarn -d "$OUT" -cp "$CP" $(find src/main/java src/test/java -name '*.java')
 java -cp "$OUT:$CP" com.uat.generator.SelfCheck
+java -cp "$OUT:$CP" com.uat.generator.CapabilitySheet "$(cd ../.. && pwd)/docs/capabilities"
