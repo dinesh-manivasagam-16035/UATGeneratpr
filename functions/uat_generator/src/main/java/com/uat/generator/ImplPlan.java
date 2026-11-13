@@ -100,10 +100,19 @@ public final class ImplPlan {
                     "function listed by GET settings/functions, state active");
         }
 
+        List<JsonNode> shares = included(spec, "sharing", "api");
+        for (JsonNode sh : shares) {
+            boolean terr = "territory".equals(sh.path("type").asText());
+            lastApi = add(tasks, "2. Build via API", (terr ? "Create territory: " : "Share " + sh.path("module").asText() + " with " + sh.path("shared_to").asText() + ": ") + sh.path("name").asText(),
+                    terr ? "Under " + (sh.path("parent").asText("").isEmpty() ? "the top territory" : sh.path("parent").asText()) + "." : "Permission: " + sh.path("permission_type").asText("read") + ".",
+                    "LiftOff", "api", 0.1, "P1", List.of(sh), lastApi,
+                    terr ? "territory listed by GET settings/territories" : "rule listed by GET settings/data_sharing/rules");
+        }
+
         // ---- 3. Setup lane: what the runner walks you through ----
         String lastUi = lastApi;
         List<JsonNode> ui = new ArrayList<>();
-        for (String sct : new String[]{"global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) ui.addAll(included(spec, sct, "rpa"));
+        for (String sct : new String[]{"global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions", "sharing"}) ui.addAll(included(spec, sct, "rpa"));
         for (JsonNode w : included(spec, "workflows", "partial")) {
             if (w.path("other_actions").size() > 0) ui.add(w);
         }
@@ -161,6 +170,7 @@ public final class ImplPlan {
             case "fields":           return "field " + o.path("module").asText() + "." + o.path("label").asText()
                                             + " (" + o.path("data_type").asText() + ")";
             case "layouts":          return "layout " + o.path("module").asText() + " / " + o.path("name").asText();
+            case "sharing":          return ("territory".equals(o.path("type").asText()) ? "territory " : "sharing rule ") + o.path("name").asText();
             case "global_picklists": return "shared option set " + o.path("name").asText();
             case "dependencies":     return "picklist dependency " + o.path("parent").asText() + " → " + o.path("child").asText() + " on " + o.path("module").asText();
             case "validation_rules": return "validation rule " + o.path("module").asText() + ": " + o.path("name").asText();

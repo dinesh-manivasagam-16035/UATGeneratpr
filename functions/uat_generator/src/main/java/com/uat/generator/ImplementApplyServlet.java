@@ -106,7 +106,7 @@ public class ImplementApplyServlet extends HttpServlet {
             ArrayNode rpaQueue = MAPPER.createArrayNode();
 
             for (String section : new String[]{"modules", "global_picklists", "fields", "roles", "layouts", "dependencies", "validation_rules",
-                                               "workflows", "functions"}) {
+                                               "workflows", "functions", "sharing"}) {
                 for (JsonNode item : spec.path(section)) {
                     String id = item.path("id").asText();
                     if (!only.isEmpty() && !only.contains(id)) continue;
@@ -189,7 +189,7 @@ public class ImplementApplyServlet extends HttpServlet {
     /** Module names the given items refer to (their own module and lookup target). */
     static Set<String> modulesOf(JsonNode spec, Set<String> ids) {
         Set<String> out = new LinkedHashSet<>();
-        for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) {
+        for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions", "sharing"}) {
             for (JsonNode item : spec.path(section)) {
                 if (!ids.contains(item.path("id").asText())) continue;
                 out.add("modules".equals(section) ? item.path("api_name").asText() : item.path("module").asText());
@@ -238,6 +238,9 @@ public class ImplementApplyServlet extends HttpServlet {
                 case "layouts": layout(item, r); break;
                 case "dependencies": dependency(item, r); break;
                 case "global_picklists": globalPicklist(item, r); break;
+                case "sharing":
+                    if ("territory".equals(item.path("type").asText())) territory(item, r); else sharingRule(item, r);
+                    break;
                 case "functions": function(item, r); break;
                 default: throw new IllegalStateException("No API executor for " + section);
             }
@@ -714,6 +717,94 @@ public class ImplementApplyServlet extends HttpServlet {
                 r.put("follow_up", "No profile permission matched: " + ImplPlan.join(matched.path("unmatched")) + " — set these in Setup → Security Control → Profiles → " + newName + ".");
             }
             if (org != null && org.roles != null) r.put("note", "Assign the profile to the role's users (profiles are per user).");
+        }
+
+        Map<String, String> groupIds;
+        Map<String, String> groups() throws Exception {
+            if (groupIds != null) return groupIds;
+            groupIds = new LinkedHashMap<>();
+            if (crm == null) return groupIds;
+            try {
+                CrmClient.Response res = crm.call("GET", "/crm/" + v + "/settings/user_groups", null);
+                if (res.json != null) for (JsonNode g : res.json.path("user_groups")) groupIds.put(ImplSpec.low(g.path("name").asText()), g.path("id").asText());
+            } catch (Exception ignored) { /* groups are optional */ }
+            return groupIds;
+        }
+
+        Map<String, String> territoryIds;
+        /** lower-cased territory name → id, plus "__top__" for the root territory. */
+        Map<String, String> territories() throws Exception {
+            if (territoryIds != null) return territoryIds;
+            territoryIds = new LinkedHashMap<>();
+            if (crm == null) return territoryIds;
+            CrmClient.Response res = crm.call("GET", "/crm/" + v + "/settings/territories", null);
+            if (res.statusCode == 403) throw new IllegalStateException("Territory Management isn't enabled in this org (or the edition doesn't include it). "
+                    + "Enable it in Setup → Users and Control → Territory Management, then Retry this step.");
+            if (res.json != null) for (JsonNode t : res.json.path("territories")) {
+                territoryIds.put(ImplSpec.low(t.path("name").asText()), t.path("id").asText());
+                if (t.path("reporting_to").isNull() || t.path("reporting_to").isMissingNode()) territoryIds.putIfAbsent("__top__", t.path("id").asText());
+            }
+            return territoryIds;
+        }
+
+        /** Territory through POST settings/territories, under the named parent (else the top territory). */
+        void territory(JsonNode t, ObjectNode r) throws Exception {
+            ArrayNode requests = r.putArray("requests");
+            Map<String, String> have = dryRun && crm == null ? new LinkedHashMap<>() : territories();
+            String name = t.path("name").asText();
+            if (have.containsKey(ImplSpec.low(name))) { r.put("result", "skipped"); r.put("detail", "A territory named \"" + name + "\" already exists."); return; }
+            String parentName = t.path("parent").asText("");
+            String parentId = have.get(ImplSpec.low(parentName));
+            if (parentId == null) {
+                parentId = have.get("__top__");
+                if (!parentName.isEmpty()) r.put("follow_up", "Parent territory \"" + parentName + "\" wasn't found; placed under the top territory.");
+            }
+            if (parentId == null) {
+                if (!dryRun) throw new IllegalStateException("Couldn't read the org's territories to find the parent.");
+                parentId = "<top territory id>";
+            }
+            String managerId = t.path("manager").asText("").isEmpty() ? null : userId(t.path("manager").asText());
+            String module = t.path("criteria").size() > 0 ? t.path("criteria").get(0).path("module").asText("") : "";
+            final String mod = module.isEmpty() ? "" : moduleApi(module);
+            ObjectNode payload = ImplSharing.territory(t, parentId, managerId, (api) -> mod.isEmpty() ? null : (org == null ? null : org.field(mod, api)));
+            String id = call(requests, "POST", "/crm/" + v + "/settings/territories", payload, "territories", "territory");
+            if (!dryRun && id != null) have.put(ImplSpec.low(name), id);
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would create " : "Created ") + "territory \"" + name + "\" (" + payload.path("territories").path(0).path("permission_type").asText()
+                    + (t.path("criteria").size() > 0 ? ", " + t.path("criteria").size() + " assignment rule(s)" : "") + ").");
+        }
+
+        /** Data sharing rule through POST settings/data_sharing/rules?module=X. */
+        void sharingRule(JsonNode sr, ObjectNode r) throws Exception {
+            String module = moduleApi(sr.path("module").asText());
+            ArrayNode requests = r.putArray("requests");
+            if (crm != null && !dryRun) {
+                JsonNode have = crm.call("GET", "/crm/" + v + "/settings/data_sharing/rules?module=" + enc(module), null).json;
+                if (ImplSharing.existing(have, "sharing_rules", sr.path("name").asText()) != null) {
+                    r.put("result", "skipped"); r.put("detail", "A sharing rule with this name already exists on " + module + "."); return;
+                }
+            }
+            Map<String, String> roleIds = dryRun && crm == null ? new LinkedHashMap<>() : roles();
+            Map<String, String> grp = dryRun && crm == null ? new LinkedHashMap<>() : groups();
+            ObjectNode to = ImplSharing.audience(sr.path("shared_to").asText(""), roleIds, grp);
+            if (to == null) throw new IllegalStateException("Couldn't match \"" + sr.path("shared_to").asText() + "\" to a role or group in the org — name the exact role or group.");
+            ObjectNode from = null;
+            ArrayNode group = MAPPER.createArrayNode();
+            final String mod = module;
+            java.util.function.Function<String, JsonNode> fieldOf = (api) -> org == null ? null : org.field(mod, api);
+            for (JsonNode c : sr.path("conditions")) group.add(ImplSharing.condition(c, fieldOf));
+            if (group.size() == 0) {
+                from = ImplSharing.audience(sr.path("shared_from").asText(""), roleIds, grp);
+                if (from == null) throw new IllegalStateException("An owner-based sharing rule needs shared_from (whose records are shared) as a role or group, "
+                        + "or conditions for a criteria-based rule.");
+                if ("all_users".equals(from.path("type").asText())) throw new IllegalStateException("shared_from must be a role or a group, not all users.");
+            }
+            ObjectNode payload = ImplSharing.sharingRule(sr, to, from, group);
+            call(requests, "POST", "/crm/" + v + "/settings/data_sharing/rules?module=" + enc(module), payload, "sharing_rules", "sharing rule");
+            r.put("result", dryRun ? "would_create" : "created");
+            JsonNode made = payload.path("sharing_rules").path(0);
+            r.put("detail", (dryRun ? "Would share " : "Shared ") + module + " records with " + sr.path("shared_to").asText() + " as "
+                    + made.path("permission_type").asText() + " (" + made.path("type").asText() + ").");
         }
 
         Map<String, String> globalSets;      // lower-cased name/api_name → id (org's sets plus ones created here)

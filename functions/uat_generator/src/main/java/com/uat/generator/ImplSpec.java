@@ -41,11 +41,11 @@ public final class ImplSpec {
             .configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
 
     public static final List<String> DATA_MODEL = Arrays.asList(
-            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "roles", "open_questions");
+            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "roles", "sharing", "open_questions");
     public static final List<String> AUTOMATION = Arrays.asList(
             "workflows", "functions", "open_questions");
     public static final List<String> SECTIONS = Arrays.asList(
-            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "roles",
+            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "roles", "sharing",
             "functions", "open_questions", "plan");
 
     private static final Map<String, String> PREFIX = new LinkedHashMap<>();
@@ -58,6 +58,7 @@ public final class ImplSpec {
         PREFIX.put("validation_rules", "VAL");
         PREFIX.put("workflows", "WF");
         PREFIX.put("roles", "ROLE");
+        PREFIX.put("sharing", "SHR");
         PREFIX.put("functions", "FN");
         PREFIX.put("open_questions", "Q");
         PREFIX.put("plan", "TASK");
@@ -262,6 +263,44 @@ public final class ImplSpec {
                 }
                 copyStrings(in, o, "profiles");
                 o.put("notes", text(in, "notes"));
+                break;
+            }
+            case "sharing": {
+                // Record visibility: a territory, or a data sharing rule
+                String type = text(in, "type").toLowerCase(Locale.ROOT);
+                if (!type.equals("territory") && !type.equals("sharing_rule")) type = text(in, "module").isEmpty() ? "territory" : "sharing_rule";
+                String name = text(in, "name");
+                if (name.isEmpty()) return null;
+                o.put("type", type);
+                o.put("name", name);
+                o.put("description", text(in, "description"));
+                o.put("permission_type", text(in, "permission_type"));
+                if (type.equals("territory")) {
+                    putIfText(o, "parent", firstText(in, "parent", "reporting_to", "parent_territory"));
+                    putIfText(o, "manager", text(in, "manager"));
+                    ArrayNode crit = o.putArray("criteria");
+                    for (JsonNode c : in.path("criteria")) {
+                        String module = text(c, "module"), field = text(c, "field");
+                        String cmp = text(c, "comparator").toLowerCase(Locale.ROOT);
+                        if (module.isEmpty() || field.isEmpty()) continue;
+                        crit.addObject().put("module", module).put("field", field)
+                                .put("comparator", COMPARATORS.contains(cmp) ? cmp : "equal").put("value", text(c, "value"));
+                    }
+                } else {
+                    o.put("module", text(in, "module"));
+                    putIfText(o, "shared_to", firstText(in, "shared_to", "to", "share_with"));
+                    putIfText(o, "shared_from", firstText(in, "shared_from", "from", "records_of"));
+                    o.put("match", "or".equalsIgnoreCase(text(in, "match")) ? "or" : "and");
+                    o.put("superiors_allowed", in.path("superiors_allowed").asBoolean(true));
+                    ArrayNode conds = o.putArray("conditions");
+                    for (JsonNode c : in.path("conditions")) {
+                        String field = text(c, "field");
+                        String cmp = text(c, "comparator").toLowerCase(Locale.ROOT);
+                        if (field.isEmpty() || !COMPARATORS.contains(cmp)) continue;
+                        conds.addObject().put("field", field).put("comparator", cmp).put("value", text(c, "value"));
+                    }
+                    if (o.path("shared_to").asText("").isEmpty()) return null;
+                }
                 break;
             }
             case "global_picklists": {
@@ -487,6 +526,7 @@ public final class ImplSpec {
             case "validation_rules": return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "dependencies":     return low(o.path("module").asText()) + "|" + low(o.path("parent").asText()) + ">" + low(o.path("child").asText());
             case "global_picklists": return low(o.path("name").asText());
+            case "sharing":          return low(o.path("type").asText()) + "|" + low(o.path("module").asText("")) + "|" + low(o.path("name").asText());
             case "workflows":        return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "roles":            return low(o.path("name").asText());
             case "functions":        return low(o.path("name").asText());

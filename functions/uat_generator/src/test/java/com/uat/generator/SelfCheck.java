@@ -33,6 +33,7 @@ public final class SelfCheck {
         emailAlerts();
         dependencies();
         globalPicklists();
+        sharingAndTerritories();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -109,6 +110,43 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void sharingAndTerritories() throws Exception {
+        String reply = "{\"summary\":\"x\",\"sharing\":["
+                + "{\"type\":\"territory\",\"name\":\"West India\",\"parent\":\"India\",\"manager\":\"asha@x.com\",\"permission_type\":\"read write delete\","
+                + "\"criteria\":[{\"module\":\"Accounts\",\"field\":\"Billing_State\",\"comparator\":\"equal\",\"value\":\"Maharashtra\"}],\"req_ids\":[\"FR-7\"]},"
+                + "{\"type\":\"sharing_rule\",\"name\":\"Support sees Deals\",\"module\":\"Deals\",\"shared_to\":\"Support role and subordinates\","
+                + "\"shared_from\":\"Sales Manager role\",\"permission_type\":\"read write\",\"superiors_allowed\":false,\"req_ids\":[\"FR-8\"]}],\"open_questions\":[]}";
+        ImplSpec.Parsed p = ImplSpec.parse(reply, Arrays.asList("sharing", "open_questions"));
+        ObjectNode t = p.items.get("sharing").get(0), sr = p.items.get("sharing").get(1);
+        check("sharing: both kinds normalised", "territory".equals(t.path("type").asText()) && "India".equals(t.path("parent").asText())
+                && "sharing_rule".equals(sr.path("type").asText()) && "Deals".equals(sr.path("module").asText()) && !sr.path("superiors_allowed").asBoolean());
+        check("sharing: permissions mapped", "read_write_delete".equals(ImplSharing.territoryPermission(t.path("permission_type").asText()))
+                && "read_write".equals(ImplSharing.sharePermission(sr.path("permission_type").asText())) && "read".equals(ImplSharing.sharePermission("view only")));
+        java.util.function.Function<String, JsonNode> fieldOf = (api) -> M.createObjectNode().put("api_name", api).put("id", "F_" + api);
+        JsonNode tb = ImplSharing.territory(t, "T_India", "U1", fieldOf).path("territories").path(0);
+        check("sharing: territory payload", "T_India".equals(tb.path("reporting_to").path("id").asText()) && "U1".equals(tb.path("manager").path("id").asText())
+                && "F_Billing_State".equals(tb.path("account_rule_criteria").path("field").path("id").asText()) && "Maharashtra".equals(tb.path("account_rule_criteria").path("value").asText()));
+        check("sharing: criteria key per module", "lead_rule_criteria".equals(ImplSharing.criteriaKey("Leads")) && "deal_rule_criteria".equals(ImplSharing.criteriaKey("Deals")) && ImplSharing.criteriaKey("Contacts").isEmpty());
+        java.util.Map<String, String> roleIds = new HashMap<>(); roleIds.put("support", "R_S"); roleIds.put("sales manager", "R_M");
+        java.util.Map<String, String> grp = new HashMap<>(); grp.put("india team", "G1");
+        ObjectNode to = ImplSharing.audience("Support role and subordinates", roleIds, grp);
+        check("sharing: audience role + subordinates", "roles".equals(to.path("type").asText()) && to.path("subordinates").asBoolean() && "R_S".equals(to.path("resource").path("id").asText()));
+        check("sharing: audience group and all users", "G1".equals(ImplSharing.audience("India Team group", roleIds, grp).path("resource").path("id").asText())
+                && "all_users".equals(ImplSharing.audience("all users", roleIds, grp).path("type").asText())
+                && ImplSharing.audience("the finance crowd", roleIds, grp) == null);
+        ObjectNode from = ImplSharing.audience(sr.path("shared_from").asText(), roleIds, grp);
+        JsonNode rb = ImplSharing.sharingRule(sr, to, from, M.createArrayNode()).path("sharing_rules").path(0);
+        check("sharing: owner-based rule payload", "Record_Owner_Based".equals(rb.path("type").asText()) && "R_M".equals(rb.path("shared_from").path("resource").path("id").asText())
+                && "read_write".equals(rb.path("permission_type").asText()) && !rb.path("superiors_allowed").asBoolean());
+        ArrayNode group = M.createArrayNode(); group.add(ImplSharing.condition(M.createObjectNode().put("field", "Stage").put("comparator", "equal").put("value", "Won"), fieldOf));
+        JsonNode cb = ImplSharing.sharingRule(sr, to, null, group).path("sharing_rules").path(0);
+        check("sharing: criteria-based rule payload", "Criteria_Based".equals(cb.path("type").asText()) && cb.path("shared_from").isNull()
+                && "AND".equals(cb.path("criteria").path("group_operator").asText()) && "Stage".equals(cb.path("criteria").path("group").get(0).path("field").path("api_name").asText()));
+        ObjectNode st = M.createObjectNode().put("status", "new");
+        check("crm: both sharing kinds are api", "api".equals(CrmProduct.INSTANCE.laneFor("sharing", t.deepCopy().setAll(st)))
+                && "api".equals(CrmProduct.INSTANCE.laneFor("sharing", sr.deepCopy().setAll(st))));
     }
 
     static void globalPicklists() throws Exception {

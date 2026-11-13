@@ -40,6 +40,20 @@ public final class ImplRpa {
                 if (!o.path("notes").asText("").isEmpty()) s.add(o.path("notes").asText());
                 s.add("Save the layout.");
                 break;
+            case "sharing":
+                if ("territory".equals(o.path("type").asText())) {
+                    s.add("Setup → Users and Control → Territory Management → New Territory.");
+                    s.add("Name: " + o.path("name").asText() + (o.path("parent").asText("").isEmpty() ? "" : ", under " + o.path("parent").asText()) + ".");
+                    if (!o.path("manager").asText("").isEmpty()) s.add("Manager: " + o.path("manager").asText() + ".");
+                    for (JsonNode c : o.path("criteria")) s.add("Rule: " + c.path("module").asText() + " where " + c.path("field").asText() + " " + c.path("comparator").asText().replace('_', ' ') + " " + c.path("value").asText() + ".");
+                } else {
+                    s.add("Setup → Security Control → Data Sharing Settings → " + o.path("module").asText() + " → New Sharing Rule.");
+                    s.add("Share with: " + o.path("shared_to").asText() + ", access: " + o.path("permission_type").asText("read") + ".");
+                    if (!o.path("shared_from").asText("").isEmpty()) s.add("Records of: " + o.path("shared_from").asText() + ".");
+                    for (JsonNode c : o.path("conditions")) s.add("When " + c.path("field").asText() + " " + c.path("comparator").asText().replace('_', ' ') + " " + c.path("value").asText() + ".");
+                }
+                s.add("Save.");
+                break;
             case "global_picklists":
                 s.add(Products.current().setupRoot("fields") + " → Global Picklists → New Global Set.");
                 s.add("Name: " + o.path("name").asText() + ".");

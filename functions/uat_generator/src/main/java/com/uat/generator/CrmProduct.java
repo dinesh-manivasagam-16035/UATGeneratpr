@@ -75,10 +75,10 @@ public final class CrmProduct implements Product {
             "POST /settings/profiles/{id}/actions/clone; PUT /settings/profiles/{id}", "ZohoCRM.settings.profiles.CREATE, UPDATE", "builds", "create-profile"),
         c("user",             "add a user",                                                     "ui", "API exists; builder not written (invites a real person)",
             "POST /users", "ZohoCRM.users.CREATE", "planned", "add-user"),
-        c("territory",        "territory",                                                      "ui", "API exists; builder not written",
-            "POST /settings/territories", "ZohoCRM.settings.territories.CREATE", "planned", "add-territories"),
-        c("sharing_rule",     "data sharing rule",                                              "ui", "API exists; builder not written",
-            "POST /settings/data_sharing/rules?module=X", "ZohoCRM.settings.data_sharing.CREATE", "planned", "create-data-sharing-rules"),
+        c("territory",        "territory (hierarchy, manager, record assignment criteria)",       "api", "needs Territory Management enabled in the org (Enterprise+); placed under the named parent, criteria per module",
+            "POST /settings/territories", "ZohoCRM.settings.territories.CREATE", "builds", "add-territories"),
+        c("sharing_rule",     "data sharing rule (share a module's records with a role or group)", "api", "owner-based (whose records) or criteria-based; read / read_write / read_write_delete. The module's org-wide default must be Private",
+            "POST /settings/data_sharing/rules?module=X", "ZohoCRM.settings.data_sharing.CREATE", "builds", "create-data-sharing-rules"),
         // ---- automation ----
         c("rule_field_update","workflow rule on create / edit / field update / delete, with field update, task and webhook actions", "api", "one call per action, then the rule",
             "POST /settings/automation/workflow_rules (+ field_updates, tasks, webhooks)", "ZohoCRM.settings.workflow_rules.CREATE, automation_actions.CREATE", "builds", "config-workflow"),
@@ -236,6 +236,10 @@ public final class CrmProduct implements Product {
             case "functions": return "api";          // POST settings/functions publishes Deluge with its code
             case "dependencies": return o.path("mapping").size() > 0 ? "api" : "rpa";
             case "global_picklists": return o.path("values").size() > 0 ? "api" : "rpa";
+            case "sharing":
+                return "territory".equals(o.path("type").asText())
+                        ? "api"
+                        : (o.path("conditions").size() > 0 || !o.path("shared_from").asText("").isEmpty()) ? "api" : "rpa";
             case "open_questions": return "review";
             case "plan":    return "projects";
             default:        return "rpa";   // validation rules
@@ -343,6 +347,14 @@ public final class CrmProduct implements Product {
             + "arguments by name, no declaration line, no placeholders; LiftOff adds the declaration and publishes it), "
             + "req_ids}] — ONLY for logic that no workflow action can express (loops, cross-module look-ups, arithmetic). "
             + "A function that would do what a workflow item already does is NOT allowed.\n"
+            + "sharing: [{type (territory|sharing_rule), name, description?, permission_type, req_ids, and\n"
+            + "  for \"territory\": parent (name of the parent territory, omit for the top), manager (user email or full name), "
+            + "criteria ([{module (Leads|Accounts|Deals), field (api name), comparator, value}] — which records belong to it), "
+            + "permission_type (read only | read write delete);\n"
+            + "  for \"sharing_rule\": module, shared_to (\"<Role> role and subordinates\", \"<Group> group\", or \"all users\"), "
+            + "shared_from (whose records — a role or group; omit when conditions are given), conditions ([{field, comparator, value}] "
+            + "for a criteria-based rule), match (and|or), superiors_allowed (bool), permission_type (read | read write | read write delete)}] "
+            + "— ONLY when the BRD says who may see or edit whose records; roles and profiles alone go in roles.\n"
             + "open_questions: [{question, context, blocking (bool), req_ids}]\n\n"
             + "A rule that sets a picklist field to a value the org doesn't have is fine: LiftOff adds the option first. "
             + "Record it in assumption.\n"

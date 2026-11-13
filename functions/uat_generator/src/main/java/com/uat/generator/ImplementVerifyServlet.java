@@ -56,7 +56,7 @@ public class ImplementVerifyServlet extends HttpServlet {
 
             ArrayNode results = MAPPER.createArrayNode();
             for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "roles", "validation_rules",
-                                               "workflows", "functions"}) {
+                                               "workflows", "functions", "sharing"}) {
                 for (JsonNode item : spec.path(section)) {
                     if (!item.path("include").asBoolean(true) && !"exists".equals(item.path("status").asText())) continue;
                     ObjectNode r = results.addObject();
@@ -167,6 +167,14 @@ public class ImplementVerifyServlet extends HttpServlet {
                 r.put("verdict", "unverifiable");
                 r.put("actual", "check in Setup");
                 r.put("detail", "Only workflow rules are read back; check " + item.path("type").asText() + "s in Setup.");
+                return;
+            }
+            case "sharing": {
+                r.put("expected", ("territory".equals(item.path("type").asText()) ? "territory " : "sharing rule ") + item.path("name").asText());
+                r.put("verdict", "unverifiable");
+                r.put("actual", "territory".equals(item.path("type").asText())
+                        ? "check in Setup → Users and Control → Territory Management"
+                        : "check in Setup → Security Control → Data Sharing Settings");
                 return;
             }
             case "global_picklists": {
