@@ -396,6 +396,8 @@ public class ImplementApplyServlet extends HttpServlet {
                 actions.add(new String[]{"webhooks", call(requests, "POST", "/crm/" + v + "/settings/automation/webhooks",
                         body, "webhooks", "webhook")});
             }
+            List<String> problems = new ArrayList<>();
+            emailAlerts(wf.path("email_alerts"), module, moduleId, rule, "", fieldOf, requests, actions, problems);
             List<ImplRules.Scheduled> scheduled = new ArrayList<>();
             int delayed = 0;
             for (JsonNode sa : wf.path("scheduled_actions")) {
@@ -415,15 +417,16 @@ public class ImplementApplyServlet extends HttpServlet {
                     sacts.add(new String[]{"webhooks", call(requests, "POST", "/crm/" + v + "/settings/automation/webhooks",
                             ImplRules.webhook(module, moduleId, rule + " (delayed)", h), "webhooks", "delayed webhook")});
                 }
+                emailAlerts(sa.path("email_alerts"), module, moduleId, rule, " delayed", fieldOf, requests, sacts, problems);
                 if (!sacts.isEmpty()) { scheduled.add(new ImplRules.Scheduled(sa.path("after").path("unit").asInt(1), sa.path("after").path("period").asText("hours"), sacts)); delayed += sacts.size(); }
             }
             ObjectNode body = ImplRules.rule(wf, module, moduleId, fieldOf, actions, scheduled, org == null ? "+00:00" : org.utcOffset());
             call(requests, "POST", "/crm/" + v + "/settings/automation/workflow_rules", body, "workflow_rules", "rule");
             r.put("result", dryRun ? "would_create" : "created");
             r.put("detail", (dryRun ? "Would create " : "Created ") + actions.size() + " action(s)" + (delayed > 0 ? ", " + delayed + " delayed action(s)" : "") + " and the rule \"" + rule + "\".");
-            if (wf.path("other_actions").size() > 0) {
-                r.put("follow_up", "Add by hand: " + ImplPlan.join(wf.path("other_actions")) + ".");
-            }
+            List<String> follow = new ArrayList<>(problems);
+            if (wf.path("other_actions").size() > 0) follow.add("Add by hand: " + ImplPlan.join(wf.path("other_actions")) + ".");
+            if (!follow.isEmpty()) r.put("follow_up", String.join(" ", follow));
         }
 
         /** Assignment rule through POST settings/automation/assignment_rules?module=X (users resolved by email or name). */
@@ -530,6 +533,44 @@ public class ImplementApplyServlet extends HttpServlet {
             String id = first == null ? "" : first.path("details").path("id").asText("");
             rq.put("created_id", id);
             return id;
+        }
+
+        Map<String, JsonNode> templatesByModule = new LinkedHashMap<>();
+        JsonNode templates(String module) throws Exception {
+            if (templatesByModule.containsKey(module)) return templatesByModule.get(module);
+            JsonNode t = crm == null ? null : crm.call("GET", "/crm/" + v + "/settings/email_templates?module=" + enc(module), null).json;
+            templatesByModule.put(module, t);
+            return t;
+        }
+
+        /**
+         * Email alerts of a rule (or of one delayed block): one email_notifications action per alert, with an
+         * existing template and recipients resolved from words. Alerts that can't be built are appended to
+         * {@code problems} and the rule is still created without them.
+         */
+        void emailAlerts(JsonNode alerts, String module, String moduleId, String rule, String suffix,
+                         java.util.function.Function<String, JsonNode> fieldOf, ArrayNode requests, List<String[]> actions, List<String> problems) throws Exception {
+            int n = 0;
+            for (JsonNode al : alerts) {
+                n++;
+                String tname = al.path("template").asText("");
+                JsonNode tpl = dryRun && crm == null ? null : ImplEmailAlerts.template(templates(module), tname);
+                if (tpl == null) {
+                    if (dryRun) tpl = MAPPER.createObjectNode().put("id", "<id of template " + tname + ">").put("name", tname);
+                    else { problems.add("email template \"" + tname + "\" not found on " + module + " — create it in Setup → Customization → Templates → Email, then add the alert to the rule"); continue; }
+                }
+                ArrayNode to = MAPPER.createArrayNode();
+                List<String> unmatched = new ArrayList<>();
+                Map<String, String> roleIds = dryRun && crm == null ? new LinkedHashMap<>() : roles();
+                for (JsonNode who : al.path("to")) {
+                    ObjectNode rcp = ImplEmailAlerts.recipient(who.asText(""), module, roleIds, fieldOf);
+                    if (rcp == null) unmatched.add(who.asText("")); else to.add(rcp);
+                }
+                if (to.size() == 0) { problems.add("email alert \"" + tname + "\": no recipient recognised in " + unmatched); continue; }
+                if (!unmatched.isEmpty()) problems.add("email alert \"" + tname + "\": recipient(s) not recognised: " + String.join(", ", unmatched) + " — add them to the alert in Setup");
+                ObjectNode body = ImplEmailAlerts.body(rule + suffix + " - email " + n, module, moduleId, tpl, to);
+                actions.add(new String[]{"email_notifications", call(requests, "POST", "/crm/" + v + "/settings/automation/email_notifications", body, "email_notifications", "email alert")});
+            }
         }
 
         Map<String, JsonNode> taskFields;

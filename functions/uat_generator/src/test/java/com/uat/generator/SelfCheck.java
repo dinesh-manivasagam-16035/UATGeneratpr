@@ -30,6 +30,7 @@ public final class SelfCheck {
         profilePermissions();
         timeBasedRules();
         pipelinePayload();
+        emailAlerts();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -106,6 +107,27 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void emailAlerts() {
+        java.util.Map<String, String> roles = new HashMap<>(); roles.put("sales manager", "R1");
+        java.util.function.Function<String, JsonNode> fieldOf = (api) -> api.equals("Email") ? M.createObjectNode().put("api_name", "Email").put("data_type", "email")
+                : api.equals("Account_Name") ? M.createObjectNode().put("api_name", "Account_Name").put("data_type", "lookup") : null;
+        check("alerts: record owner → merge field", "${!Leads.Owner}".equals(ImplEmailAlerts.recipient("record owner", "Leads", roles, fieldOf).path("details").path("api_name").asText()));
+        check("alerts: owner's manager", "${!Leads.Owner.Reporting_To}".equals(ImplEmailAlerts.recipient("owner's manager", "Leads", roles, fieldOf).path("details").path("api_name").asText()));
+        check("alerts: role by name", "R1".equals(ImplEmailAlerts.recipient("Sales Manager", "Leads", roles, fieldOf).path("resource").path("id").asText()));
+        check("alerts: email field and lookup email", "${!Leads.Email}".equals(ImplEmailAlerts.recipient("Email", "Leads", roles, fieldOf).path("details").path("api_name").asText())
+                && "${!Leads.Account_Name.Email}".equals(ImplEmailAlerts.recipient("Account_Name", "Leads", roles, fieldOf).path("details").path("api_name").asText()));
+        check("alerts: literal address", "emails".equals(ImplEmailAlerts.recipient("ops@example.com", "Leads", roles, fieldOf).path("type").asText()));
+        check("alerts: unknown recipient is null", ImplEmailAlerts.recipient("the finance team", "Leads", roles, fieldOf) == null);
+        ObjectNode tpls = M.createObjectNode(); tpls.putArray("email_templates").addObject().put("id", "T1").put("name", "Big Deal Alert");
+        check("alerts: template by name", "T1".equals(ImplEmailAlerts.template(tpls, "big deal alert").path("id").asText()) && ImplEmailAlerts.template(tpls, "Nope") == null);
+        ArrayNode to = M.createArrayNode(); to.add(ImplEmailAlerts.recipient("record owner", "Deals", roles, fieldOf));
+        JsonNode body = ImplEmailAlerts.body("Rule: X! - email 1", "Deals", "M1", ImplEmailAlerts.template(tpls, "Big Deal Alert"), to).path("email_notifications").path(0);
+        check("alerts: body shape, safe name", "Rule X - email 1".equals(body.path("name").asText()) && "T1".equals(body.path("template").path("id").asText()) && body.path("recipients").path("to").size() == 1 && "workflow".equals(body.path("feature_type").asText()));
+        ObjectNode wf = M.createObjectNode().put("type", "workflow").put("trigger_type", "create").put("status", "new");
+        wf.putArray("email_alerts").addObject().put("template", "Big Deal Alert").putArray("to").add("record owner");
+        check("crm: rule with only an email alert is api", "api".equals(CrmProduct.INSTANCE.laneFor("workflows", wf)));
     }
 
     static void pipelinePayload() {

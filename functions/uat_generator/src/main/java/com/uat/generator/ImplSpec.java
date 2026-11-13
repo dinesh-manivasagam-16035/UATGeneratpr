@@ -114,6 +114,13 @@ public final class ImplSpec {
                     .put("due_in_days", Math.max(0, t.path("due_in_days").asInt(0)));
             if (!text(t, "priority").isEmpty()) to.put("priority", text(t, "priority"));
         }
+        ArrayNode alerts = o.putArray("email_alerts");
+        for (JsonNode a : in.path("email_alerts")) {
+            String template = text(a, "template");
+            if (template.isEmpty() || a.path("to").size() == 0) continue;
+            ObjectNode ao = alerts.addObject().put("template", template);
+            copyStrings(a, ao, "to");
+        }
         ArrayNode hooks = o.putArray("webhooks");
         for (JsonNode h : in.path("webhooks")) {
             String url = text(h, "url");
@@ -322,7 +329,7 @@ public final class ImplSpec {
                     ObjectNode so = sched.addObject();
                     so.putObject("after").put("unit", unit).put("period", period);
                     actionLists(sa, so);
-                    if (so.path("field_updates").size() + so.path("tasks").size() + so.path("webhooks").size() == 0) sched.remove(sched.size() - 1);
+                    if (so.path("field_updates").size() + so.path("tasks").size() + so.path("webhooks").size() + so.path("email_alerts").size() == 0) sched.remove(sched.size() - 1);
                 }
                 copyStrings(in, o, "other_actions");
                 // Assignment rules: structured entries (users by email or full name)
@@ -359,12 +366,14 @@ public final class ImplSpec {
                     for (JsonNode f : o.path("field_updates")) acts.add("Set " + f.path("field").asText() + " to " + (f.path("value").isArray() ? f.path("value").toString() : f.path("value").asText()));
                     for (JsonNode t : o.path("tasks")) acts.add("Create task \"" + t.path("subject").asText() + "\"");
                     for (JsonNode h : o.path("webhooks")) acts.add("Call webhook " + h.path("http_method").asText() + " " + h.path("url").asText());
+                    for (JsonNode a : o.path("email_alerts")) acts.add("Email \"" + a.path("template").asText() + "\" to " + String.join(", ", strings(a.path("to"))));
                     for (JsonNode a : o.path("other_actions")) acts.add(a.asText());
                     for (JsonNode sa : o.path("scheduled_actions")) {
                         String after = "After " + sa.path("after").path("unit").asInt() + " " + sa.path("after").path("period").asText().replace('_', ' ') + ": ";
                         for (JsonNode f : sa.path("field_updates")) acts.add(after + "set " + f.path("field").asText() + " to " + f.path("value").asText());
                         for (JsonNode t : sa.path("tasks")) acts.add(after + "create task \"" + t.path("subject").asText() + "\"");
                         for (JsonNode h : sa.path("webhooks")) acts.add(after + "call webhook " + h.path("url").asText());
+                        for (JsonNode a : sa.path("email_alerts")) acts.add(after + "email \"" + a.path("template").asText() + "\" to " + String.join(", ", strings(a.path("to"))));
                     }
                     if (acts.size() == 0 && entries.size() > 0) {
                         for (JsonNode e : entries) acts.add("Assign to " + String.join(", ", strings(e.path("assign_to"))) + (e.path("round_robin").asBoolean() ? " (round robin)" : ""));

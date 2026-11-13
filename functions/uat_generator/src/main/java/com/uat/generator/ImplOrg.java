@@ -42,6 +42,8 @@ public final class ImplOrg {
     public final Map<String, List<String>> workflows = new LinkedHashMap<>();
     /** lower-cased api_name and name of every Deluge function in the org (null until read). */
     public List<String> functions;
+    /** lower-cased module api_name → email template names (only for modules that were read). */
+    public final Map<String, List<String>> emailTemplates = new LinkedHashMap<>();
     public final List<String> errors = new ArrayList<>();
     /** True when the org counts as buildable only because IMPL_BUILD_ORG_IDS names it. */
     public boolean allowListed;
@@ -133,6 +135,10 @@ public final class ImplOrg {
                 for (JsonNode w : wr) names.add(w.path("name").asText(""));
                 o.workflows.put(ImplSpec.low(name), names);
                 if (!ImplSpec.low(name).equals(ImplSpec.low(api))) o.workflows.put(ImplSpec.low(api), names);
+                List<String> tpls = new ArrayList<>();
+                JsonNode et = get(crm, "/crm/v8/settings/email_templates?module=" + enc(api)).path("email_templates");
+                for (JsonNode tp : et) if (!"draft".equals(tp.path("category").asText(""))) tpls.add(tp.path("name").asText(""));
+                o.emailTemplates.put(ImplSpec.low(api), tpls);
             } catch (Exception e) {
                 // System modules (Actions_Performed, ...) have no workflow rules: not an error worth showing.
                 String msg = e.getMessage() == null ? "" : e.getMessage();
@@ -293,6 +299,8 @@ public final class ImplOrg {
                 fs.add(one.append(')').toString());
             }
             sb.append(String.join(", ", fs)).append('\n');
+            List<String> tpls = emailTemplates.get(ImplSpec.low(moduleApiName(name) == null ? name : moduleApiName(name)));
+            if (tpls != null) sb.append("Email templates of ").append(name).append(tpls.isEmpty() ? ": none (an email alert can't be built until one is made in Setup)" : ": " + String.join(" | ", tpls.subList(0, Math.min(tpls.size(), 20)))).append('\n');
             if (sb.length() > maxChars) break;
         }
         String s = sb.toString().trim();

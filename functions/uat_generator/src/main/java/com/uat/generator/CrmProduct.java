@@ -82,8 +82,8 @@ public final class CrmProduct implements Product {
         // ---- automation ----
         c("rule_field_update","workflow rule on create / edit / field update / delete, with field update, task and webhook actions", "api", "one call per action, then the rule",
             "POST /settings/automation/workflow_rules (+ field_updates, tasks, webhooks)", "ZohoCRM.settings.workflow_rules.CREATE, automation_actions.CREATE", "builds", "config-workflow"),
-        c("rule_email",       "workflow rule action: email alert",                              "partial", "the alert API needs an existing email template (templates are read-only) — the template is made in Setup",
-            "POST /settings/automation/email_notifications", "ZohoCRM.settings.automation_actions.CREATE", "planned", "create-email-notification"),
+        c("rule_email",       "workflow rule action: email alert",                              "api", "uses an email template that already exists in the org (templates have no create API); recipients from words: record owner, owner's manager, creator, a role, an email/user field, an address. A missing template is reported and the rule is still built",
+            "POST /settings/automation/email_notifications", "ZohoCRM.settings.automation_actions.CREATE", "builds", "create-email-notification"),
         c("rule_function",    "workflow rule action: call a Deluge function",                   "partial", "the rule and the function are both built by API; attaching the function to the rule is the Setup step (no function action in the workflow API)",
             "", "", "partial", ""),
         c("rule_time",        "time-based rule: date/datetime trigger (N days before/after a date field) and delayed actions (N hours after the trigger)", "api", "execute_when date_or_datetime in the org's time zone; scheduled_actions blocks with their own field updates, tasks and webhooks",
@@ -222,7 +222,7 @@ public final class CrmProduct implements Product {
                 boolean triggerOk = ImplSpec.API_TRIGGERS.contains(tt)
                         || ("date_or_datetime".equals(tt) && !o.path("date_trigger").path("field").asText("").isEmpty());
                 boolean hasActions = o.path("field_updates").size() > 0 || o.path("tasks").size() > 0 || o.path("webhooks").size() > 0
-                        || o.path("scheduled_actions").size() > 0;
+                        || o.path("email_alerts").size() > 0 || o.path("scheduled_actions").size() > 0;
                 boolean apiRule = ("workflow".equals(type) || "time_based".equals(type)) && triggerOk && hasActions;
                 if (!apiRule) return "rpa";
                 return o.path("other_actions").size() > 0 ? "partial" : "api";
@@ -307,11 +307,13 @@ public final class CrmProduct implements Product {
             + "match (and|or), field_updates ([{field (api name), value}]), "
             + "tasks ([{subject, due_in_days (integer), priority (Highest|High|Normal|Low|Lowest)}]), "
             + "webhooks ([{name, url, http_method (GET|POST), description?}] — only with a URL the BRD gives), "
-            + "other_actions (string[] — email alerts and function calls only, each in a few words), "
+            + "email_alerts ([{template (name of an EXISTING email template of this module — the live org lists them; never invent one), "
+            + "to (string[] — \"record owner\", \"owner's manager\", \"created by\", a role name, an email or user field api name, or an address)}]), "
+            + "other_actions (string[] — function calls only, each in a few words), "
             + "date_trigger (only with trigger_type date_or_datetime: {field (date/datetime api name), offset (integer; negative = "
             + "before the date, 0 = on it), period (days|b_days|weeks|months|years), time (\"HH:MM\" org time), recur (once|monthly|yearly)}), "
             + "scheduled_actions ([{after: {unit (integer), period (minutes|hours|business_hours|days|business_days|weeks)}, "
-            + "field_updates, tasks, webhooks}] — actions that run N units after the trigger, e.g. escalate when a lead is still "
+            + "field_updates, tasks, webhooks, email_alerts}] — actions that run N units after the trigger, e.g. escalate when a lead is still "
             + "untouched 24 hours after creation: trigger create, conditions [], scheduled_actions [{after:{unit:24, period:hours}, "
             + "field_updates:[…]}] — note the API cannot re-check the condition at execution time, so prefer a date_or_datetime trigger "
             + "on a date field with conditions when the BRD needs \"still in state X\");\n"
