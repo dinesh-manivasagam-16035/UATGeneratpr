@@ -79,11 +79,50 @@ public final class ImplSpec {
     private static final Set<String> COMPARATORS = new HashSet<>(Arrays.asList(
             "equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with", "greater_than",
             "less_than", "greater_equal", "less_equal", "is_empty", "is_not_empty"));
+    static final Set<String> DATE_PERIODS = new HashSet<>(Arrays.asList("b_days", "days", "weeks", "months", "years"));
+    static final Set<String> RECUR = new HashSet<>(Arrays.asList("once", "monthly", "yearly"));
+    static final Set<String> SCHEDULE_PERIODS = new HashSet<>(Arrays.asList("minutes", "hours", "business_hours", "days", "business_days", "weeks", "months", "years"));
     private static final Set<String> WORKFLOW_TYPES = new HashSet<>(Arrays.asList(
             "workflow", "blueprint", "assignment", "approval", "scoring", "escalation",
             "schedule", "cadence", "webhook", "sla", "macro", "view", "notification", "time_based"));
 
     private ImplSpec() {}
+
+    /** "2 days before Follow_up_Date at 09:00" */
+    static String dateTriggerText(JsonNode d) {
+        int off = d.path("offset").asInt(0);
+        String period = d.path("period").asText("days").replace("b_days", "business days");
+        String when = off == 0 ? "On " : Math.abs(off) + " " + period + (off < 0 ? " before " : " after ");
+        return when + d.path("field").asText() + " at " + d.path("time").asText("09:00") + ("once".equals(d.path("recur").asText("once")) ? "" : ", " + d.path("recur").asText());
+    }
+
+    /** field_updates / tasks / webhooks of a rule or of one scheduled block, normalised onto {@code o}. */
+    static void actionLists(JsonNode in, ObjectNode o) {
+        ArrayNode fus = o.putArray("field_updates");
+        for (JsonNode f : in.path("field_updates")) {
+            String field = text(f, "field");
+            if (field.isEmpty()) continue;
+            ObjectNode fu = fus.addObject().put("field", field);
+            if (f.path("value").isArray()) fu.set("value", f.path("value"));
+            else fu.put("value", text(f, "value"));
+        }
+        ArrayNode tasks = o.putArray("tasks");
+        for (JsonNode t : in.path("tasks")) {
+            String subject = text(t, "subject");
+            if (subject.isEmpty()) continue;
+            ObjectNode to = tasks.addObject().put("subject", subject)
+                    .put("due_in_days", Math.max(0, t.path("due_in_days").asInt(0)));
+            if (!text(t, "priority").isEmpty()) to.put("priority", text(t, "priority"));
+        }
+        ArrayNode hooks = o.putArray("webhooks");
+        for (JsonNode h : in.path("webhooks")) {
+            String url = text(h, "url");
+            if (url.isEmpty()) continue;
+            ObjectNode ho = hooks.addObject().put("url", url).put("http_method", text(h, "http_method").isEmpty() ? "POST" : text(h, "http_method").toUpperCase(Locale.ROOT));
+            putIfText(ho, "name", text(h, "name"));
+            putIfText(ho, "description", text(h, "description"));
+        }
+    }
 
     /** Result of parsing one LLM response. */
     public static final class Parsed {
@@ -230,7 +269,7 @@ public final class ImplSpec {
                 String name = text(in, "name");
                 if (name.isEmpty()) return null;
                 String type = text(in, "type").toLowerCase(Locale.ROOT);
-                o.put("type", WORKFLOW_TYPES.contains(type) ? type : "workflow");
+                o.put("type", "time_based".equals(type) ? "workflow" : WORKFLOW_TYPES.contains(type) ? type : "workflow");   // a time-based rule is a workflow rule
                 o.put("module", module);
                 o.put("name", name);
                 o.put("trigger", text(in, "trigger"));
@@ -258,29 +297,31 @@ public final class ImplSpec {
                     if (field.isEmpty() || !COMPARATORS.contains(cmp)) continue;
                     conds.addObject().put("field", field).put("comparator", cmp).put("value", text(c, "value"));
                 }
-                ArrayNode fus = o.putArray("field_updates");
-                for (JsonNode f : in.path("field_updates")) {
-                    String field = text(f, "field");
-                    if (field.isEmpty()) continue;
-                    ObjectNode fu = fus.addObject().put("field", field);
-                    if (f.path("value").isArray()) fu.set("value", f.path("value"));
-                    else fu.put("value", text(f, "value"));
+                actionLists(in, o);
+                // Time-based trigger: {field (date/datetime api name), offset (int, negative = before), period, time "HH:MM", recur}
+                if (in.path("date_trigger").isObject() && !text(in.path("date_trigger"), "field").isEmpty()) {
+                    JsonNode dt = in.path("date_trigger");
+                    ObjectNode d = o.putObject("date_trigger");
+                    d.put("field", text(dt, "field"));
+                    d.put("offset", dt.path("offset").asInt(0));
+                    String period = text(dt, "period").toLowerCase(Locale.ROOT).replace("business_days", "b_days").replace("business days", "b_days");
+                    d.put("period", DATE_PERIODS.contains(period) ? period : "days");
+                    d.put("time", text(dt, "time").matches("\\d{1,2}:\\d{2}") ? text(dt, "time") : "09:00");
+                    String recur = text(dt, "recur").toLowerCase(Locale.ROOT);
+                    d.put("recur", RECUR.contains(recur) ? recur : "once");
+                    if (o.path("trigger_type").asText("").isEmpty()) o.put("trigger_type", "date_or_datetime");
                 }
-                ArrayNode tasks = o.putArray("tasks");
-                for (JsonNode t : in.path("tasks")) {
-                    String subject = text(t, "subject");
-                    if (subject.isEmpty()) continue;
-                    ObjectNode to = tasks.addObject().put("subject", subject)
-                            .put("due_in_days", Math.max(0, t.path("due_in_days").asInt(0)));
-                    if (!text(t, "priority").isEmpty()) to.put("priority", text(t, "priority"));
-                }
-                ArrayNode hooks = o.putArray("webhooks");
-                for (JsonNode h : in.path("webhooks")) {
-                    String url = text(h, "url");
-                    if (url.isEmpty()) continue;
-                    ObjectNode ho = hooks.addObject().put("url", url).put("http_method", text(h, "http_method").isEmpty() ? "POST" : text(h, "http_method").toUpperCase(Locale.ROOT));
-                    putIfText(ho, "name", text(h, "name"));
-                    putIfText(ho, "description", text(h, "description"));
+                // Delayed actions: [{after:{unit, period}, field_updates, tasks, webhooks}]
+                ArrayNode sched = o.putArray("scheduled_actions");
+                for (JsonNode sa : in.path("scheduled_actions")) {
+                    JsonNode after = sa.path("after");
+                    int unit = after.path("unit").asInt(sa.path("unit").asInt(0));
+                    String period = text(after.isObject() ? after : sa, "period").toLowerCase(Locale.ROOT).replace(' ', '_');
+                    if (unit <= 0 || !SCHEDULE_PERIODS.contains(period)) continue;
+                    ObjectNode so = sched.addObject();
+                    so.putObject("after").put("unit", unit).put("period", period);
+                    actionLists(sa, so);
+                    if (so.path("field_updates").size() + so.path("tasks").size() + so.path("webhooks").size() == 0) sched.remove(sched.size() - 1);
                 }
                 copyStrings(in, o, "other_actions");
                 // Assignment rules: structured entries (users by email or full name)
@@ -303,7 +344,8 @@ public final class ImplSpec {
                 if (o.path("trigger").asText("").isEmpty() && !o.path("trigger_type").asText("").isEmpty()) {
                     String tt = o.path("trigger_type").asText();
                     String trigText = tt.equals("create") ? "On create" : tt.equals("edit") ? "On edit" : tt.equals("create_or_edit") ? "On create or edit"
-                            : tt.equals("delete") ? "On delete" : tt.equals("field_update") ? "On update of " + String.join(", ", strings(o.path("trigger_fields"))) : "On a date/time";
+                            : tt.equals("delete") ? "On delete" : tt.equals("field_update") ? "On update of " + String.join(", ", strings(o.path("trigger_fields")))
+                            : o.has("date_trigger") ? dateTriggerText(o.path("date_trigger")) : "On a date/time";
                     o.put("trigger", trigText);
                 }
                 if (o.path("criteria").asText("").isEmpty() && conds.size() > 0) {
@@ -313,10 +355,16 @@ public final class ImplSpec {
                 }
                 if (o.path("actions").size() == 0) {
                     ArrayNode acts = o.putArray("actions");
-                    for (JsonNode f : fus) acts.add("Set " + f.path("field").asText() + " to " + (f.path("value").isArray() ? f.path("value").toString() : f.path("value").asText()));
-                    for (JsonNode t : tasks) acts.add("Create task \"" + t.path("subject").asText() + "\"");
-                    for (JsonNode h : hooks) acts.add("Call webhook " + h.path("http_method").asText() + " " + h.path("url").asText());
+                    for (JsonNode f : o.path("field_updates")) acts.add("Set " + f.path("field").asText() + " to " + (f.path("value").isArray() ? f.path("value").toString() : f.path("value").asText()));
+                    for (JsonNode t : o.path("tasks")) acts.add("Create task \"" + t.path("subject").asText() + "\"");
+                    for (JsonNode h : o.path("webhooks")) acts.add("Call webhook " + h.path("http_method").asText() + " " + h.path("url").asText());
                     for (JsonNode a : o.path("other_actions")) acts.add(a.asText());
+                    for (JsonNode sa : o.path("scheduled_actions")) {
+                        String after = "After " + sa.path("after").path("unit").asInt() + " " + sa.path("after").path("period").asText().replace('_', ' ') + ": ";
+                        for (JsonNode f : sa.path("field_updates")) acts.add(after + "set " + f.path("field").asText() + " to " + f.path("value").asText());
+                        for (JsonNode t : sa.path("tasks")) acts.add(after + "create task \"" + t.path("subject").asText() + "\"");
+                        for (JsonNode h : sa.path("webhooks")) acts.add(after + "call webhook " + h.path("url").asText());
+                    }
                     if (acts.size() == 0 && entries.size() > 0) {
                         for (JsonNode e : entries) acts.add("Assign to " + String.join(", ", strings(e.path("assign_to"))) + (e.path("round_robin").asBoolean() ? " (round robin)" : ""));
                     }

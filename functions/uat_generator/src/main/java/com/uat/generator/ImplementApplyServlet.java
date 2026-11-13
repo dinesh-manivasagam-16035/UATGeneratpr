@@ -395,10 +395,31 @@ public class ImplementApplyServlet extends HttpServlet {
                 actions.add(new String[]{"webhooks", call(requests, "POST", "/crm/" + v + "/settings/automation/webhooks",
                         body, "webhooks", "webhook")});
             }
-            ObjectNode body = ImplRules.rule(wf, module, moduleId, fieldOf, actions);
+            List<ImplRules.Scheduled> scheduled = new ArrayList<>();
+            int delayed = 0;
+            for (JsonNode sa : wf.path("scheduled_actions")) {
+                List<String[]> sacts = new ArrayList<>();
+                for (JsonNode fu : sa.path("field_updates")) {
+                    JsonNode live = fieldOf.apply(fu.path("field").asText());
+                    if (live == null) throw new IllegalStateException("Field " + fu.path("field").asText() + " isn't in " + module + " yet.");
+                    ensurePicklistValue(module, live, fu.path("value"), requests);
+                    sacts.add(new String[]{"field_updates", call(requests, "POST", "/crm/" + v + "/settings/automation/field_updates",
+                            ImplRules.fieldUpdate(module, moduleId, rule + " (delayed)", live, fu.path("value")), "field_updates", "delayed field update")});
+                }
+                for (JsonNode t : sa.path("tasks")) {
+                    sacts.add(new String[]{"tasks", call(requests, "POST", "/crm/" + v + "/settings/automation/tasks",
+                            ImplRules.task(module, moduleId, t, this::taskField), "tasks", "delayed task")});
+                }
+                for (JsonNode h : sa.path("webhooks")) {
+                    sacts.add(new String[]{"webhooks", call(requests, "POST", "/crm/" + v + "/settings/automation/webhooks",
+                            ImplRules.webhook(module, moduleId, rule + " (delayed)", h), "webhooks", "delayed webhook")});
+                }
+                if (!sacts.isEmpty()) { scheduled.add(new ImplRules.Scheduled(sa.path("after").path("unit").asInt(1), sa.path("after").path("period").asText("hours"), sacts)); delayed += sacts.size(); }
+            }
+            ObjectNode body = ImplRules.rule(wf, module, moduleId, fieldOf, actions, scheduled, org == null ? "+00:00" : org.utcOffset());
             call(requests, "POST", "/crm/" + v + "/settings/automation/workflow_rules", body, "workflow_rules", "rule");
             r.put("result", dryRun ? "would_create" : "created");
-            r.put("detail", (dryRun ? "Would create " : "Created ") + actions.size() + " action(s) and the rule \"" + rule + "\".");
+            r.put("detail", (dryRun ? "Would create " : "Created ") + actions.size() + " action(s)" + (delayed > 0 ? ", " + delayed + " delayed action(s)" : "") + " and the rule \"" + rule + "\".");
             if (wf.path("other_actions").size() > 0) {
                 r.put("follow_up", "Add by hand: " + ImplPlan.join(wf.path("other_actions")) + ".");
             }

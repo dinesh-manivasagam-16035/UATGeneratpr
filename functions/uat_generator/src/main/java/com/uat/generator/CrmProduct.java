@@ -86,8 +86,8 @@ public final class CrmProduct implements Product {
             "POST /settings/automation/email_notifications", "ZohoCRM.settings.automation_actions.CREATE", "planned", "create-email-notification"),
         c("rule_function",    "workflow rule action: call a Deluge function",                   "partial", "the rule and the function are both built by API; attaching the function to the rule is the Setup step (no function action in the workflow API)",
             "", "", "partial", ""),
-        c("rule_time",        "time-based (date/datetime) trigger and delayed (scheduled) actions", "ui", "the workflow API takes execute_when type date_or_datetime and scheduled_actions; builder not written",
-            "POST /settings/automation/workflow_rules (execute_when.date_or_datetime, scheduled_actions)", "ZohoCRM.settings.workflow_rules.CREATE", "planned", "config-workflow"),
+        c("rule_time",        "time-based rule: date/datetime trigger (N days before/after a date field) and delayed actions (N hours after the trigger)", "api", "execute_when date_or_datetime in the org's time zone; scheduled_actions blocks with their own field updates, tasks and webhooks",
+            "POST /settings/automation/workflow_rules (execute_when.date_or_datetime, scheduled_actions)", "ZohoCRM.settings.workflow_rules.CREATE", "builds", "config-workflow"),
         c("assignment",       "assignment rule (criteria → users or round robin)",              "api", "applies to records entering through web forms, imports and the API",
             "POST /settings/automation/assignment_rules?module=X", "ZohoCRM.settings.assignment_rules.CREATE", "builds", "create-assignment-rules"),
         c("scoring",          "scoring rule",                                                   "ui", "API exists; builder not written",
@@ -217,9 +217,12 @@ public final class CrmProduct implements Product {
                     // Draft created by API with states and transitions; publishing may still be a Setup click.
                     return ImplBlueprint.states(o).size() >= 2 ? "partial" : "rpa";
                 }
-                boolean apiRule = "workflow".equals(type)
-                        && ImplSpec.API_TRIGGERS.contains(o.path("trigger_type").asText(""))
-                        && (o.path("field_updates").size() > 0 || o.path("tasks").size() > 0 || o.path("webhooks").size() > 0);
+                String tt = o.path("trigger_type").asText("");
+                boolean triggerOk = ImplSpec.API_TRIGGERS.contains(tt)
+                        || ("date_or_datetime".equals(tt) && !o.path("date_trigger").path("field").asText("").isEmpty());
+                boolean hasActions = o.path("field_updates").size() > 0 || o.path("tasks").size() > 0 || o.path("webhooks").size() > 0
+                        || o.path("scheduled_actions").size() > 0;
+                boolean apiRule = ("workflow".equals(type) || "time_based".equals(type)) && triggerOk && hasActions;
                 if (!apiRule) return "rpa";
                 return o.path("other_actions").size() > 0 ? "partial" : "api";
             }
@@ -303,7 +306,14 @@ public final class CrmProduct implements Product {
             + "match (and|or), field_updates ([{field (api name), value}]), "
             + "tasks ([{subject, due_in_days (integer), priority (Highest|High|Normal|Low|Lowest)}]), "
             + "webhooks ([{name, url, http_method (GET|POST), description?}] — only with a URL the BRD gives), "
-            + "other_actions (string[] — email alerts and function calls only, each in a few words);\n"
+            + "other_actions (string[] — email alerts and function calls only, each in a few words), "
+            + "date_trigger (only with trigger_type date_or_datetime: {field (date/datetime api name), offset (integer; negative = "
+            + "before the date, 0 = on it), period (days|b_days|weeks|months|years), time (\"HH:MM\" org time), recur (once|monthly|yearly)}), "
+            + "scheduled_actions ([{after: {unit (integer), period (minutes|hours|business_hours|days|business_days|weeks)}, "
+            + "field_updates, tasks, webhooks}] — actions that run N units after the trigger, e.g. escalate when a lead is still "
+            + "untouched 24 hours after creation: trigger create, conditions [], scheduled_actions [{after:{unit:24, period:hours}, "
+            + "field_updates:[…]}] — note the API cannot re-check the condition at execution time, so prefer a date_or_datetime trigger "
+            + "on a date field with conditions when the BRD needs \"still in state X\");\n"
             + "  for type \"assignment\" the structured form: rule_entries ([{conditions (as above), match, "
             + "assign_to (string[] — user emails or full names from the BRD), round_robin (bool)}]), "
             + "default_assignee (email, full name, or \"current user\");\n"

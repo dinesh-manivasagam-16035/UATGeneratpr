@@ -28,6 +28,7 @@ public final class SelfCheck {
         functionDefinitions();
         blueprintPayload();
         profilePermissions();
+        timeBasedRules();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -104,6 +105,36 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void timeBasedRules() throws Exception {
+        String reply = "{\"summary\":\"x\",\"workflows\":[" 
+                + "{\"type\":\"time_based\",\"module\":\"Leads\",\"name\":\"Follow-up reminder\",\"trigger_type\":\"date_or_datetime\","
+                + "\"date_trigger\":{\"field\":\"Follow_Up_Date\",\"offset\":-2,\"period\":\"business days\",\"time\":\"9:00\",\"recur\":\"once\"},"
+                + "\"conditions\":[],\"tasks\":[{\"subject\":\"Call the lead\",\"due_in_days\":1}],\"req_ids\":[\"FR-3\"]},"
+                + "{\"type\":\"workflow\",\"module\":\"Leads\",\"name\":\"Escalate untouched\",\"trigger_type\":\"create\",\"conditions\":[],"
+                + "\"scheduled_actions\":[{\"after\":{\"unit\":24,\"period\":\"hours\"},\"field_updates\":[{\"field\":\"Lead_Status\",\"value\":\"Escalated\"}]}],\"req_ids\":[\"FR-4\"]}],"
+                + "\"open_questions\":[]}";
+        ImplSpec.Parsed p = ImplSpec.parse(reply, Arrays.asList("workflows", "open_questions"));
+        ObjectNode t = p.items.get("workflows").get(0), e = p.items.get("workflows").get(1);
+        check("time: time_based becomes a workflow with a date trigger", "workflow".equals(t.path("type").asText()) && "date_or_datetime".equals(t.path("trigger_type").asText())
+                && "b_days".equals(t.path("date_trigger").path("period").asText()) && -2 == t.path("date_trigger").path("offset").asInt() && "9:00".equals(t.path("date_trigger").path("time").asText()));
+        check("time: trigger mirror in words", t.path("trigger").asText().startsWith("2 business days before Follow_Up_Date at 9:00"));
+        check("time: scheduled block normalised", e.path("scheduled_actions").size() == 1 && e.path("scheduled_actions").get(0).path("after").path("unit").asInt() == 24
+                && e.path("actions").get(0).asText().startsWith("After 24 hours: set Lead_Status"));
+        ObjectNode st = M.createObjectNode().put("status", "new");
+        check("crm: date trigger with a task is api", "api".equals(CrmProduct.INSTANCE.laneFor("workflows", t.deepCopy().setAll(st))));
+        check("crm: create + scheduled block is api", "api".equals(CrmProduct.INSTANCE.laneFor("workflows", e.deepCopy().setAll(st))));
+        java.util.function.Function<String, JsonNode> fieldOf = (api) -> M.createObjectNode().put("api_name", api).put("id", "F_" + api);
+        ObjectNode body = ImplRules.rule(t, "Leads", "M1", fieldOf, java.util.Collections.singletonList(new String[]{"tasks", "T1"}), java.util.Collections.emptyList(), "+05:30");
+        JsonNode when = body.path("workflow_rules").get(0).path("execute_when");
+        check("time: execute_when date_or_datetime shape", "date_or_datetime".equals(when.path("type").asText()) && "F_Follow_Up_Date".equals(when.path("details").path("field").path("id").asText())
+                && when.path("details").path("unit").asInt() == -2 && "b_days".equals(when.path("details").path("period").asText()) && "09:00:00+05:30".equals(when.path("details").path("execute_at").asText()));
+        ObjectNode body2 = ImplRules.rule(e, "Leads", "M1", fieldOf, java.util.Collections.emptyList(),
+                java.util.Collections.singletonList(new ImplRules.Scheduled(24, "hours", java.util.Collections.singletonList(new String[]{"field_updates", "FU1"}))), "+05:30");
+        JsonNode cond = body2.path("workflow_rules").get(0).path("conditions").get(0);
+        check("time: scheduled_actions block in the rule", cond.path("scheduled_actions").size() == 1 && cond.path("scheduled_actions").get(0).path("execute_after").path("unit").asInt() == 24
+                && "FU1".equals(cond.path("scheduled_actions").get(0).path("actions").get(0).path("id").asText()) && cond.path("instant_actions").path("actions").size() == 0);
     }
 
     static void profilePermissions() {

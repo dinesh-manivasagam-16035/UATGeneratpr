@@ -116,7 +116,7 @@ public final class ImplPlan {
     private static String ruleText(JsonNode w) {
         StringBuilder sb = new StringBuilder();
         String trig = w.path("trigger_type").asText("");
-        sb.append(trig.isEmpty() ? w.path("trigger").asText("") : "on " + trig.replace('_', ' '));
+        sb.append(trig.isEmpty() ? w.path("trigger").asText("") : w.path("date_trigger").isObject() ? ImplSpec.dateTriggerText(w.path("date_trigger")) : "on " + trig.replace('_', ' '));
         if (w.path("conditions").size() > 0) {
             List<String> cs = new ArrayList<>();
             for (JsonNode c : w.path("conditions")) cs.add(c.path("field").asText() + " " + c.path("comparator").asText().replace('_', ' ') + (c.path("value").asText("").isEmpty() ? "" : " " + c.path("value").asText()));

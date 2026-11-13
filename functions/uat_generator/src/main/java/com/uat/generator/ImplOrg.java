@@ -29,6 +29,8 @@ public final class ImplOrg {
     public String orgId = "";
     public String orgName = "";
     public String orgType = "";
+    /** IANA time zone of the org ("Asia/Kolkata"), for time-based rules' execute_at. */
+    public String timeZone = "";
     public boolean sandbox;
     /** lower-cased api_name / singular / plural label → module JSON */
     public final Map<String, JsonNode> modules = new LinkedHashMap<>();
@@ -80,6 +82,7 @@ public final class ImplOrg {
             o.domain = org.path("domain_name").asText("");
             o.orgName = org.path("company_name").asText("");
             o.orgType = org.path("type").asText("");
+            o.timeZone = org.path("time_zone").asText("");
         } catch (Exception e) {
             String msg = e.getMessage() == null ? "" : e.getMessage();
             o.errors.add("org: " + msg + (msg.contains("OAUTH_SCOPE_MISMATCH")
@@ -171,6 +174,15 @@ public final class ImplOrg {
             o.errors.add("functions: " + e.getMessage());
         }
         return o;
+    }
+
+    /** The org's current UTC offset as "+05:30" (UTC when the zone is unknown). */
+    public String utcOffset() {
+        try {
+            java.time.ZoneId z = java.time.ZoneId.of(timeZone.isEmpty() ? "UTC" : timeZone);
+            String off = java.time.ZonedDateTime.now(z).getOffset().getId();
+            return "Z".equals(off) ? "+00:00" : off;
+        } catch (Exception e) { return "+00:00"; }
     }
 
     /** True/false when the org's functions were read, null when they weren't. */

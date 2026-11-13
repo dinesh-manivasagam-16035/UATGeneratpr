@@ -100,9 +100,41 @@ public final class ImplRules {
      */
     public static ObjectNode rule(JsonNode wf, String moduleApi, String moduleId,
                                   Function<String, JsonNode> fieldOf, List<String[]> actions) {
+        return rule(wf, moduleApi, moduleId, fieldOf, actions, java.util.Collections.emptyList(), "+00:00");
+    }
+
+    /** One delayed block of a rule: how long after the trigger, and the created actions (type, id). */
+    public static final class Scheduled {
+        public final int unit; public final String period; public final List<String[]> actions;
+        public Scheduled(int unit, String period, List<String[]> actions) { this.unit = unit; this.period = period; this.actions = actions; }
+    }
+
+    /**
+     * @param scheduled  delayed action blocks (scheduled_actions)
+     * @param utcOffset  the org's UTC offset ("+05:30") for a date trigger's execute_at
+     */
+    public static ObjectNode rule(JsonNode wf, String moduleApi, String moduleId,
+                                  Function<String, JsonNode> fieldOf, List<String[]> actions,
+                                  List<Scheduled> scheduled, String utcOffset) {
         String trigger = wf.path("trigger_type").asText("");
         ObjectNode when = MAPPER.createObjectNode().put("type", trigger);
-        if ("edit".equals(trigger) || "create_or_edit".equals(trigger)) {
+        if ("date_or_datetime".equals(trigger)) {
+            JsonNode dt = wf.path("date_trigger");
+            if (!dt.isObject() || dt.path("field").asText("").isEmpty()) {
+                throw new IllegalStateException("A time-based rule needs date_trigger.field (the date/datetime field it counts from).");
+            }
+            JsonNode f = need(fieldOf, dt.path("field").asText(), moduleApi);
+            ObjectNode details = when.putObject("details");
+            details.set("field", ref(f.path("api_name").asText(), f.path("id").asText()));
+            details.put("unit", dt.path("offset").asInt(0));
+            details.put("period", dt.path("period").asText("days"));
+            details.put("execute_at", String.format("%s:00%s", dt.path("time").asText("09:00").length() == 4 ? "0" + dt.path("time").asText() : dt.path("time").asText("09:00"), utcOffset));
+            details.put("recur_cycle", dt.path("recur").asText("once"));
+            details.put("repeat", false);
+            details.set("trigger_module", ref(moduleApi, moduleId));
+        } else if ("create".equals(trigger) || "delete".equals(trigger)) {
+            when.putObject("details").set("trigger_module", ref(moduleApi, moduleId));
+        } else if ("edit".equals(trigger) || "create_or_edit".equals(trigger)) {
             when.putObject("details").put("repeat", false).set("trigger_module", ref(moduleApi, moduleId));
         } else if ("field_update".equals(trigger)) {
             if (wf.path("trigger_fields").size() == 0) {
@@ -144,6 +176,15 @@ public final class ImplRules {
         }
         ArrayNode acts = cond.putObject("instant_actions").putArray("actions");
         for (String[] a : actions) acts.addObject().put("type", a[0]).put("id", a[1]);
+        if (!scheduled.isEmpty()) {
+            ArrayNode sch = cond.putArray("scheduled_actions");
+            for (Scheduled s : scheduled) {
+                ObjectNode block = sch.addObject();
+                block.putObject("execute_after").put("period", s.period).put("unit", s.unit);
+                ArrayNode sa = block.putArray("actions");
+                for (String[] a : s.actions) sa.addObject().put("type", a[0]).put("id", a[1]);
+            }
+        }
 
         ObjectNode body = MAPPER.createObjectNode();
         body.putArray("workflow_rules").add(r);

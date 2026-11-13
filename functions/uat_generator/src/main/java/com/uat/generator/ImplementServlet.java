@@ -469,7 +469,7 @@ public class ImplementServlet extends HttpServlet {
             if (!w.path("include").asBoolean(true) || w.has("manual_include")) continue;
             if (!"workflow".equals(w.path("type").asText("workflow"))) continue;
             boolean hasAction = w.path("field_updates").size() > 0 || w.path("tasks").size() > 0 || w.path("webhooks").size() > 0
-                    || w.path("other_actions").size() > 0 || w.path("actions").size() > 0;
+                    || w.path("other_actions").size() > 0 || w.path("actions").size() > 0 || w.path("scheduled_actions").size() > 0;
             if (hasAction) continue;
             java.util.Set<String> reqs = new java.util.HashSet<>(ImplSpec.strings(w.path("req_ids")));
             String twin = null;
