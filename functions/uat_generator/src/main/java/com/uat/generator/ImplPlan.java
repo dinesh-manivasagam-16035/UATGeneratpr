@@ -47,6 +47,12 @@ public final class ImplPlan {
                     names(newModules, "plural_label") + ".", "LiftOff", "api", 0.05 * newModules.size(), "P0",
                     newModules, prev, "each module is listed by GET settings/modules");
         }
+        List<JsonNode> sets = included(spec, "global_picklists", "api");
+        if (!sets.isEmpty()) {
+            lastApi = add(tasks, "2. Build via API", "Create " + sets.size() + " shared option set(s)",
+                    names(sets, "name") + ".", "LiftOff", "api", 0.05 * sets.size(), "P0", sets, prev,
+                    "each set is listed by GET settings/global_picklists");
+        }
         Map<String, List<JsonNode>> fieldsByModule = new LinkedHashMap<>();
         for (JsonNode f : included(spec, "fields", "api")) {
             fieldsByModule.computeIfAbsent(f.path("module").asText(), k -> new ArrayList<>()).add(f);
@@ -97,7 +103,7 @@ public final class ImplPlan {
         // ---- 3. Setup lane: what the runner walks you through ----
         String lastUi = lastApi;
         List<JsonNode> ui = new ArrayList<>();
-        for (String sct : new String[]{"fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) ui.addAll(included(spec, sct, "rpa"));
+        for (String sct : new String[]{"global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) ui.addAll(included(spec, sct, "rpa"));
         for (JsonNode w : included(spec, "workflows", "partial")) {
             if (w.path("other_actions").size() > 0) ui.add(w);
         }
@@ -155,6 +161,7 @@ public final class ImplPlan {
             case "fields":           return "field " + o.path("module").asText() + "." + o.path("label").asText()
                                             + " (" + o.path("data_type").asText() + ")";
             case "layouts":          return "layout " + o.path("module").asText() + " / " + o.path("name").asText();
+            case "global_picklists": return "shared option set " + o.path("name").asText();
             case "dependencies":     return "picklist dependency " + o.path("parent").asText() + " → " + o.path("child").asText() + " on " + o.path("module").asText();
             case "validation_rules": return "validation rule " + o.path("module").asText() + ": " + o.path("name").asText();
             case "workflows":        return o.path("type").asText() + " " + o.path("module").asText() + ": " + o.path("name").asText();

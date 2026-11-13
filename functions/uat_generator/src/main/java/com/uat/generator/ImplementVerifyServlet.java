@@ -55,7 +55,7 @@ public class ImplementVerifyServlet extends HttpServlet {
             ImplOrg org = Products.current().readOrg(crm, ImplementApplyServlet.modulesOf(spec), true);
 
             ArrayNode results = MAPPER.createArrayNode();
-            for (String section : new String[]{"modules", "fields", "layouts", "dependencies", "roles", "validation_rules",
+            for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "roles", "validation_rules",
                                                "workflows", "functions"}) {
                 for (JsonNode item : spec.path(section)) {
                     if (!item.path("include").asBoolean(true) && !"exists".equals(item.path("status").asText())) continue;
@@ -167,6 +167,19 @@ public class ImplementVerifyServlet extends HttpServlet {
                 r.put("verdict", "unverifiable");
                 r.put("actual", "check in Setup");
                 r.put("detail", "Only workflow rules are read back; check " + item.path("type").asText() + "s in Setup.");
+                return;
+            }
+            case "global_picklists": {
+                r.put("expected", "shared option set " + item.path("name").asText());
+                Boolean has = org.hasGlobalPicklist(item.path("name").asText());
+                if (has != null) {
+                    r.put("verdict", has ? "present" : "missing");
+                    r.put("actual", has ? "present (options not compared)" : "not found");
+                    r.put("fixable", !has && !"rpa".equals(item.path("executor").asText()));
+                    return;
+                }
+                r.put("verdict", "unverifiable");
+                r.put("actual", "check in Setup → Customization → Modules and Fields → Global Picklists");
                 return;
             }
             case "functions": {

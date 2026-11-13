@@ -19,6 +19,7 @@
     ["modules",          "Modules"],
     ["fields",           "Fields"],
     ["layouts",          "Layouts"],
+    ["global_picklists", "Shared option sets"],
     ["dependencies",     "Picklist dependencies"],
     ["validation_rules", "Validation rules"],
     ["roles",            "Roles"],
@@ -30,7 +31,7 @@
   const FILTERS = [["all", "All items"], ["attention", "Needs attention"], ["new", "New"], ["exists", "Already in org"],
     ["api", "Builds via API"], ["manual", "Needs UI work"]];
   const GROUPS = [
-    ["data_model", "Data model", "modules, fields, layouts, picklist dependencies, validation rules, roles", ["modules", "fields", "layouts", "dependencies", "validation_rules", "roles"]],
+    ["data_model", "Data model", "modules, fields, layouts, picklist dependencies, validation rules, roles", ["modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "roles"]],
     ["automation", "Automation", "workflows, approvals, Deluge functions", ["workflows", "functions"]],
   ];
   const KIND_LABEL = { modules: "module", fields: "field", layouts: "layout", validation_rules: "validation rule", roles: "role",
@@ -94,6 +95,7 @@
       case "layouts":          return `${o.module} · ${o.name}`;
       case "validation_rules": return `${o.module} · ${o.name}`;
       case "dependencies":     return `${o.module} · ${o.parent} → ${o.child}`;
+      case "global_picklists": return o.name;
       case "workflows":        return `${o.type}: ${o.module ? o.module + " · " : ""}${o.name}`;
       case "roles":            return o.name;
       case "functions":        return o.name;
@@ -118,6 +120,10 @@
       case "layouts":
         (o.sections || []).forEach((s) => parts.push(`${s.name}: ${(s.fields || []).join(", ")}`));
         if (o.profiles && o.profiles.length) parts.push("profiles: " + o.profiles.join(", "));
+        break;
+      case "global_picklists":
+        parts.push((o.values || []).join(", "));
+        if (o.description) parts.push(o.description);
         break;
       case "dependencies":
         Object.keys(o.mapping || {}).forEach((k) => parts.push(`${k}: ${(o.mapping[k] || []).join(", ")}`));
@@ -535,6 +541,7 @@
           (!(o.field_updates || []).length && !(o.tasks || []).length && !(o.webhooks || []).length ? (o.actions || []) : []));
         return { title: `${when}${cond && !/all records/i.test(cond) ? `, when ${cond.replace(/^when\s+/i, "")}` : ""}: ${acts.join("; ") || o.name}`, sub: `${o.type || "workflow"} rule “${o.name}” on ${o.module}` };
       }
+      case "global_picklists": return { title: `Shared option set “${o.name}”: ${(o.values || []).join(", ")}`, sub: "global picklist, reused by fields in several modules" };
       case "dependencies": return { title: `${o.child} options depend on ${o.parent} (${Object.keys(o.mapping || {}).length} mapped)`, sub: `picklist dependency on ${o.module}` };
       case "validation_rules": return { title: `Reject a ${o.module} record when ${o.condition}`, sub: `validation rule “${o.name}”${o.error_message ? ` · “${o.error_message}”` : ""}` };
       case "functions": return { title: o.purpose || o.name, sub: `Deluge function ${o.name}${o.trigger ? " · " + o.trigger : ""}` };

@@ -105,7 +105,7 @@ public class ImplementApplyServlet extends HttpServlet {
             ArrayNode results = MAPPER.createArrayNode();
             ArrayNode rpaQueue = MAPPER.createArrayNode();
 
-            for (String section : new String[]{"modules", "fields", "roles", "layouts", "dependencies", "validation_rules",
+            for (String section : new String[]{"modules", "global_picklists", "fields", "roles", "layouts", "dependencies", "validation_rules",
                                                "workflows", "functions"}) {
                 for (JsonNode item : spec.path(section)) {
                     String id = item.path("id").asText();
@@ -189,7 +189,7 @@ public class ImplementApplyServlet extends HttpServlet {
     /** Module names the given items refer to (their own module and lookup target). */
     static Set<String> modulesOf(JsonNode spec, Set<String> ids) {
         Set<String> out = new LinkedHashSet<>();
-        for (String section : new String[]{"modules", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) {
+        for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions"}) {
             for (JsonNode item : spec.path(section)) {
                 if (!ids.contains(item.path("id").asText())) continue;
                 out.add("modules".equals(section) ? item.path("api_name").asText() : item.path("module").asText());
@@ -237,6 +237,7 @@ public class ImplementApplyServlet extends HttpServlet {
                     break;
                 case "layouts": layout(item, r); break;
                 case "dependencies": dependency(item, r); break;
+                case "global_picklists": globalPicklist(item, r); break;
                 case "functions": function(item, r); break;
                 default: throw new IllegalStateException("No API executor for " + section);
             }
@@ -287,7 +288,17 @@ public class ImplementApplyServlet extends HttpServlet {
                 fld.putObject("textarea").put("type", len > 2000 ? "large" : "small");
             }
             if ("currency".equals(type)) fld.putObject("currency").put("rounding_option", "normal");
-            if (type.contains("picklist")) {
+            String gplName = f.path("global_picklist").asText("");
+            if (type.contains("picklist") && !gplName.isEmpty()) {
+                // Shared option set: the field carries global_picklist:{id} and no options of its own.
+                String gplId = dryRun && crm == null ? null : globalSets().get(ImplSpec.low(gplName));
+                if (gplId == null) {
+                    if (!dryRun) throw new IllegalStateException("Global picklist \"" + gplName + "\" isn't in the org; it is created before the fields that use it.");
+                    gplId = "<id of global picklist " + gplName + ">";
+                }
+                fld.putObject("global_picklist").put("id", gplId);
+                r.put("global_picklist", gplName);
+            } else if (type.contains("picklist")) {
                 if (f.path("picklist_values").size() == 0) {
                     throw new IllegalStateException("Picklist has no values. Add them in review, then apply again.");
                 }
@@ -703,6 +714,38 @@ public class ImplementApplyServlet extends HttpServlet {
                 r.put("follow_up", "No profile permission matched: " + ImplPlan.join(matched.path("unmatched")) + " — set these in Setup → Security Control → Profiles → " + newName + ".");
             }
             if (org != null && org.roles != null) r.put("note", "Assign the profile to the role's users (profiles are per user).");
+        }
+
+        Map<String, String> globalSets;      // lower-cased name/api_name → id (org's sets plus ones created here)
+        Map<String, String> globalSets() throws Exception {
+            if (globalSets != null) return globalSets;
+            globalSets = new LinkedHashMap<>();
+            if (crm == null) return globalSets;
+            CrmClient.Response res = crm.call("GET", "/crm/" + v + "/settings/global_picklists", null);
+            if (res.json != null) for (JsonNode g : res.json.path("global_picklists")) {
+                String id = g.path("id").asText();
+                for (String k : new String[]{"api_name", "display_label", "actual_label"}) {
+                    String n = g.path(k).asText("");
+                    if (!n.isEmpty()) globalSets.put(ImplSpec.low(n), id);
+                }
+            }
+            return globalSets;
+        }
+
+        /** Global picklist (shared option set) through POST settings/global_picklists — one set per call. */
+        void globalPicklist(JsonNode g, ObjectNode r) throws Exception {
+            String name = g.path("name").asText();
+            Map<String, String> have = dryRun && crm == null ? new LinkedHashMap<>() : globalSets();
+            if (have.containsKey(ImplSpec.low(name))) {
+                r.put("result", "skipped");
+                r.put("detail", "A global picklist named \"" + name + "\" already exists; fields will use it.");
+                return;
+            }
+            ObjectNode payload = ImplGlobalPicklists.payload(g);
+            String id = send(r, "POST", "/crm/" + v + "/settings/global_picklists", payload, "global_picklists");
+            if (!dryRun && id != null && !id.isEmpty()) have.put(ImplSpec.low(name), id);
+            r.put("detail", (dryRun ? "Would create " : "Created ") + "the shared option set \"" + name + "\" with "
+                    + payload.path("global_picklists").path(0).path("pick_list_values").size() + " option(s).");
         }
 
         /**

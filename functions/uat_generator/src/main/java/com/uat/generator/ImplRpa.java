@@ -40,6 +40,12 @@ public final class ImplRpa {
                 if (!o.path("notes").asText("").isEmpty()) s.add(o.path("notes").asText());
                 s.add("Save the layout.");
                 break;
+            case "global_picklists":
+                s.add(Products.current().setupRoot("fields") + " → Global Picklists → New Global Set.");
+                s.add("Name: " + o.path("name").asText() + ".");
+                s.add("Options in order: " + join(o.path("values")) + ".");
+                s.add("Save.");
+                break;
             case "dependencies": {
                 s.add(Products.current().setupRoot("fields") + " → " + module + " → Layouts → Standard → Map Dependency Fields → New Mapping.");
                 s.add("Parent: " + o.path("parent").asText() + ", child: " + o.path("child").asText() + ".");

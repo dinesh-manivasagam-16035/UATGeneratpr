@@ -42,6 +42,8 @@ public final class ImplOrg {
     public final Map<String, List<String>> workflows = new LinkedHashMap<>();
     /** lower-cased api_name and name of every Deluge function in the org (null until read). */
     public List<String> functions;
+    /** lower-cased api_name and display_label of the org's global picklists (null until read). */
+    public List<String> globalPicklists;
     /** lower-cased module api_name → email template names (only for modules that were read). */
     public final Map<String, List<String>> emailTemplates = new LinkedHashMap<>();
     public final List<String> errors = new ArrayList<>();
@@ -168,6 +170,18 @@ public final class ImplOrg {
             o.errors.add("roles: " + e.getMessage());
         }
         try {
+            JsonNode gps = get(crm, "/crm/v8/settings/global_picklists").path("global_picklists");
+            if (gps.isArray()) {
+                o.globalPicklists = new ArrayList<>();
+                for (JsonNode g : gps) {
+                    o.globalPicklists.add(ImplSpec.low(g.path("api_name").asText("")));
+                    o.globalPicklists.add(ImplSpec.low(g.path("display_label").asText("")));
+                }
+            }
+        } catch (Exception e) {
+            o.errors.add("global picklists: " + e.getMessage());
+        }
+        try {
             JsonNode fns = get(crm, "/crm/v8/settings/functions?per_page=200").path("functions");
             if (fns.isArray()) {
                 o.functions = new ArrayList<>();
@@ -189,6 +203,12 @@ public final class ImplOrg {
             String off = java.time.ZonedDateTime.now(z).getOffset().getId();
             return "Z".equals(off) ? "+00:00" : off;
         } catch (Exception e) { return "+00:00"; }
+    }
+
+    /** True/false when the org's global picklists were read, null when they weren't. */
+    public Boolean hasGlobalPicklist(String name) {
+        if (globalPicklists == null) return null;
+        return globalPicklists.contains(ImplSpec.low(name));
     }
 
     /** True/false when the org's functions were read, null when they weren't. */

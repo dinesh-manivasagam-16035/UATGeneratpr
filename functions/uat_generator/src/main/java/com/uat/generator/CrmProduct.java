@@ -36,8 +36,8 @@ public final class CrmProduct implements Product {
             "PATCH /settings/fields/{id}?module=X", "ZohoCRM.settings.fields.UPDATE", "builds", "update-custom-fields"),
         c("field_other",      "field of type autonumber, formula, fileupload, multiselectlookup, image, subform", "ui", "no create API for these types",
             "", "", "runner", ""),
-        c("global_picklist",  "global picklist (shared option set)",                            "ui", "API exists; builder not written",
-            "POST /settings/global_picklists", "ZohoCRM.settings.global_picklist.CREATE", "planned", "create-global-picklists"),
+        c("global_picklist",  "global picklist (option set shared by fields in several modules)",  "api", "created before the fields that use it; a picklist field then carries global_picklist:{id} instead of its own options",
+            "POST /settings/global_picklists; field create with global_picklist", "ZohoCRM.settings.global_picklist.CREATE", "builds", "create-global-picklists"),
         c("layout_place",     "placing fields into sections of the existing layout (new section allowed), marking a field required", "api", "",
             "PATCH /settings/layouts/{id}?module=X", "ZohoCRM.settings.layouts.UPDATE", "builds", "update-custom-layout"),
         c("layout_design",    "a second layout, per-profile layouts",                            "ui", "designed in Setup → Modules and Fields → Layouts",
@@ -235,6 +235,7 @@ public final class CrmProduct implements Product {
             }
             case "functions": return "api";          // POST settings/functions publishes Deluge with its code
             case "dependencies": return o.path("mapping").size() > 0 ? "api" : "rpa";
+            case "global_picklists": return o.path("values").size() > 0 ? "api" : "rpa";
             case "open_questions": return "review";
             case "plan":    return "projects";
             default:        return "rpa";   // validation rules
@@ -276,11 +277,15 @@ public final class CrmProduct implements Product {
             + "fields: [{module (api name), label, api_name, data_type (text|textarea|email|phone|website|picklist|"
             + "multiselectpicklist|date|datetime|integer|bigint|decimal|currency|percent|boolean|lookup), length?, "
             + "picklist_values (string[] — for a NEW picklist all its options; for an EXISTING picklist only the "
-            + "options to add), lookup_module?, required (bool), unique (bool), default_value?, tooltip?, "
+            + "options to add), global_picklist (name of a global_picklists entry — then leave picklist_values empty), "
+            + "lookup_module?, required (bool), unique (bool), default_value?, tooltip?, "
             + "assumption?, req_ids}]\n"
             + "layouts: [{module, name, sections:[{name, fields:[field labels]}], profiles (string[]), notes, req_ids}] — "
             + "when the BRD says which section a field belongs in (fields = labels of fields in this spec or the org; "
             + "an unknown section name creates it); a new field with no stated section needs no layout item\n"
+            + "global_picklists: [{name, values (string[] in order), description?, req_ids}] — ONLY when the same option set is "
+            + "needed by fields in more than one module, or the BRD says the options are shared/standardised. A field then sets "
+            + "global_picklist to this name and leaves picklist_values empty.\n"
             + "dependencies: [{module, parent (picklist api name), child (picklist api name), mapping ({\"<parent option>\": [child options]} — "
             + "every parent option the BRD maps; options reuse the org's values and new ones are added), req_ids}] — only when the BRD says "
             + "a picklist's options depend on another picklist's value\n"

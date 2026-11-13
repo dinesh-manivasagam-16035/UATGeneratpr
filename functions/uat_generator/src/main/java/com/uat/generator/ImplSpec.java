@@ -41,16 +41,17 @@ public final class ImplSpec {
             .configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
 
     public static final List<String> DATA_MODEL = Arrays.asList(
-            "modules", "fields", "layouts", "dependencies", "validation_rules", "roles", "open_questions");
+            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "roles", "open_questions");
     public static final List<String> AUTOMATION = Arrays.asList(
             "workflows", "functions", "open_questions");
     public static final List<String> SECTIONS = Arrays.asList(
-            "modules", "fields", "layouts", "dependencies", "validation_rules", "workflows", "roles",
+            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "roles",
             "functions", "open_questions", "plan");
 
     private static final Map<String, String> PREFIX = new LinkedHashMap<>();
     static {
         PREFIX.put("modules", "MOD");
+        PREFIX.put("global_picklists", "GPL");
         PREFIX.put("fields", "FLD");
         PREFIX.put("layouts", "LAY");
         PREFIX.put("dependencies", "DEP");
@@ -230,7 +231,9 @@ public final class ImplSpec {
                     String s = v.isObject() ? firstText(v, "display_value", "actual_value", "value") : v.asText("").trim();
                     if (!s.isEmpty()) picks.add(s);
                 }
-                if (type.contains("picklist") && picks.size() == 0) {
+                String gpl = firstText(in, "global_picklist", "global_picklist_name", "shared_options");
+                if (!gpl.isEmpty() && type.contains("picklist")) o.put("global_picklist", gpl);
+                if (type.contains("picklist") && picks.size() == 0 && gpl.isEmpty()) {
                     o.put("note", "Picklist has no values in the BRD; add them before applying.");
                 }
                 String lookup = text(in, "lookup_module");
@@ -259,6 +262,16 @@ public final class ImplSpec {
                 }
                 copyStrings(in, o, "profiles");
                 o.put("notes", text(in, "notes"));
+                break;
+            }
+            case "global_picklists": {
+                // Shared option set: {name, values[], description}
+                String name = firstText(in, "name", "display_label");
+                if (name.isEmpty() || strings(in.path("values")).isEmpty()) return null;
+                o.put("name", name);
+                o.put("description", text(in, "description"));
+                ArrayNode vals = o.putArray("values");
+                for (String v : strings(in.path("values"))) vals.add(v);
                 break;
             }
             case "dependencies": {
@@ -473,6 +486,7 @@ public final class ImplSpec {
             case "layouts":          return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "validation_rules": return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "dependencies":     return low(o.path("module").asText()) + "|" + low(o.path("parent").asText()) + ">" + low(o.path("child").asText());
+            case "global_picklists": return low(o.path("name").asText());
             case "workflows":        return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "roles":            return low(o.path("name").asText());
             case "functions":        return low(o.path("name").asText());

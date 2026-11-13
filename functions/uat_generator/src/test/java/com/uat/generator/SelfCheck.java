@@ -32,6 +32,7 @@ public final class SelfCheck {
         pipelinePayload();
         emailAlerts();
         dependencies();
+        globalPicklists();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -108,6 +109,25 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void globalPicklists() throws Exception {
+        String reply = "{\"summary\":\"x\",\"global_picklists\":[{\"name\":\"PIDG Stage\",\"values\":[\"Draft\",\"Submitted\",\"Approved\"],\"description\":\"shared\",\"req_ids\":[\"FR-6\"]}],"
+                + "\"fields\":[{\"module\":\"Leads\",\"label\":\"PIDG Stage\",\"data_type\":\"picklist\",\"global_picklist\":\"PIDG Stage\",\"picklist_values\":[],\"req_ids\":[\"FR-6\"]}],\"open_questions\":[]}";
+        ImplSpec.Parsed p = ImplSpec.parse(reply, Arrays.asList("global_picklists", "fields", "open_questions"));
+        ObjectNode g = p.items.get("global_picklists").get(0), f = p.items.get("fields").get(0);
+        check("gpl: set normalised with ordered values", g.path("values").size() == 3 && "Draft".equals(g.path("values").get(0).asText()));
+        check("gpl: field keeps the set name and no empty-picklist note", "PIDG Stage".equals(f.path("global_picklist").asText()) && f.path("note").asText("").isEmpty());
+        JsonNode body = ImplGlobalPicklists.payload(g).path("global_picklists").path(0);
+        check("gpl: payload display_label and sequenced display_values", "PIDG Stage".equals(body.path("display_label").asText())
+                && body.path("pick_list_values").size() == 3 && body.path("pick_list_values").get(2).path("sequence_number").asInt() == 3
+                && "Approved".equals(body.path("pick_list_values").get(2).path("display_value").asText()) && !body.path("pick_list_values").get(0).has("actual_value"));
+        ObjectNode have = M.createObjectNode(); have.putArray("global_picklists").addObject().put("id", "G1").put("api_name", "PIDG_Stage").put("display_label", "PIDG Stage");
+        check("gpl: existing set matched by label or api name", "G1".equals(ImplGlobalPicklists.existing(have, "pidg stage").path("id").asText())
+                && "G1".equals(ImplGlobalPicklists.existing(have, "PIDG_Stage").path("id").asText()) && ImplGlobalPicklists.existing(have, "Other") == null);
+        check("crm: global picklist lane is api", "api".equals(CrmProduct.INSTANCE.laneFor("global_picklists", g.deepCopy().put("status", "new"))));
+        ObjectNode spec = emptySpec(); spec.withArray("global_picklists").add(g); ImplSpec.finish(spec);
+        check("gpl: id prefix GPL", "GPL-1".equals(spec.path("global_picklists").get(0).path("id").asText()));
     }
 
     static void dependencies() throws Exception {
