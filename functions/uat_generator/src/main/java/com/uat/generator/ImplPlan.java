@@ -66,6 +66,12 @@ public final class ImplPlan {
         List<JsonNode> apiRules = included(spec, "workflows", "api");
         apiRules.addAll(included(spec, "workflows", "partial"));
         for (JsonNode w : apiRules) {
+            if ("pipeline".equals(w.path("type").asText())) {
+                lastApi = add(tasks, "2. Build via API", "Create pipeline: " + w.path("name").asText(),
+                        "Stages " + String.join(" → ", ImplBlueprint.states(w)) + ".", "LiftOff", "api", 0.1, "P1", List.of(w), lastApi,
+                        "pipeline listed by GET settings/pipeline for the Deals layout");
+                continue;
+            }
             if ("blueprint".equals(w.path("type").asText())) {
                 lastApi = add(tasks, "2. Build via API", "Create Blueprint: " + w.path("name").asText(),
                         "States " + String.join(" → ", ImplBlueprint.states(w)) + "; created in Draft and activated.", "LiftOff", "api", 0.2, "P0", List.of(w), lastApi,

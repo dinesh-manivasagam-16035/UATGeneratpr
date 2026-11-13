@@ -84,7 +84,7 @@ public final class ImplSpec {
     static final Set<String> SCHEDULE_PERIODS = new HashSet<>(Arrays.asList("minutes", "hours", "business_hours", "days", "business_days", "weeks", "months", "years"));
     private static final Set<String> WORKFLOW_TYPES = new HashSet<>(Arrays.asList(
             "workflow", "blueprint", "assignment", "approval", "scoring", "escalation",
-            "schedule", "cadence", "webhook", "sla", "macro", "view", "notification", "time_based"));
+            "schedule", "cadence", "webhook", "sla", "macro", "view", "notification", "time_based", "pipeline"));
 
     private ImplSpec() {}
 
@@ -278,6 +278,7 @@ public final class ImplSpec {
                 copyStrings(in, o, "states");
                 o.put("details", text(in, "details"));
                 if (!text(in, "field").isEmpty()) o.put("field", text(in, "field"));
+                if (in.has("default")) o.put("default", in.path("default").asBoolean(false));
                 if (in.path("transitions").size() > 0) {
                     ArrayNode tr = o.putArray("transitions");
                     for (JsonNode t : in.path("transitions")) {

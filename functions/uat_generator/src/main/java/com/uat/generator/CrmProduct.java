@@ -52,8 +52,8 @@ public final class CrmProduct implements Product {
             "", "", "runner", ""),
         c("custom_view",      "custom list view",                                               "ui", "no create API (v8 has get + sort order only)",
             "", "", "runner", ""),
-        c("pipeline",         "deal pipeline / stages",                                         "ui", "API exists; builder not written",
-            "POST /settings/pipeline?layout_id=X", "ZohoCRM.settings.pipeline.CREATE", "planned", "create-pipeline"),
+        c("pipeline",         "deal pipeline / stages",                                         "api", "stages are Deals Stage values in order; values the org lacks are added first. New stages' probability and forecast category are a Setup follow-up",
+            "POST /settings/pipeline?layout_id=X", "ZohoCRM.settings.pipeline.CREATE", "builds", "create-pipeline"),
         c("variable",         "CRM variable (org-level constant)",                              "ui", "API exists; builder not written",
             "POST /settings/variables", "ZohoCRM.settings.variables.CREATE", "planned", "create-variables"),
         c("tag",              "tags on a module",                                               "ui", "API exists; builder not written",
@@ -213,6 +213,7 @@ public final class CrmProduct implements Product {
                     for (JsonNode e : o.path("rule_entries")) if (e.path("conditions").size() == 0 || e.path("assign_to").size() == 0) ok = false;
                     return ok ? "api" : "rpa";
                 }
+                if ("pipeline".equals(type)) return ImplBlueprint.states(o).size() >= 2 ? "api" : "rpa";
                 if ("blueprint".equals(type)) {
                     // Draft created by API with states and transitions; publishing may still be a Setup click.
                     return ImplBlueprint.states(o).size() >= 2 ? "partial" : "rpa";
@@ -296,7 +297,7 @@ public final class CrmProduct implements Product {
             + capabilityPrompt() + "\n\n"
             + "Return ONE JSON object with these keys (use [] for a section with nothing):\n"
             + "summary (string, one sentence)\n"
-            + "workflows: [{type (workflow|blueprint|assignment|approval|scoring|escalation|schedule|cadence|webhook), "
+            + "workflows: [{type (workflow|time_based|blueprint|pipeline|assignment|approval|scoring|escalation|schedule|cadence|webhook), "
             + "module (api name), name, req_ids, assumption?, and\n"
             + "  for type \"workflow\" ONLY the structured form (no prose duplicate): "
             + "trigger_type (create|edit|create_or_edit|field_update|delete|date_or_datetime), "
@@ -317,6 +318,8 @@ public final class CrmProduct implements Product {
             + "  for type \"assignment\" the structured form: rule_entries ([{conditions (as above), match, "
             + "assign_to (string[] — user emails or full names from the BRD), round_robin (bool)}]), "
             + "default_assignee (email, full name, or \"current user\");\n"
+            + "  for \"pipeline\" (Deals only): states (string[] — the stage names in order, reusing the org's Stage values "
+            + "where they fit, ending with a Closed Won / Closed Lost stage), default (bool), details;\n"
             + "  for \"blueprint\": field (api name of the picklist the states map to — Lead_Status, Stage, or a picklist "
             + "from the data model), states (string[] in order, each a value of that picklist — reuse the org's existing "
             + "options, add new ones only when the BRD names them), transitions ([{name, from, to}] — omit for a straight "

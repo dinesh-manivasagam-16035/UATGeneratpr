@@ -232,6 +232,7 @@ public class ImplementApplyServlet extends HttpServlet {
                 case "workflows":
                     if ("assignment".equals(item.path("type").asText())) assignment(item, r);
                     else if ("blueprint".equals(item.path("type").asText())) blueprint(item, r);
+                    else if ("pipeline".equals(item.path("type").asText())) pipeline(item, r);
                     else workflow(item, r);
                     break;
                 case "layouts": layout(item, r); break;
@@ -660,6 +661,57 @@ public class ImplementApplyServlet extends HttpServlet {
                 r.put("follow_up", "No profile permission matched: " + ImplPlan.join(matched.path("unmatched")) + " — set these in Setup → Security Control → Profiles → " + newName + ".");
             }
             if (org != null && org.roles != null) r.put("note", "Assign the profile to the role's users (profiles are per user).");
+        }
+
+        /**
+         * Deal pipeline through POST settings/pipeline?layout_id: stages are Stage picklist values in order
+         * (missing ones added to the picklist first). New stages land with Zoho's default forecast category;
+         * probabilities are a Setup follow-up.
+         */
+        void pipeline(JsonNode wf, ObjectNode r) throws Exception {
+            String module = moduleApi(wf.path("module").asText("Deals"));
+            List<String> stages = ImplBlueprint.states(wf);
+            if (stages.size() < 2) throw new IllegalStateException("A pipeline needs at least two stages; the spec lists " + stages.size() + ".");
+            ArrayNode requests = r.putArray("requests");
+            JsonNode layouts = crm == null ? null : crm.call("GET", "/crm/" + v + "/settings/layouts?module=" + enc(module), null).json;
+            JsonNode layout = null;
+            if (layouts != null) for (JsonNode l : layouts.path("layouts")) if (layout == null || l.path("name").asText("").equalsIgnoreCase("Standard")) layout = l;
+            if (layout == null && !dryRun) throw new IllegalStateException("Couldn't read the layouts of " + module + ".");
+            String layoutId = layout == null ? "<layout id>" : layout.path("id").asText();
+            if (crm != null && !dryRun) {
+                JsonNode have = crm.call("GET", "/crm/" + v + "/settings/pipeline?layout_id=" + layoutId, null).json;
+                if (ImplPipeline.existing(have, wf.path("name").asText()) != null) { r.put("result", "skipped"); r.put("detail", "A pipeline with this name already exists."); return; }
+            }
+            JsonNode field = org == null ? null : org.field(module, "Stage");
+            if (field == null && crm != null) {
+                JsonNode fj = crm.call("GET", "/crm/" + v + "/settings/fields?module=" + enc(module), null).json;
+                if (fj != null) for (JsonNode f : fj.path("fields")) if ("Stage".equals(f.path("api_name").asText())) field = f;
+            }
+            if (field == null) {
+                if (!dryRun) throw new IllegalStateException(module + " has no Stage field; pipelines are a Deals feature.");
+                field = MAPPER.createObjectNode().put("api_name", "Stage").put("id", "<Stage id>").put("data_type", "picklist");
+            }
+            List<String> added = new ArrayList<>();
+            for (String s : stages) {
+                boolean has = false;
+                for (JsonNode pv : field.path("pick_list_values")) if (s.equalsIgnoreCase(pv.path("actual_value").asText()) || s.equalsIgnoreCase(pv.path("display_value").asText())) has = true;
+                if (!has) { ensurePicklistValue(module, field, MAPPER.getNodeFactory().textNode(s), requests); added.add(s); }
+            }
+            Map<String, String> ids = ImplBlueprint.optionIds(field, stages);
+            if (!dryRun && ids.size() < stages.size() && crm != null) {
+                JsonNode fj = crm.call("GET", "/crm/" + v + "/settings/fields/" + field.path("id").asText() + "?module=" + enc(module), null).json;
+                if (fj != null && fj.path("fields").size() > 0) { field = fj.path("fields").path(0); ids = ImplBlueprint.optionIds(field, stages); }
+            }
+            if (!dryRun && ids.size() < stages.size()) {
+                List<String> missing = new ArrayList<>(stages); missing.removeAll(ids.keySet());
+                throw new IllegalStateException("Stage has no option for " + missing + " even after adding them.");
+            }
+            if (dryRun) for (String s : stages) ids.putIfAbsent(s, "<id of stage " + s + ">");
+            ObjectNode body = ImplPipeline.payload(wf, stages, ids);
+            call(requests, "POST", "/crm/" + v + "/settings/pipeline?layout_id=" + layoutId, body, "pipeline", "pipeline");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would create " : "Created ") + "pipeline \"" + wf.path("name").asText() + "\" with " + stages.size() + " stages" + (added.isEmpty() ? "" : " (" + added.size() + " new Stage value(s): " + String.join(", ", added) + ")") + ".");
+            if (!added.isEmpty()) r.put("follow_up", "New stages have Zoho's default forecast category and probability; set them in Setup → Customization → Modules and Fields → Deals → Stage-Probability Mapping.");
         }
 
         /**

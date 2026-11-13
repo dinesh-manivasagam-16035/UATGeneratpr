@@ -29,6 +29,7 @@ public final class SelfCheck {
         blueprintPayload();
         profilePermissions();
         timeBasedRules();
+        pipelinePayload();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -105,6 +106,18 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void pipelinePayload() {
+        ObjectNode wf = M.createObjectNode().put("type", "pipeline").put("module", "Deals").put("name", "Partner Sales").put("default", false);
+        wf.putArray("states").add("Qualification").add("Proposal").add("Closed Won");
+        java.util.Map<String, String> ids = new java.util.LinkedHashMap<>(); ids.put("Qualification", "s1"); ids.put("Proposal", "s2"); ids.put("Closed Won", "s3");
+        JsonNode body = ImplPipeline.payload(wf, ImplBlueprint.states(wf), ids).path("pipeline").path(0);
+        check("pipeline: maps in sequence with stage ids", body.path("maps").size() == 3 && body.path("maps").get(1).path("sequence_number").asInt() == 2 && "s2".equals(body.path("maps").get(1).path("id").asText()));
+        check("pipeline: name and default", "Partner Sales".equals(body.path("display_value").asText()) && !body.path("default").asBoolean());
+        ObjectNode have = M.createObjectNode(); have.putArray("pipeline").addObject().put("display_value", "Standard").put("id", "p1");
+        check("pipeline: existing lookup", ImplPipeline.existing(have, "standard") != null && ImplPipeline.existing(have, "Partner Sales") == null);
+        check("crm: pipeline lane is api", "api".equals(CrmProduct.INSTANCE.laneFor("workflows", wf.deepCopy().put("status", "new"))));
     }
 
     static void timeBasedRules() throws Exception {
