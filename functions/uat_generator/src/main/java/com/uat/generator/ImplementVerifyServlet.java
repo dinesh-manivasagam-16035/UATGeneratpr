@@ -169,6 +169,20 @@ public class ImplementVerifyServlet extends HttpServlet {
                 r.put("detail", "Only workflow rules are read back; check " + item.path("type").asText() + "s in Setup.");
                 return;
             }
+            case "functions": {
+                String api = ImplFunctions.apiName(item);
+                r.put("expected", "function " + api);
+                Boolean has = org.hasFunction(api);
+                if (has != null) {
+                    r.put("verdict", has ? "present" : "missing");
+                    r.put("actual", has ? "present (code not compared)" : "not found");
+                    r.put("fixable", !has && !"rpa".equals(item.path("executor").asText()));
+                    return;
+                }
+                r.put("verdict", "unverifiable");
+                r.put("actual", "check in Setup → Developer Space → Functions");
+                return;
+            }
             default:
                 r.put("verdict", "unverifiable");
                 r.put("expected", ImplPlan.describe(section, item));

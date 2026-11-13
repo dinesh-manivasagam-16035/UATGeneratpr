@@ -38,6 +38,8 @@ public final class ImplOrg {
     public final List<String> roles = new ArrayList<>();
     /** lower-cased module api_name → workflow rule names (only for modules that were read). */
     public final Map<String, List<String>> workflows = new LinkedHashMap<>();
+    /** lower-cased api_name and name of every Deluge function in the org (null until read). */
+    public List<String> functions;
     public final List<String> errors = new ArrayList<>();
     /** True when the org counts as buildable only because IMPL_BUILD_ORG_IDS names it. */
     public boolean allowListed;
@@ -156,7 +158,25 @@ public final class ImplOrg {
         } catch (Exception e) {
             o.errors.add("roles: " + e.getMessage());
         }
+        try {
+            JsonNode fns = get(crm, "/crm/v8/settings/functions?per_page=200").path("functions");
+            if (fns.isArray()) {
+                o.functions = new ArrayList<>();
+                for (JsonNode f : fns) {
+                    o.functions.add(ImplSpec.low(f.path("api_name").asText("")));
+                    o.functions.add(ImplSpec.low(f.path("name").asText("")));
+                }
+            }
+        } catch (Exception e) {
+            o.errors.add("functions: " + e.getMessage());
+        }
         return o;
+    }
+
+    /** True/false when the org's functions were read, null when they weren't. */
+    public Boolean hasFunction(String apiName) {
+        if (functions == null) return null;
+        return functions.contains(ImplSpec.low(apiName));
     }
 
     /** The org's api_name for a module given by api name or label, or null when absent. */

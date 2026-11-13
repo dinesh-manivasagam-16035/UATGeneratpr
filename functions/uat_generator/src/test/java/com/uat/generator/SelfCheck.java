@@ -24,6 +24,7 @@ public final class SelfCheck {
         lanesAgreeWithMatrix(CrmProduct.INSTANCE);
         lanesAgreeWithMatrix(DeskProduct.INSTANCE);
         executionPlan();
+        functionDefinitions();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -100,6 +101,23 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void functionDefinitions() {
+        ObjectNode fn = M.createObjectNode().put("name", "set_pidg_code").put("module", "Leads")
+                .put("trigger", "automation: on create of Leads").put("purpose", "Fills PIDG Code")
+                .put("code", "lead = zoho.crm.getRecordById(\"Leads\", leadId);\nmp = Map();\nmp.put(\"PIDG_Code\", \"X\");\nzoho.crm.updateRecord(\"Leads\", leadId, mp);");
+        fn.putArray("arguments").addObject().put("name", "leadId").put("type", "int");
+        String def = ImplFunctions.definition(fn);
+        check("functions: declaration from category and name", def.startsWith("void automation.set_pidg_code(int leadId)"));
+        check("functions: body indented inside braces", def.contains("{\n\tlead = zoho.crm") && def.endsWith("}"));
+        ObjectNode md = ImplFunctions.metadata(fn).path("functions").path(0).deepCopy();
+        check("functions: metadata has runtime, category and _code", "Deluge 1.0".equals(md.path("runtime").asText()) && "Automation".equals(md.path("category").asText()) && md.path("_code").asText().contains("set_pidg_code"));
+        ObjectNode btn = M.createObjectNode().put("name", "Send Quote").put("module", "Deals").put("trigger", "button on Deals").put("code", "return \"ok\";");
+        check("functions: button → string return, record id argument", ImplFunctions.definition(btn).startsWith("string button.send_quote(int dealId)"));
+        ObjectNode declared = M.createObjectNode().put("name", "x").put("code", "void automation.x(int id)\n{\n}");
+        check("functions: declared body kept as is", ImplFunctions.definition(declared).startsWith("void automation.x(int id)"));
+        check("crm: functions lane is api", "api".equals(CrmProduct.INSTANCE.laneFor("functions", M.createObjectNode().put("status", "new"))));
     }
 
     static void executionPlan() {

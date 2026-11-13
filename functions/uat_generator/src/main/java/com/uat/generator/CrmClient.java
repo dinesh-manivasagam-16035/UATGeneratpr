@@ -73,6 +73,40 @@ public class CrmClient {
         return notEmpty(clientId) && notEmpty(clientSecret) && notEmpty(refreshToken);
     }
 
+    /**
+     * A multipart/form-data call (Zoho's functions API takes its JSON as a "metadata" form part).
+     * {@code parts} maps part name → text; every part is sent as application/json unless its name is "code",
+     * which is sent as a .ds file (Deluge source).
+     */
+    public Response callMultipart(String method, String path, java.util.Map<String, String> parts) throws Exception {
+        if (!hasCredentials()) throw new IllegalStateException("CRM credentials not provided.");
+        String token = getAccessToken(60_000);
+        String url = path.startsWith("http") ? path : apiBase + path;
+        HttpUriRequestBase req = "PUT".equalsIgnoreCase(method) ? new HttpPut(url) : new HttpPost(url);
+        req.setHeader("Authorization", "Zoho-oauthtoken " + token);
+        if (orgId != null) req.setHeader("X-CRM-ORG", orgId);
+        for (java.util.Map.Entry<String, String> h : extraHeaders.entrySet()) req.setHeader(h.getKey(), h.getValue());
+        org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder mb =
+                org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder.create();
+        for (java.util.Map.Entry<String, String> p : parts.entrySet()) {
+            if ("code".equals(p.getKey())) {
+                mb.addBinaryBody("code", p.getValue().getBytes(StandardCharsets.UTF_8), ContentType.create("text/plain", StandardCharsets.UTF_8), "function.ds");
+            } else {
+                mb.addTextBody(p.getKey(), p.getValue(), ContentType.APPLICATION_JSON.withCharset(StandardCharsets.UTF_8));
+            }
+        }
+        req.setEntity(mb.build());
+        try (CloseableHttpClient http = HttpClients.createDefault()) {
+            return http.execute(req, response -> {
+                int code = response.getCode();
+                String body = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity());
+                JsonNode json = null;
+                if (!body.isEmpty()) { try { json = MAPPER.readTree(body); } catch (Exception ignored) {} }
+                return new Response(code, body, json);
+            });
+        }
+    }
+
     public Response call(String method, String path, String jsonBody) throws Exception {
         if (!hasCredentials()) {
             throw new IllegalStateException("CRM credentials not provided.");

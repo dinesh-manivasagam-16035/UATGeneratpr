@@ -1,7 +1,7 @@
 # LiftOff Setup runner on Zoho RPA
 
 LiftOff builds everything the product's API allows. What's left (validation rules, Blueprints, Deluge
-functions, per-profile layouts …) is a **UI-work queue**: each item has a plain-language step list
+per-profile layouts, approval processes …) is a **UI-work queue**: each item has a plain-language step list
 and, where LiftOff knows the screen, a **recipe** — a list of operations a bot performs in Setup.
 This document specifies the bot so it can be built once in Zoho RPA Studio and reused for every
 product LiftOff supports.

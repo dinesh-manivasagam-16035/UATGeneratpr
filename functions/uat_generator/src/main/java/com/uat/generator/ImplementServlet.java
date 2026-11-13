@@ -431,6 +431,11 @@ public class ImplementServlet extends HttpServlet {
                         status = has == null ? (org == null ? "not_compared" : "new") : has ? "exists" : "new";
                         break;
                     }
+                    case "functions": {
+                        Boolean has = org == null ? null : org.hasFunction(ImplFunctions.apiName(o));
+                        status = has == null ? (org == null ? "not_compared" : "new") : has ? "exists" : "new";
+                        break;
+                    }
                     case "open_questions":
                         status = "open";
                         break;

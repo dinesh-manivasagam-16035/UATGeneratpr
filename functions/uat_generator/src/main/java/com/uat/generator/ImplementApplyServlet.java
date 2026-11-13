@@ -233,6 +233,7 @@ public class ImplementApplyServlet extends HttpServlet {
                     if ("assignment".equals(item.path("type").asText())) assignment(item, r); else workflow(item, r);
                     break;
                 case "layouts": layout(item, r); break;
+                case "functions": function(item, r); break;
                 default: throw new IllegalStateException("No API executor for " + section);
             }
         }
@@ -578,6 +579,42 @@ public class ImplementApplyServlet extends HttpServlet {
             payload.putArray("roles").add(ro);
             String newId = send(r, "POST", "/crm/" + v + "/settings/roles", payload, "roles");
             if (!dryRun && newId != null) ids.put(ImplSpec.low(role.path("name").asText()), newId);
+        }
+
+        /**
+         * Deluge function through POST settings/functions (multipart, "metadata" part). With its code in the
+         * metadata the function is published at once; the rule that calls it is attached in Setup.
+         */
+        void function(JsonNode fn, ObjectNode r) throws Exception {
+            String api = ImplFunctions.apiName(fn);
+            if (org != null && Boolean.TRUE.equals(org.hasFunction(api))) {
+                r.put("result", "skipped"); r.put("detail", "A function named " + api + " already exists."); return;
+            }
+            ObjectNode payload = ImplFunctions.metadata(fn);
+            ObjectNode preview = r.putObject("request");
+            preview.put("method", "POST");
+            preview.put("path", "/crm/" + v + "/settings/functions");
+            preview.put("content_type", "multipart/form-data; part \"metadata\"");
+            preview.set("body", payload);
+            r.put("api_name", api);
+            r.put("category", payload.path("functions").path(0).path("category").asText());
+            if (dryRun) { r.put("result", "would_create"); return; }
+            Map<String, String> parts = new LinkedHashMap<>();
+            parts.put("metadata", MAPPER.writeValueAsString(payload));
+            CrmClient.Response res = crm.callMultipart("POST", "/crm/" + v + "/settings/functions", parts);
+            JsonNode first = res.json == null ? null : res.json.path("functions").path(0);
+            String code = first == null ? "" : first.path("code").asText("");
+            preview.put("status", res.statusCode);
+            if (res.statusCode >= 400 || (!code.isEmpty() && !"SUCCESS".equalsIgnoreCase(code))) {
+                String msg = first != null && first.has("message") ? first.path("message").asText() + " " + first.path("details").toString() : res.rawBody;
+                if (res.json != null) preview.set("response", res.json); else preview.put("response", ImplementServlet.trim(res.rawBody, 2000));
+                throw new ImplDiagnose.StepFailure("HTTP " + res.statusCode + ": " + ImplementServlet.trim(msg, 300),
+                        "POST", "/crm/" + v + "/settings/functions", payload, res.statusCode, res.rawBody);
+            }
+            r.put("result", "created");
+            if (first != null && first.path("details").has("id")) r.put("function_id", first.path("details").path("id").asText());
+            r.put("detail", "Created and published " + api + " (" + r.path("category").asText() + ").");
+            if (org != null && org.functions != null) org.functions.add(ImplSpec.low(api));
         }
 
         /** Sends (or previews) a settings create call; returns the created item's id/api_name when known. */

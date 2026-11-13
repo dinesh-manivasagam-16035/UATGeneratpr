@@ -71,6 +71,12 @@ public final class ImplPlan {
                     "rule exists on " + w.path("module").asText() + " with its actions");
         }
 
+        for (JsonNode fn : included(spec, "functions", "api")) {
+            lastApi = add(tasks, "2. Build via API", "Create function: " + fn.path("name").asText(),
+                    (fn.path("purpose").asText("Deluge function") + "."), "LiftOff", "api", 0.1, "P1", List.of(fn), lastApi,
+                    "function listed by GET settings/functions, state active");
+        }
+
         // ---- 3. Setup lane: what the runner walks you through ----
         String lastUi = lastApi;
         List<JsonNode> ui = new ArrayList<>();

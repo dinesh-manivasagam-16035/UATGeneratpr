@@ -84,10 +84,10 @@ public final class CrmProduct implements Product {
             "POST /settings/automation/workflow_rules (+ field_updates, tasks, webhooks)", "ZohoCRM.settings.workflow_rules.CREATE, automation_actions.CREATE", "builds", "config-workflow"),
         c("rule_email",       "workflow rule action: email alert",                              "partial", "the alert API needs an existing email template (templates are read-only) — the template is made in Setup",
             "POST /settings/automation/email_notifications", "ZohoCRM.settings.automation_actions.CREATE", "planned", "create-email-notification"),
-        c("rule_function",    "workflow rule action: call a Deluge function",                   "partial", "the rule is built; the function is written in Setup today (create-function API exists, see \"function\")",
+        c("rule_function",    "workflow rule action: call a Deluge function",                   "partial", "the rule and the function are both built by API; attaching the function to the rule is the Setup step (no function action in the workflow API)",
             "", "", "partial", ""),
-        c("rule_time",        "time-based (date/datetime) trigger",                             "ui", "no create API for scheduled triggers",
-            "", "", "runner", ""),
+        c("rule_time",        "time-based (date/datetime) trigger and delayed (scheduled) actions", "ui", "the workflow API takes execute_when type date_or_datetime and scheduled_actions; builder not written",
+            "POST /settings/automation/workflow_rules (execute_when.date_or_datetime, scheduled_actions)", "ZohoCRM.settings.workflow_rules.CREATE", "planned", "config-workflow"),
         c("assignment",       "assignment rule (criteria → users or round robin)",              "api", "applies to records entering through web forms, imports and the API",
             "POST /settings/automation/assignment_rules?module=X", "ZohoCRM.settings.assignment_rules.CREATE", "builds", "create-assignment-rules"),
         c("scoring",          "scoring rule",                                                   "ui", "API exists; builder not written",
@@ -104,8 +104,8 @@ public final class CrmProduct implements Product {
             "POST /settings/automation/cadences", "ZohoCRM.settings.cadences.CREATE", "planned", "create-cadences"),
         c("webhook_standalone","webhook used outside a rule",                                   "api", "",
             "POST /settings/automation/webhooks", "ZohoCRM.settings.automation_actions.CREATE", "builds", "create-webhook"),
-        c("function",         "Deluge function (standalone, automation, button)",               "ui", "API creates and publishes functions; builder not written — LiftOff already writes the Deluge code",
-            "POST /settings/functions; POST …/{id}/actions/publish", "ZohoCRM.settings.functions.CREATE", "planned", "create-function"),
+        c("function",         "Deluge function (automation, button, schedule, standalone)",      "api", "created and published with its code; LiftOff writes the declaration from the arguments. A rule that calls it is linked in Setup (the workflow API has no function action)",
+            "POST /settings/functions (multipart metadata, _code)", "ZohoCRM.settings.functions.CREATE", "builds", "create-function"),
         c("button",           "custom button",                                                  "ui", "no create API",
             "", "", "runner", ""),
         c("email_template",   "email template",                                                 "ui", "read-only API",
@@ -225,9 +225,10 @@ public final class CrmProduct implements Product {
                 for (JsonNode sct : o.path("sections")) if (sct.path("fields").size() > 0) hasFields = true;
                 return hasFields && o.path("profiles").size() == 0 ? "api" : "rpa";
             }
+            case "functions": return "api";          // POST settings/functions publishes Deluge with its code
             case "open_questions": return "review";
             case "plan":    return "projects";
-            default:        return "rpa";   // validation rules, functions
+            default:        return "rpa";   // validation rules
         }
     }
 
@@ -301,9 +302,13 @@ public final class CrmProduct implements Product {
             + "assign_to (string[] — user emails or full names from the BRD), round_robin (bool)}]), "
             + "default_assignee (email, full name, or \"current user\");\n"
             + "  for every other type: trigger, criteria, actions (string[]), states (string[] — blueprint states in order), details}]\n"
-            + "functions: [{name (snake_case), module, trigger, purpose, arguments:[{name, type}], code (complete Deluge, "
-            + "no placeholders), req_ids}] — ONLY for logic that no workflow action can express (loops, cross-module "
-            + "look-ups, arithmetic). A function that would do what a workflow item already does is NOT allowed.\n"
+            + "functions: [{name (snake_case), module, trigger (\"automation: on create/edit of <module>\", \"button on "
+            + "<module>\", \"schedule daily\", \"standalone\"), purpose, arguments:[{name, type (int|string|decimal|boolean|"
+            + "date|datetime|list|map)}] — an automation function takes exactly one argument, the record id (int), e.g. "
+            + "{name:\"leadId\", type:\"int\"}; code (the function BODY only — complete Deluge statements that use the "
+            + "arguments by name, no declaration line, no placeholders; LiftOff adds the declaration and publishes it), "
+            + "req_ids}] — ONLY for logic that no workflow action can express (loops, cross-module look-ups, arithmetic). "
+            + "A function that would do what a workflow item already does is NOT allowed.\n"
             + "open_questions: [{question, context, blocking (bool), req_ids}]\n\n"
             + "A rule that sets a picklist field to a value the org doesn't have is fine: LiftOff adds the option first. "
             + "Record it in assumption.\n"
