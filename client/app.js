@@ -465,9 +465,6 @@
       { ok: scopeOk, label: "Scope",
         text: (state.modulesSelected.length ? escapeHtml(state.modulesSelected.join(", ")) : impl ? "modules inferred from the BRD" : "pick up to 5 modules") + ` · Output: ${impl ? "Implementation blueprint" : "UAT cases"}`,
         action: { label: "Edit", fold: "fold-input" } },
-      ...(impl ? [{ ok: true, label: "What LiftOff can build",
-        text: `${productLabel()} activities with an API vs. Setup-only — the same table that briefs the agent and picks each item's lane (verified against the API docs)`,
-        action: { label: "Capability sheet (CSV)", href: `${FUNCTION_BASE}/implement/capabilities?platform=${encodeURIComponent(state.platform || "crm")}&format=csv` } }] : []),
     ]);
     const ready = brdOk && scopeOk && !els.generate.disabled;
     guide.now("input", {
