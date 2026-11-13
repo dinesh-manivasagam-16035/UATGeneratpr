@@ -227,7 +227,8 @@
   async function post(path, body, ms, label) {
     const res = await L.fetchWithTimeout(L.FUNCTION_BASE + path, {
       method: "POST", credentials: "include",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ platform: L.state.platform || "crm" }, body)),
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ platform: L.state.platform || "crm",
+        creator_owner: L.state.creatorOwner || "", creator_app: L.state.creatorApp || "" }, body)),
     }, ms, label);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `${label} failed (HTTP ${res.status})`);

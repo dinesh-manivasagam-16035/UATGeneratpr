@@ -13,11 +13,14 @@ public final class Products {
     private Products() {}
 
     private static final ThreadLocal<Product> CURRENT = new ThreadLocal<>();
+    /** Per-request context a product needs but the pipeline doesn't model: Creator's owner and app. */
+    private static final ThreadLocal<String[]> CONTEXT = new ThreadLocal<>();
 
     public static Product byId(String id) {
         String k = id == null ? "" : id.trim().toLowerCase(Locale.ROOT);
         switch (k) {
             case "desk": return DeskProduct.INSTANCE;
+            case "creator": return CreatorProduct.INSTANCE;
             case "crm":
             case "":
             default:
@@ -31,6 +34,11 @@ public final class Products {
         if (p.isEmpty()) p = System.getenv("IMPL_PRODUCT") == null ? "" : System.getenv("IMPL_PRODUCT");
         Product prod = byId(p);
         CURRENT.set(prod);
+        String owner = body == null ? "" : body.path("creator_owner").asText(body.path("owner").asText(""));
+        String app = body == null ? "" : body.path("creator_app").asText(body.path("app").asText(""));
+        if (owner.isEmpty()) owner = env("CREATOR_OWNER");
+        if (app.isEmpty()) app = env("CREATOR_APP");
+        CONTEXT.set(new String[]{owner, app});
         return prod;
     }
 
@@ -39,7 +47,15 @@ public final class Products {
         return p != null ? p : byId(System.getenv("IMPL_PRODUCT"));
     }
 
-    public static void clear() { CURRENT.remove(); }
+    public static void clear() { CURRENT.remove(); CONTEXT.remove(); }
+
+    /** Creator's account owner name for this request ("" when unknown). */
+    public static String owner() { String[] c = CONTEXT.get(); return c == null ? env("CREATOR_OWNER") : c[0]; }
+
+    /** Creator's app link name for this request ("" when unknown). */
+    public static String app() { String[] c = CONTEXT.get(); return c == null ? env("CREATOR_APP") : c[1]; }
+
+    private static String env(String name) { String v = System.getenv(name); return v == null ? "" : v.trim(); }
 
     /** Same as {@link #use}, for callers that read naturally as "for this request". */
     public static Product forRequest(JsonNode body) { return use(body); }

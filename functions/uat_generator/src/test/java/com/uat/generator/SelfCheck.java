@@ -24,6 +24,8 @@ public final class SelfCheck {
         structuredRuleMirror();
         lanesAgreeWithMatrix(CrmProduct.INSTANCE);
         lanesAgreeWithMatrix(DeskProduct.INSTANCE);
+        lanesAgreeWithMatrix(CreatorProduct.INSTANCE);
+        creatorAdapter();
         executionPlan();
         functionDefinitions();
         blueprintPayload();
@@ -110,6 +112,20 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void creatorAdapter() {
+        Product p = Products.byId("creator");
+        check("creator: adapter selected by id", p == CreatorProduct.INSTANCE && "form".equals(p.entityWord()));
+        check("creator: metadata is runner-only, records are api", p.capabilities().stream().allMatch((c) -> "ui".equals(c.lane) || "record_data".equals(c.kind))
+                && p.capabilities().stream().anyMatch((c) -> "record_data".equals(c.kind) && "api".equals(c.lane)) && !p.buildersReady());
+        check("creator: every build lane is the runner", "rpa".equals(p.laneFor("fields", M.createObjectNode().put("status", "new")))
+                && "rpa".equals(p.laneFor("modules", M.createObjectNode().put("status", "new")))
+                && "none".equals(p.laneFor("fields", M.createObjectNode().put("status", "exists"))));
+        check("creator: prompt speaks Creator", p.systemPrompt("data_model").contains("form link name") && p.systemPrompt("automation").contains("Deluge"));
+        check("creator: field types mapped", "picklist".equals(CreatorOrg.dataType("dropdown")) && "datetime".equals(CreatorOrg.dataType("Date-Time"))
+                && "lookup".equals(CreatorOrg.dataType("subform")) && "text".equals(CreatorOrg.dataType("single line")));
+        check("creator: owner from email", "dinesh".equals(CreatorOrg.owner("dinesh.m@zohocorp.com".replace(".m", ""))) && "".equals(CreatorOrg.owner("")));
     }
 
     static void sharingAndTerritories() throws Exception {

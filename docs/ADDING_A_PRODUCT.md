@@ -2,7 +2,9 @@
 
 LiftOff's pipeline (BRD → Blueprint → Build → Verify → UAT, the guided UI, Run everything, the
 guided runner, failure diagnostics) is product-neutral. Everything that knows a product lives in one
-adapter class behind the `Product` interface. Today: `CrmProduct` (full), `DeskProduct` (stage A).
+adapter class behind the `Product` interface. Today: `CrmProduct` (full), `DeskProduct` (stage A),
+`CreatorProduct` (stage A — and runner-only by nature: Creator's public API is read-only for
+application structure, so no builder can exist until Zoho ships metadata-write endpoints).
 
 ## The adapter
 
@@ -73,6 +75,15 @@ call; the job worker gets it in the job input). `Products.current()` is what the
    client on the product's host with any headers and seeded variables (`DeskOrg.prepare`).
 8. **Client.** Add the product to `PRODUCTS` in `app.js` (label, fixed module list if any) and a
    button in the platform picker; `detectProduct` keywords so a BRD selects it automatically.
+
+## When a product has no write API
+
+Creator is the case to copy when a product can't be built through its API at all. The adapter still
+earns its keep: it reads the environment (apps → forms → fields) so items are compared with what
+exists, briefs the agent in the product's own words, writes the runner's step-by-step instructions,
+and keeps UAT working on records — Creator's record APIs are real even though its metadata APIs are
+not. Every matrix row is lane `ui` with status `runner` and a note saying *why* ("no create API"),
+not "builder not written", so the sheet doesn't imply work that is ours to do.
 
 ## Where each product stands
 
