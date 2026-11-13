@@ -405,6 +405,12 @@ The [`samples/`](samples/) folder has two ready-to-paste BRDs and a golden outpu
 - [`samples/brd-crm-lead-routing.md`](samples/brd-crm-lead-routing.md) — CRM Lead module
 - [`samples/brd-desk-sla-escalation.md`](samples/brd-desk-sla-escalation.md) — Desk Ticket module
 - [`samples/golden-output-crm-lead-routing.json`](samples/golden-output-crm-lead-routing.json) — reference shape
+- [`samples/crm-all-usecases-brd.txt`](samples/crm-all-usecases-brd.txt) — one client-style BRD that
+  exercises every CRM activity LiftOff meets: 24 requirements across the data model, access,
+  automation and reporting. [`docs/CRM_USE_CASES.md`](docs/CRM_USE_CASES.md) says what each
+  requirement should become, which lane it belongs in and how to check it
+- [`samples/pidg-rpa-brd.txt`](samples/pidg-rpa-brd.txt) — small BRD with one Setup-only item, for
+  testing the guided runner / Zoho RPA path
 
 Open the web client, pick the matching module, paste the BRD body, and click
 **Generate UAT cases**.

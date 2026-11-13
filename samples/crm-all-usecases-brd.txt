@@ -1,0 +1,160 @@
+BRD: Partner Channel Programme — Zoho CRM implementation
+Client: Northwind Distribution Pvt Ltd
+Modules in scope: Leads, Accounts, Contacts, Deals
+Prepared for: CRM implementation team
+
+Purpose
+Northwind sells through partners. Partner leads arrive from the website, events and the
+channel team, and are qualified, converted into accounts and taken through a deal cycle.
+This document states what the CRM must do. It covers the data the team records, who may
+see it, and the automation that keeps the process moving.
+
+Background
+Today the channel team keeps partner data in spreadsheets. Leads are lost between the
+enquiry and the first call, nobody can tell which region owns an account, and the
+quarterly partner report is assembled by hand. The CRM must become the single record.
+
+Functional requirements
+
+Data model
+
+FR-1: Partner code on leads and accounts
+- Record a "Partner Code" on both Leads and Accounts: free text, up to 20 characters.
+- The code identifies a partner for the rest of its life and must never repeat: two
+  accounts may not carry the same Partner Code.
+- The field is optional while a lead is still an enquiry.
+
+FR-2: Partner tier
+- Classify every partner as Bronze, Silver, Gold or Platinum.
+- The same four tiers are used on Leads, Accounts and Deals, and the channel team must
+  be able to change the list in one place rather than in each module.
+
+FR-3: Partner segment and sub-segment
+- Record the partner's business segment: Retail, Manufacturing, Healthcare or Education.
+- Each segment has its own sub-segments, and only the sub-segments of the chosen segment
+  may be selected:
+  - Retail: Grocery, Apparel, Electronics
+  - Manufacturing: Automotive, Industrial, Packaging
+  - Healthcare: Hospitals, Clinics, Pharma
+  - Education: Schools, Colleges, Training
+
+FR-4: Onboarding dates
+- Record the "Partner Since" date on Accounts and the "Follow Up Date" on Leads.
+- The channel team also records "Expected Annual Revenue" (currency) and the
+  "Agreement Signed" flag (yes/no) on Accounts.
+
+FR-5: Partner details on the account form
+- The partner fields must appear together in a "Partner Programme" section of the
+  Accounts form, not scattered among the standard fields.
+
+FR-6: Partner onboarding checklist module
+- Track onboarding tasks in a module of their own: "Partner Onboarding", with the task
+  name, the account it belongs to, the owner, a due date and a status
+  (Not Started, In Progress, Blocked, Done).
+
+Access and visibility
+
+FR-7: Channel roles
+- Three roles report to the Sales Director: Channel Manager, Channel Executive and
+  Partner Support.
+- A Channel Executive may view, create and edit Leads, Accounts, Contacts and Deals, but
+  may not delete any record. Partner Support may view Accounts and Contacts only.
+
+FR-8: Regional territories
+- Accounts belong to a region: North India, West India and South India sit under an
+  India territory.
+- An account belongs to West India when its billing state is Maharashtra, Gujarat or Goa.
+- The regional Channel Manager owns the territory and the team may read and edit the
+  accounts in it; they must not see the other regions' accounts.
+
+FR-9: Support visibility of deals
+- Partner Support must be able to read every Deal owned by the Channel Manager role and
+  the roles below it, so that a support call can be answered without asking sales.
+  Support must not be able to edit those deals.
+
+Process and automation
+
+FR-10: Flag enquiries without a partner code
+- When a lead is created without a Partner Code, set its Lead Status to "Code Pending"
+  so the channel team can see what to chase. "Code Pending" is a new status value.
+
+FR-11: Qualification gate
+- A lead must not be saved with Lead Status "Qualified" while the Partner Code is empty.
+- The message shown is: "Enter the partner code before qualifying this lead."
+- This must be enforced on the form itself, not by an automation that runs afterwards.
+
+FR-12: Lead assignment
+- Leads from the website go to the Channel Executive team in rotation; leads from an
+  event go to the Channel Manager of the region named on the lead.
+
+FR-13: Follow-up reminder
+- Two business days before a lead's Follow Up Date, create a task for the lead owner:
+  "Call the partner before the follow-up date", priority High.
+
+FR-14: Stale enquiry escalation
+- When a lead has been sitting in "Code Pending" 24 hours after it was created, set its
+  Lead Status to "Escalated" and email the owner's manager using the existing
+  "Lead Escalation" email template.
+
+FR-15: Welcome email on agreement
+- When Agreement Signed becomes yes on an Account, email the account owner and the
+  partner's primary contact using the existing "Partner Welcome" template.
+
+FR-16: Tier recalculation
+- When the Expected Annual Revenue of an account changes, recalculate the Partner Tier:
+  below 10 lakh is Bronze, up to 50 lakh is Silver, up to 2 crore is Gold, above that is
+  Platinum. The rule must also count the revenue of deals won in the last twelve months,
+  so a simple field comparison is not enough.
+
+FR-17: Notify the partner portal
+- Whenever an account's Partner Tier changes, notify the partner portal at
+  https://portal.northwind.example.com/hooks/tier so it can refresh its pricing.
+
+FR-18: Onboarding process
+- A partner's onboarding runs through these stages in order: Enquiry, Documents
+  Received, Agreement Signed, Onboarded. Moving forward is a deliberate step by the
+  channel team, and the stage a partner is in must be visible on the account.
+
+FR-19: Deal stages for the channel pipeline
+- Channel deals run through their own stages: Partner Qualified, Solution Fit,
+  Commercials, Closed Won and Closed Lost. The direct sales pipeline stays as it is.
+
+FR-20: Quarterly partner review
+- The channel team reviews partners every quarter. The review itself is run outside the
+  CRM, but the CRM must hold the review date and outcome on the account.
+
+Reporting and other requirements
+
+FR-21: Channel dashboard
+- The Channel Manager needs a dashboard showing enquiries by status, deals by stage and
+  partners by tier.
+
+FR-22: Partner agreement document
+- The signed agreement is attached to the account. The team also sends a standard
+  "Partner Agreement" letter, which must be available as a template in the CRM.
+
+FR-23: Business hours
+- Automation that counts business days must use the India working week: Monday to
+  Friday, 09:30 to 18:30 IST, with the company's declared holidays excluded.
+
+FR-24: Data migration
+- 1,840 existing partner accounts and 4,200 contacts must be loaded from the current
+  spreadsheets, with their Partner Codes preserved.
+
+Acceptance criteria
+A. A lead saved without a Partner Code shows Lead Status "Code Pending".
+B. Saving a lead as "Qualified" with an empty Partner Code is rejected with the stated
+   message.
+C. Choosing segment "Retail" offers only Grocery, Apparel and Electronics as
+   sub-segments.
+D. A second account cannot be saved with a Partner Code that already exists.
+E. A Channel Executive cannot delete an account; Partner Support cannot open a deal for
+   editing.
+F. An account whose billing state is Gujarat appears under the West India territory.
+G. A lead left in "Code Pending" for 24 hours becomes "Escalated" and the owner's
+   manager receives the escalation email.
+H. Changing Expected Annual Revenue to 75,00,000 sets Partner Tier to Gold and the
+   portal webhook is called.
+I. A partner can be moved from Enquiry to Documents Received, but not straight to
+   Onboarded.
+J. A channel deal can be created in the Partner Qualified stage.
