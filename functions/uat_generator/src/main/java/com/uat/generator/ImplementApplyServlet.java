@@ -238,9 +238,13 @@ public class ImplementApplyServlet extends HttpServlet {
                 case "layouts": layout(item, r); break;
                 case "dependencies": dependency(item, r); break;
                 case "global_picklists": globalPicklist(item, r); break;
-                case "sharing":
-                    if ("territory".equals(item.path("type").asText())) territory(item, r); else sharingRule(item, r);
+                case "sharing": {
+                    String kind = item.path("type").asText();
+                    if ("territory".equals(kind)) territory(item, r);
+                    else if ("group".equals(kind)) userGroup(item, r);
+                    else sharingRule(item, r);
                     break;
+                }
                 case "functions": function(item, r); break;
                 default: throw new IllegalStateException("No API executor for " + section);
             }
@@ -729,6 +733,41 @@ public class ImplementApplyServlet extends HttpServlet {
                 if (res.json != null) for (JsonNode g : res.json.path("user_groups")) groupIds.put(ImplSpec.low(g.path("name").asText()), g.path("id").asText());
             } catch (Exception ignored) { /* groups are optional */ }
             return groupIds;
+        }
+
+        /**
+         * User group through POST settings/user_groups. Members are resolved from words: an email or
+         * full name is a user, "X role [and subordinates]" a role, "X group" a group, "X territory" a
+         * territory. Members that resolve to nothing are reported; the group is created with the rest.
+         */
+        void userGroup(JsonNode g, ObjectNode r) throws Exception {
+            ArrayNode requests = r.putArray("requests");
+            String name = g.path("name").asText();
+            Map<String, String> have = dryRun && crm == null ? new LinkedHashMap<>() : groups();
+            if (have.containsKey(ImplSpec.low(name))) { r.put("result", "skipped"); r.put("detail", "A user group named \"" + name + "\" already exists."); return; }
+            List<ObjectNode> sources = new ArrayList<>();
+            List<String> unknown = new ArrayList<>();
+            for (JsonNode m : g.path("members")) {
+                String text = m.asText("");
+                String type = ImplSharing.memberType(text);
+                String who = ImplSharing.memberName(text);
+                boolean subs = ImplSharing.subordinates(text);
+                String id = null;
+                if ("users".equals(type)) id = userId(who.isEmpty() ? text : who);
+                else if ("roles".equals(type)) id = (dryRun && crm == null ? new LinkedHashMap<String, String>() : roles()).get(ImplSpec.low(who));
+                else if ("groups".equals(type)) id = have.get(ImplSpec.low(who));
+                else if ("territories".equals(type)) id = (dryRun && crm == null ? new LinkedHashMap<String, String>() : territories()).get(ImplSpec.low(who));
+                if (id == null && dryRun) id = "<id of " + type + " " + who + ">";
+                if (id == null) { unknown.add(text); continue; }
+                sources.add(ImplSharing.member(type, id, who.isEmpty() ? text : who, subs));
+            }
+            if (sources.isEmpty()) throw new IllegalStateException("None of the members matched a user, role, group or territory in the org: " + unknown);
+            ObjectNode payload = ImplSharing.userGroup(g, sources);
+            String id = call(requests, "POST", "/crm/" + v + "/settings/user_groups", payload, "user_groups", "user group");
+            if (!dryRun && id != null && !id.isEmpty()) have.put(ImplSpec.low(name), id);
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would create " : "Created ") + "user group \"" + name + "\" with " + sources.size() + " member source(s).");
+            if (!unknown.isEmpty()) r.put("follow_up", "Not found in the org, so left out of the group: " + String.join(", ", unknown) + " — add them in Setup → Users and Control → Groups.");
         }
 
         Map<String, String> territoryIds;

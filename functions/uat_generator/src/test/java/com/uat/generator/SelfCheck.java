@@ -36,6 +36,7 @@ public final class SelfCheck {
         dependencies();
         globalPicklists();
         sharingAndTerritories();
+        userGroups();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -112,6 +113,24 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void userGroups() throws Exception {
+        String reply = "{\"summary\":\"x\",\"sharing\":[{\"type\":\"group\",\"name\":\"Channel Desk\",\"members\":[\"asha@x.com\",\"Sales Manager role and subordinates\",\"West India territory\"],\"req_ids\":[\"FR-9\"]}],\"open_questions\":[]}";
+        ImplSpec.Parsed p = ImplSpec.parse(reply, Arrays.asList("sharing", "open_questions"));
+        ObjectNode g = p.items.get("sharing").get(0);
+        check("groups: normalised as a sharing item of type group", "group".equals(g.path("type").asText()) && g.path("members").size() == 3);
+        check("groups: member kind from the words", "users".equals(ImplSharing.memberType("asha@x.com")) && "roles".equals(ImplSharing.memberType("Sales Manager role"))
+                && "territories".equals(ImplSharing.memberType("West India territory")) && "groups".equals(ImplSharing.memberType("Ops group")));
+        check("groups: member name stripped of the kind word", "Sales Manager".equals(ImplSharing.memberName("Sales Manager role and subordinates"))
+                && "West India".equals(ImplSharing.memberName("West India territory")));
+        java.util.List<ObjectNode> src = Arrays.asList(ImplSharing.member("users", "U1", "asha@x.com", false),
+                ImplSharing.member("roles", "R1", "Sales Manager", true));
+        JsonNode body = ImplSharing.userGroup(g, src).path("user_groups").path(0);
+        check("groups: payload sources with type, source id and subordinates", body.path("sources").size() == 2
+                && "U1".equals(body.path("sources").get(0).path("source").path("id").asText()) && !body.path("sources").get(0).has("subordinates")
+                && body.path("sources").get(1).path("subordinates").asBoolean() && "Channel Desk".equals(body.path("name").asText()));
+        check("crm: user group lane is api", "api".equals(CrmProduct.INSTANCE.laneFor("sharing", g.deepCopy().put("status", "new"))));
     }
 
     static void creatorAdapter() {

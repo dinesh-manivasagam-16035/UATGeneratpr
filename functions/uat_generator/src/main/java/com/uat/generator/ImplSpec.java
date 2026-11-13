@@ -268,14 +268,20 @@ public final class ImplSpec {
             case "sharing": {
                 // Record visibility: a territory, or a data sharing rule
                 String type = text(in, "type").toLowerCase(Locale.ROOT);
-                if (!type.equals("territory") && !type.equals("sharing_rule")) type = text(in, "module").isEmpty() ? "territory" : "sharing_rule";
+                if (!type.equals("territory") && !type.equals("sharing_rule") && !type.equals("group")) {
+                    type = in.path("members").size() > 0 ? "group" : text(in, "module").isEmpty() ? "territory" : "sharing_rule";
+                }
                 String name = text(in, "name");
                 if (name.isEmpty()) return null;
                 o.put("type", type);
                 o.put("name", name);
                 o.put("description", text(in, "description"));
                 o.put("permission_type", text(in, "permission_type"));
-                if (type.equals("territory")) {
+                if (type.equals("group")) {
+                    ArrayNode mem = o.putArray("members");
+                    for (String m : strings(in.path("members"))) mem.add(m);
+                    if (mem.size() == 0) return null;
+                } else if (type.equals("territory")) {
                     putIfText(o, "parent", firstText(in, "parent", "reporting_to", "parent_territory"));
                     putIfText(o, "manager", text(in, "manager"));
                     ArrayNode crit = o.putArray("criteria");

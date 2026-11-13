@@ -97,7 +97,7 @@
       case "validation_rules": return `${o.module} · ${o.name}`;
       case "dependencies":     return `${o.module} · ${o.parent} → ${o.child}`;
       case "global_picklists": return o.name;
-      case "sharing":          return `${o.type === "territory" ? "territory" : o.module} · ${o.name}`;
+      case "sharing":          return `${o.type === "territory" ? "territory" : o.type === "group" ? "group" : o.module} · ${o.name}`;
       case "workflows":        return `${o.type}: ${o.module ? o.module + " · " : ""}${o.name}`;
       case "roles":            return o.name;
       case "functions":        return o.name;
@@ -124,7 +124,8 @@
         if (o.profiles && o.profiles.length) parts.push("profiles: " + o.profiles.join(", "));
         break;
       case "sharing":
-        if (o.type === "territory") { if (o.parent) parts.push("under " + o.parent); if (o.manager) parts.push("manager " + o.manager); (o.criteria || []).forEach((c) => parts.push(`${c.module}: ${c.field} ${c.comparator} ${c.value}`)); }
+        if (o.type === "group") { parts.push((o.members || []).join(", ")); }
+        else if (o.type === "territory") { if (o.parent) parts.push("under " + o.parent); if (o.manager) parts.push("manager " + o.manager); (o.criteria || []).forEach((c) => parts.push(`${c.module}: ${c.field} ${c.comparator} ${c.value}`)); }
         else { parts.push("to " + o.shared_to); if (o.shared_from) parts.push("records of " + o.shared_from); (o.conditions || []).forEach((c) => parts.push(`${c.field} ${c.comparator} ${c.value}`)); }
         if (o.permission_type) parts.push(o.permission_type);
         break;
@@ -549,7 +550,9 @@
           (!(o.field_updates || []).length && !(o.tasks || []).length && !(o.webhooks || []).length ? (o.actions || []) : []));
         return { title: `${when}${cond && !/all records/i.test(cond) ? `, when ${cond.replace(/^when\s+/i, "")}` : ""}: ${acts.join("; ") || o.name}`, sub: `${o.type || "workflow"} rule “${o.name}” on ${o.module}` };
       }
-      case "sharing": return o.type === "territory"
+      case "sharing": return o.type === "group"
+        ? { title: `User group “${o.name}”: ${(o.members || []).join(", ")}`, sub: "group, used as one audience" }
+        : o.type === "territory"
         ? { title: `Territory “${o.name}”${o.parent ? " under " + o.parent : ""}`, sub: `territory${o.criteria && o.criteria.length ? " · " + o.criteria.length + " assignment rule(s)" : ""}` }
         : { title: `Share ${o.module} records with ${o.shared_to} (${o.permission_type || "read"})`, sub: `data sharing rule “${o.name}”` };
       case "global_picklists": return { title: `Shared option set “${o.name}”: ${(o.values || []).join(", ")}`, sub: "global picklist, reused by fields in several modules" };

@@ -103,6 +103,12 @@ public final class ImplPlan {
         List<JsonNode> shares = included(spec, "sharing", "api");
         for (JsonNode sh : shares) {
             boolean terr = "territory".equals(sh.path("type").asText());
+            if ("group".equals(sh.path("type").asText())) {
+                lastApi = add(tasks, "2. Build via API", "Create user group: " + sh.path("name").asText(),
+                        sh.path("members").size() + " member source(s).", "LiftOff", "api", 0.05, "P1", List.of(sh), lastApi,
+                        "group listed by GET settings/user_groups");
+                continue;
+            }
             lastApi = add(tasks, "2. Build via API", (terr ? "Create territory: " : "Share " + sh.path("module").asText() + " with " + sh.path("shared_to").asText() + ": ") + sh.path("name").asText(),
                     terr ? "Under " + (sh.path("parent").asText("").isEmpty() ? "the top territory" : sh.path("parent").asText()) + "." : "Permission: " + sh.path("permission_type").asText("read") + ".",
                     "LiftOff", "api", 0.1, "P1", List.of(sh), lastApi,
@@ -170,7 +176,7 @@ public final class ImplPlan {
             case "fields":           return "field " + o.path("module").asText() + "." + o.path("label").asText()
                                             + " (" + o.path("data_type").asText() + ")";
             case "layouts":          return "layout " + o.path("module").asText() + " / " + o.path("name").asText();
-            case "sharing":          return ("territory".equals(o.path("type").asText()) ? "territory " : "sharing rule ") + o.path("name").asText();
+            case "sharing":          return ("territory".equals(o.path("type").asText()) ? "territory " : "group".equals(o.path("type").asText()) ? "user group " : "sharing rule ") + o.path("name").asText();
             case "global_picklists": return "shared option set " + o.path("name").asText();
             case "dependencies":     return "picklist dependency " + o.path("parent").asText() + " → " + o.path("child").asText() + " on " + o.path("module").asText();
             case "validation_rules": return "validation rule " + o.path("module").asText() + ": " + o.path("name").asText();

@@ -129,8 +129,8 @@ public final class CrmProduct implements Product {
             "POST /settings/users_unavailability", "ZohoCRM.settings.users_unavailability.WRITE", "planned", "post-user-unavailability"),
         c("company_details",  "company details, logo, locale, time zone",                       "ui", "no update-org API (logo upload only)",
             "", "", "runner", ""),
-        c("group",            "user group",                                                     "ui", "API exists; builder not written",
-            "POST /settings/user_groups", "ZohoCRM.settings.user_groups.CREATE", "planned", "create-user-group"),
+        c("group",            "user group (users, roles, groups or territories as one audience)",  "api", "members resolved from emails, full names, role names or territory names; a sharing rule can then target the group",
+            "POST /settings/user_groups", "ZohoCRM.settings.user_groups.CREATE", "builds", "create-user-group"),
         c("field_permission", "field-level and module-level permissions per profile",           "ui", "API exists; builder not written",
             "PUT /settings/profiles/{id}", "ZohoCRM.settings.profiles.UPDATE", "planned", "update-profile-permission"),
         c("portal",           "client portal (configuration)",                                  "ui", "API exists; builder not written (users are invited in Setup)",
@@ -237,6 +237,7 @@ public final class CrmProduct implements Product {
             case "dependencies": return o.path("mapping").size() > 0 ? "api" : "rpa";
             case "global_picklists": return o.path("values").size() > 0 ? "api" : "rpa";
             case "sharing":
+                if ("group".equals(o.path("type").asText())) return o.path("members").size() > 0 ? "api" : "rpa";
                 return "territory".equals(o.path("type").asText())
                         ? "api"
                         : (o.path("conditions").size() > 0 || !o.path("shared_from").asText("").isEmpty()) ? "api" : "rpa";
@@ -347,10 +348,12 @@ public final class CrmProduct implements Product {
             + "arguments by name, no declaration line, no placeholders; LiftOff adds the declaration and publishes it), "
             + "req_ids}] — ONLY for logic that no workflow action can express (loops, cross-module look-ups, arithmetic). "
             + "A function that would do what a workflow item already does is NOT allowed.\n"
-            + "sharing: [{type (territory|sharing_rule), name, description?, permission_type, req_ids, and\n"
+            + "sharing: [{type (territory|group|sharing_rule), name, description?, permission_type, req_ids, and\n"
             + "  for \"territory\": parent (name of the parent territory, omit for the top), manager (user email or full name), "
             + "criteria ([{module (Leads|Accounts|Deals), field (api name), comparator, value}] — which records belong to it), "
             + "permission_type (read only | read write delete);\n"
+            + "  for \"group\": members (string[] — emails or full names of users, \"<Role> role [and subordinates]\", "
+            + "\"<Group> group\", \"<Territory> territory\") — a named audience the BRD reuses, e.g. for a sharing rule;\n"
             + "  for \"sharing_rule\": module, shared_to (\"<Role> role and subordinates\", \"<Group> group\", or \"all users\"), "
             + "shared_from (whose records — a role or group; omit when conditions are given), conditions ([{field, comparator, value}] "
             + "for a criteria-based rule), match (and|or), superiors_allowed (bool), permission_type (read | read write | read write delete)}] "

@@ -143,6 +143,48 @@ final class ImplSharing {
         return o;
     }
 
+    /**
+     * {"user_groups":[{name, description?, sources:[{type, source:{id,name}, subordinates?}]}]}
+     * Members come from the spec as words: an email or full name is a user, "X role" a role
+     * ("and subordinates" sets the flag), "X group" a group, "X territory" a territory.
+     */
+    static ObjectNode userGroup(JsonNode g, java.util.List<ObjectNode> sources) {
+        ObjectNode o = MAPPER.createObjectNode();
+        o.put("name", g.path("name").asText());
+        String desc = g.path("description").asText("");
+        if (!desc.isEmpty()) o.put("description", desc);
+        ArrayNode arr = o.putArray("sources");
+        for (ObjectNode src : sources) arr.add(src);
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.putArray("user_groups").add(o);
+        return payload;
+    }
+
+    /** One member of a user group: {type, source:{id,name}, subordinates?}. */
+    static ObjectNode member(String type, String id, String name, boolean subordinates) {
+        ObjectNode m = MAPPER.createObjectNode();
+        m.put("type", type);
+        m.putObject("source").put("id", id).put("name", name);
+        if ("roles".equals(type) || "territories".equals(type)) m.put("subordinates", subordinates);
+        return m;
+    }
+
+    /** What kind of member the words name: users | roles | groups | territories. */
+    static String memberType(String s) {
+        String t = s == null ? "" : s.toLowerCase(Locale.ROOT);
+        if (t.contains("@")) return "users";
+        if (t.contains("territor")) return "territories";
+        if (t.contains("group")) return "groups";
+        if (t.contains("role")) return "roles";
+        return "users";
+    }
+
+    /** Strips the kind word so what's left is the member's name. */
+    static String memberName(String s) {
+        return (s == null ? "" : s).replaceAll("(?i)\\b(and )?subordinates?\\b", "")
+                .replaceAll("(?i)\\b(role|group|territor(y|ies))s?\\b", "").replaceAll("[,:]", " ").replaceAll("\\s+", " ").trim();
+    }
+
     /** An existing territory or sharing rule with this name, or null. */
     static JsonNode existing(JsonNode list, String key, String name) {
         if (list == null) return null;

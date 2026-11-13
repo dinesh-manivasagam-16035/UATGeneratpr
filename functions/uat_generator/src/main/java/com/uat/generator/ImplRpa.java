@@ -41,7 +41,11 @@ public final class ImplRpa {
                 s.add("Save the layout.");
                 break;
             case "sharing":
-                if ("territory".equals(o.path("type").asText())) {
+                if ("group".equals(o.path("type").asText())) {
+                    s.add("Setup → Users and Control → Groups → New Group.");
+                    s.add("Name: " + o.path("name").asText() + ".");
+                    s.add("Members: " + join(o.path("members")) + ".");
+                } else if ("territory".equals(o.path("type").asText())) {
                     s.add("Setup → Users and Control → Territory Management → New Territory.");
                     s.add("Name: " + o.path("name").asText() + (o.path("parent").asText("").isEmpty() ? "" : ", under " + o.path("parent").asText()) + ".");
                     if (!o.path("manager").asText("").isEmpty()) s.add("Manager: " + o.path("manager").asText() + ".");
