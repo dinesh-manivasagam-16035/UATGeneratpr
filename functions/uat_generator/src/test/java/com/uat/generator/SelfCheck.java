@@ -3,6 +3,7 @@ package com.uat.generator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -25,6 +26,7 @@ public final class SelfCheck {
         lanesAgreeWithMatrix(DeskProduct.INSTANCE);
         executionPlan();
         functionDefinitions();
+        blueprintPayload();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -101,6 +103,31 @@ public final class SelfCheck {
             if ("planned".equals(c.status) && c.api.isEmpty()) consistent = false;              // planned needs the endpoint it will call
         }
         check(prod.id() + ": sheet rows consistent (lane vs status vs api)", consistent);
+    }
+
+    static void blueprintPayload() {
+        ObjectNode wf = M.createObjectNode().put("type", "blueprint").put("module", "Leads").put("name", "Lead Qualification");
+        wf.putArray("states").add("New").add("Contacted").add("Qualified");
+        ObjectNode fieldA = M.createObjectNode().put("api_name", "Lead_Status").put("field_label", "Lead Status").put("data_type", "picklist").put("id", "f1");
+        ArrayNode pv = fieldA.putArray("pick_list_values");
+        pv.addObject().put("id", "p1").put("actual_value", "New").put("display_value", "New");
+        pv.addObject().put("id", "p2").put("actual_value", "Contacted").put("display_value", "Contacted");
+        ObjectNode fieldB = M.createObjectNode().put("api_name", "Rating").put("data_type", "picklist").put("id", "f2");
+        fieldB.putArray("pick_list_values").addObject().put("id", "p9").put("actual_value", "Hot").put("display_value", "Hot");
+        List<String> states = ImplBlueprint.states(wf);
+        JsonNode picked = ImplBlueprint.pickField(wf, Arrays.asList(fieldB, fieldA), states);
+        check("blueprint: picks the picklist covering the states", picked != null && "Lead_Status".equals(picked.path("api_name").asText()));
+        check("blueprint: option ids mapped, missing state absent", ImplBlueprint.optionIds(fieldA, states).size() == 2);
+        pv.addObject().put("id", "p3").put("actual_value", "Qualified").put("display_value", "Qualified");
+        ObjectNode layout = M.createObjectNode().put("id", "L1").put("name", "Standard").put("api_name", "Standard");
+        ObjectNode body = ImplBlueprint.payload(wf, "Leads", "M1", layout, fieldA, states, ImplBlueprint.optionIds(fieldA, states)).path("blueprints").path(0).deepCopy();
+        check("blueprint: 3 states, 2 chain transitions, 2 connections", body.path("states").size() == 3 && body.path("transitions").size() == 2 && body.path("connections").size() == 2);
+        check("blueprint: state carries picklist id and module", "p2".equals(body.path("states").path(1).path("pick_list_value").path("id").asText()) && "Leads".equals(body.path("states").path(1).path("module").path("api_name").asText()));
+        check("blueprint: connection links states by api_name through its transition", body.path("connections").path(0).path("from_state").path("api_name").asText().equals(body.path("states").path(0).path("api_name").asText())
+                && body.path("connections").path(0).path("transitions").path("api_name").asText().equals(body.path("transitions").path(0).path("api_name").asText()));
+        check("blueprint: chart nodes match states", body.path("chart_data").path("nodes").size() == 3 && body.path("chart_data").path("connections").size() == 2);
+        check("blueprint: field, layout and module referenced by id", "f1".equals(body.path("field").path("id").asText()) && "L1".equals(body.path("layout").path("id").asText()) && "M1".equals(body.path("module").path("id").asText()));
+        check("crm: blueprint lane is partial", "partial".equals(CrmProduct.INSTANCE.laneFor("workflows", wf.deepCopy().put("status", "new"))));
     }
 
     static void functionDefinitions() {

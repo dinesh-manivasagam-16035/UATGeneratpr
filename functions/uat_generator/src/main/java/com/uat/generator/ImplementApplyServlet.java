@@ -230,7 +230,9 @@ public class ImplementApplyServlet extends HttpServlet {
                 case "fields":  field(item, r); break;
                 case "roles":   role(item, r); break;
                 case "workflows":
-                    if ("assignment".equals(item.path("type").asText())) assignment(item, r); else workflow(item, r);
+                    if ("assignment".equals(item.path("type").asText())) assignment(item, r);
+                    else if ("blueprint".equals(item.path("type").asText())) blueprint(item, r);
+                    else workflow(item, r);
                     break;
                 case "layouts": layout(item, r); break;
                 case "functions": function(item, r); break;
@@ -579,6 +581,65 @@ public class ImplementApplyServlet extends HttpServlet {
             payload.putArray("roles").add(ro);
             String newId = send(r, "POST", "/crm/" + v + "/settings/roles", payload, "roles");
             if (!dryRun && newId != null) ids.put(ImplSpec.low(role.path("name").asText()), newId);
+        }
+
+        /**
+         * Blueprint through POST settings/blueprints: states mapped to the picklist's options (options added
+         * first when missing), one manual transition per consecutive pair unless the spec names transitions,
+         * chart laid out in a row. Created in Draft, then POST …/actions/activate; when activation is refused
+         * the draft stays and the person publishes it in Setup.
+         */
+        void blueprint(JsonNode wf, ObjectNode r) throws Exception {
+            String module = moduleApi(wf.path("module").asText());
+            String moduleId = org == null ? "" : org.moduleId(module);
+            if (moduleId.isEmpty() && !dryRun) throw new IllegalStateException("Module " + module + " isn't in the org.");
+            List<String> states = ImplBlueprint.states(wf);
+            if (states.size() < 2) throw new IllegalStateException("A Blueprint needs at least two states; the spec lists " + states.size() + ".");
+            ArrayNode requests = r.putArray("requests");
+
+            JsonNode layouts = crm == null ? null : crm.call("GET", "/crm/" + v + "/settings/layouts?module=" + enc(module), null).json;
+            JsonNode layout = null;
+            if (layouts != null) for (JsonNode l : layouts.path("layouts")) if (layout == null || l.path("name").asText("").equalsIgnoreCase("Standard")) layout = l;
+            if (layout == null) {
+                if (!dryRun) throw new IllegalStateException("Couldn't read the layouts of " + module + ".");
+                layout = MAPPER.createObjectNode().put("id", "<layout id>").put("name", "Standard").put("api_name", "Standard");
+            }
+
+            List<JsonNode> fields = new ArrayList<>();
+            if (org != null && org.fields.get(ImplSpec.low(module)) != null) fields.addAll(org.fields.get(ImplSpec.low(module)));
+            if (fields.isEmpty() && crm != null) {
+                JsonNode fj = crm.call("GET", "/crm/" + v + "/settings/fields?module=" + enc(module), null).json;
+                if (fj != null) for (JsonNode f : fj.path("fields")) fields.add(f);
+            }
+            JsonNode field = ImplBlueprint.pickField(wf, fields, states);
+            if (field == null) throw new IllegalStateException("No picklist on " + module + " matches the states " + states
+                    + "; name the field in the spec (field: api name) or add the picklist first.");
+            for (String s : states) ensurePicklistValue(module, field, MAPPER.getNodeFactory().textNode(s), requests);
+            Map<String, String> optionIds = ImplBlueprint.optionIds(field, states);
+            if (!dryRun && optionIds.size() < states.size() && crm != null) {
+                // options were just added: re-read the field for their ids
+                JsonNode fj = crm.call("GET", "/crm/" + v + "/settings/fields/" + field.path("id").asText() + "?module=" + enc(module), null).json;
+                if (fj != null && fj.path("fields").size() > 0) { field = fj.path("fields").path(0); optionIds = ImplBlueprint.optionIds(field, states); }
+            }
+            if (!dryRun && optionIds.size() < states.size()) {
+                List<String> missing = new ArrayList<>(states); missing.removeAll(optionIds.keySet());
+                throw new IllegalStateException("Picklist " + field.path("api_name").asText() + " has no option for " + missing + ".");
+            }
+
+            ObjectNode body = ImplBlueprint.payload(wf, module, moduleId, layout, field, states, optionIds);
+            r.put("field", field.path("api_name").asText());
+            String id = call(requests, "POST", "/crm/" + v + "/settings/blueprints", body, "blueprints", "blueprint");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would create " : "Created ") + "the Blueprint on " + field.path("api_name").asText() + " with " + states.size()
+                    + " states and " + body.path("blueprints").path(0).path("transitions").size() + " transition(s) (Draft).");
+            if (dryRun) { r.put("follow_up", "Then publishes it: POST settings/blueprints/{id}/actions/activate."); return; }
+            try {
+                call(requests, "POST", "/crm/" + v + "/settings/blueprints/" + id + "/actions/activate", ImplBlueprint.activateBody(), "blueprints", "activate blueprint");
+                r.put("detail", r.path("detail").asText().replace("(Draft)", "— published"));
+            } catch (ImplDiagnose.StepFailure e) {
+                r.put("follow_up", "Created as a Draft; publishing was refused (" + ImplementServlet.trim(e.getMessage(), 200)
+                        + "). Open Setup → Process Management → Blueprint → \"" + wf.path("name").asText() + "\", check the chart and click Publish.");
+            }
         }
 
         /**

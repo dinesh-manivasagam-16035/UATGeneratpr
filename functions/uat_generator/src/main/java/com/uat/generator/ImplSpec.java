@@ -238,6 +238,14 @@ public final class ImplSpec {
                 copyStrings(in, o, "actions");
                 copyStrings(in, o, "states");
                 o.put("details", text(in, "details"));
+                if (!text(in, "field").isEmpty()) o.put("field", text(in, "field"));
+                if (in.path("transitions").size() > 0) {
+                    ArrayNode tr = o.putArray("transitions");
+                    for (JsonNode t : in.path("transitions")) {
+                        if (text(t, "from").isEmpty() || text(t, "to").isEmpty()) continue;
+                        tr.addObject().put("name", text(t, "name")).put("from", text(t, "from")).put("to", text(t, "to"));
+                    }
+                }
                 // Structured form, used to build the rule through the API (workflow type only).
                 String trig = text(in, "trigger_type").toLowerCase(Locale.ROOT);
                 o.put("trigger_type", TRIGGERS.contains(trig) ? trig : "");

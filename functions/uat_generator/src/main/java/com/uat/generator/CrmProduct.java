@@ -96,8 +96,8 @@ public final class CrmProduct implements Product {
             "POST /settings/automation/assignment_thresholds?module=X", "ZohoCRM.settings.assignment_thresholds.CREATE", "planned", "create-assignment-threshold"),
         c("connected_workflow","connected workflow (cross-module rules)",                        "ui", "API exists; builder not written",
             "POST /settings/connected_workflows", "ZohoCRM.settings.connected_workflows.CREATE", "planned", "create-connected-workflow"),
-        c("blueprint",        "Blueprint (process with states and transitions)",                "ui", "API creates the Blueprint in Draft (states, transitions, criteria, owners); builder not written — publishing stays in Setup",
-            "POST /settings/blueprints", "ZohoCRM.settings.blueprint.CREATE", "planned", "create-blueprint"),
+        c("blueprint",        "Blueprint (process with states and transitions)",                "partial", "created in Draft with states mapped to the picklist, transitions and chart; LiftOff then calls activate — when Zoho refuses (chart or transition check) the Draft is published in Setup",
+            "POST /settings/blueprints; POST …/{id}/actions/activate", "ZohoCRM.settings.blueprint.CREATE", "partial", "create-blueprint"),
         c("approval",         "approval process",                                               "ui", "no create API",
             "", "", "runner", ""),
         c("cadence",          "cadence (sequence of emails/tasks/calls)",                       "ui", "API creates and publishes cadences; builder not written",
@@ -213,6 +213,10 @@ public final class CrmProduct implements Product {
                     for (JsonNode e : o.path("rule_entries")) if (e.path("conditions").size() == 0 || e.path("assign_to").size() == 0) ok = false;
                     return ok ? "api" : "rpa";
                 }
+                if ("blueprint".equals(type)) {
+                    // Draft created by API with states and transitions; publishing may still be a Setup click.
+                    return ImplBlueprint.states(o).size() >= 2 ? "partial" : "rpa";
+                }
                 boolean apiRule = "workflow".equals(type)
                         && ImplSpec.API_TRIGGERS.contains(o.path("trigger_type").asText(""))
                         && (o.path("field_updates").size() > 0 || o.path("tasks").size() > 0 || o.path("webhooks").size() > 0);
@@ -301,7 +305,11 @@ public final class CrmProduct implements Product {
             + "  for type \"assignment\" the structured form: rule_entries ([{conditions (as above), match, "
             + "assign_to (string[] — user emails or full names from the BRD), round_robin (bool)}]), "
             + "default_assignee (email, full name, or \"current user\");\n"
-            + "  for every other type: trigger, criteria, actions (string[]), states (string[] — blueprint states in order), details}]\n"
+            + "  for \"blueprint\": field (api name of the picklist the states map to — Lead_Status, Stage, or a picklist "
+            + "from the data model), states (string[] in order, each a value of that picklist — reuse the org's existing "
+            + "options, add new ones only when the BRD names them), transitions ([{name, from, to}] — omit for a straight "
+            + "chain), criteria (plain words: which records enter), details;\n"
+            + "  for every other type: trigger, criteria, actions (string[]), details}]\n"
             + "functions: [{name (snake_case), module, trigger (\"automation: on create/edit of <module>\", \"button on "
             + "<module>\", \"schedule daily\", \"standalone\"), purpose, arguments:[{name, type (int|string|decimal|boolean|"
             + "date|datetime|list|map)}] — an automation function takes exactly one argument, the record id (int), e.g. "
