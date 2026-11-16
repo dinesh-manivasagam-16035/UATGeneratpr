@@ -85,6 +85,18 @@ and keeps UAT working on records — Creator's record APIs are real even though 
 not. Every matrix row is lane `ui` with status `runner` and a note saying *why* ("no create API"),
 not "builder not written", so the sheet doesn't imply work that is ours to do.
 
+### Creator's build lane: the application file
+
+Creator does have one way in: it imports a whole application from a `.ds` text file. `CreatorDs`
+writes that file from the blueprint — every new form with its fields, a list report per form, and
+the Deluge the blueprint carries as form workflows — and `POST /implement/creator-ds` serves it; the
+Build tab offers it as a download when the platform is Creator. The dialect follows real exports
+(forms and lists inside top-level `section` blocks, quickview/detailview on every list). Field
+types that weren't in the exports the syntax was checked against are emitted but reported as
+`unverified`, and everything the file can't carry (fields on existing forms, workflows described
+only in words, validation rules, roles) comes back in `skipped` with the reason, so it stays in the
+runner list.
+
 ## Where each product stands
 
 | | CRM | Desk | Creator |

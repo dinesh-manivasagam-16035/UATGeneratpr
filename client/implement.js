@@ -71,7 +71,7 @@
   // ---- persistence (per-browser convenience only) ----
   function save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ rpaJob: impl.rpaJob || null, meta: impl.meta, spec: impl.spec, dryRun: impl.dryRun, build: impl.build,
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ creatorDs: impl.creatorDs || null, rpaJob: impl.rpaJob || null, meta: impl.meta, spec: impl.spec, dryRun: impl.dryRun, build: impl.build,
         verify: impl.verify, uat: impl.uat }));
     } catch (e) {}
   }
@@ -81,7 +81,7 @@
       if (!raw) return;
       const saved = JSON.parse(raw);
       if (saved && saved.spec) {
-        impl.spec = saved.spec; impl.meta = saved.meta || {}; impl.rpaJob = saved.rpaJob || null;
+        impl.spec = saved.spec; impl.meta = saved.meta || {}; impl.rpaJob = saved.rpaJob || null; impl.creatorDs = saved.creatorDs || null;
         impl.dryRun = saved.dryRun || null; impl.build = saved.build || null;
         impl.verify = saved.verify || null; impl.uat = saved.uat || null;
         if (impl.build) impl.build.steps.forEach((st) => { if (st.status === "running") st.status = "waiting"; });
@@ -685,6 +685,15 @@
     }
     if (dry && org && !org.sandbox) needs.push({ title: `${org.name} can't be written to`, text: `Not a sandbox. Add id <code>${esc(org.id)}</code>${org.zgid ? ` or <code>${esc(org.zgid)}</code>` : ""} to IMPL_BUILD_ORG_IDS, or set IMPL_ALLOW_PRODUCTION=1 on uat_generator, redeploy, then dry-run again.` });
     conflicts.forEach((r) => needs.push({ title: `${r.label} conflicts with the org`, text: esc(r.detail || ""), html: `<button type="button" class="ghost small" data-open-fold="fold-build">Open in table</button>` }));
+    if (L.state.platform === "creator" && impl.spec) {
+      const d = impl.creatorDs;
+      const left = d ? (d.skipped || []).length : 0, unv = d ? (d.unverified || []).length : 0;
+      needs.push({ title: d ? `Application file ready: ${d.forms.length} form(s), ${d.reports.length} report(s), ${d.workflows.length} script(s)` : "Build the Creator app in one import",
+        text: d ? `Downloaded <code>${esc(d.filename)}</code>.` + (left ? ` ${left} item(s) aren't in the file and stay in the list below.` : "") + (unv ? ` <span class="pill warn">${unv} field(s) use a type not yet proven on import</span> ${esc(d.unverified.slice(0, 4).join(", "))}${unv > 4 ? "…" : ""} — if the import fails, these are the first suspects.` : "")
+               : "Creator's API can't create forms or workflows, but Creator imports a whole application from a file. LiftOff writes that file from the blueprint: every new form with its fields, a report per form, and the Deluge the blueprint carries.",
+        steps: ["In Creator: Solutions → Create Solution → Applications → Import from file.", "Choose the downloaded .ds file and create the application.", "If Creator shows an error, copy its text and the line it points at — that's what a fix needs.", "Then do the items left in the list below in the builder, and run Verify."],
+        html: `<button type="button" class="primary small" data-guide-act="ds-download">${d ? "Download again" : "Download application file (.ds)"}</button>` });
+    }
     const job = impl.rpaJob;
     if (pending.length) {
       const known = new Set(job ? job.items : []);
@@ -778,6 +787,7 @@
     else if (act === "assume-ok" && id) { const f = findItem(id); if (f) { f.item.assumption_ok = true; save(); render(); } }
     else if (act === "manual-done" && id) { const f = findItem(id); if (f) { f.item.manual_done = { by: L.state.authFullName || L.state.authUser || "you", at: new Date().toISOString() }; save(); renderBuild(); renderVerify(); refreshButtons(); } }
     else if (act === "rpa-send") rpaJobCreate();
+    else if (act === "ds-download") creatorDsDownload();
     else if (act === "rpa-refresh") rpaJobPoll(true);
     else if (act === "retry-stuck" || act === "skip-stuck") {
       const b = impl.build; const i = b ? b.steps.findIndex((x) => x.status === "failed" || x.status === "conflict") : -1;
@@ -1836,6 +1846,22 @@
     const run = impl.applied || impl.dryRun;
     return ((run && run.rpa_queue) || []).filter((q) => { const f = findItem(q.id); return !(f && f.item.manual_done); });
   }
+  // Creator build lane: the blueprint as an application file Creator imports in one step.
+  async function creatorDsDownload() {
+    L.busy.start("Writing the Creator application file", "forms, fields, reports and scripts from the blueprint");
+    try {
+      const base = (L.state.fileName || "LiftOff Application").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+      const data = await post("/implement/creator-ds", { spec: impl.spec, app_name: base.slice(0, 60) }, 30_000, "Creator application file");
+      impl.creatorDs = { filename: data.filename, forms: data.forms || [], reports: data.reports || [], workflows: data.workflows || [], skipped: data.skipped || [], unverified: data.unverified || [] };
+      save();
+      download(data.filename, data.ds);
+      L.setStatus("build", `${data.filename} downloaded: ${impl.creatorDs.forms.length} form(s). Import it in Creator (Solutions → Create Solution → Import from file).`, "ok");
+      renderGuideBuild();
+    } catch (e) {
+      L.setStatus("build", "Couldn't write the application file: " + e.message, "err");
+    } finally { L.busy.end(); }
+  }
+
   async function rpaJobCreate() {
     const run = impl.applied || impl.dryRun;
     const queue = pendingQueue();

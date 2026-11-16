@@ -26,6 +26,7 @@ public final class SelfCheck {
         lanesAgreeWithMatrix(DeskProduct.INSTANCE);
         lanesAgreeWithMatrix(CreatorProduct.INSTANCE);
         creatorAdapter();
+        creatorDsFile();
         executionPlan();
         functionDefinitions();
         blueprintPayload();
@@ -201,6 +202,44 @@ public final class SelfCheck {
         check("crm: hours and holidays lanes are api", "api".equals(CrmProduct.INSTANCE.laneFor("settings", bh.deepCopy().setAll(st)))
                 && "api".equals(CrmProduct.INSTANCE.laneFor("settings", hol.deepCopy().setAll(st))));
     }
+
+    static void creatorDsFile() {
+        ObjectNode spec = emptySpec();
+        spec.withArray("modules").add(M.createObjectNode().put("api_name", "Centre").put("plural_label", "Centres").put("singular_label", "Centre").put("status", "new").put("include", true));
+        spec.withArray("modules").add(M.createObjectNode().put("api_name", "Incident_Report").put("plural_label", "Incident Reports").put("status", "new").put("include", true));
+        spec.withArray("modules").add(M.createObjectNode().put("api_name", "Member").put("plural_label", "Members").put("status", "exists").put("include", false));
+        ArrayNode f = spec.withArray("fields");
+        f.add(M.createObjectNode().put("id", "FLD-1").put("module", "Centre").put("label", "Centre Name").put("api_name", "Centre_Name").put("data_type", "text").put("required", true).put("unique", true).put("include", true));
+        ObjectNode ty = M.createObjectNode().put("id", "FLD-2").put("module", "Centre").put("label", "Centre Type").put("api_name", "Centre_Type").put("data_type", "picklist").put("include", true);
+        ty.putArray("picklist_values").add("Outpost").add("Branch"); f.add(ty);
+        f.add(M.createObjectNode().put("id", "FLD-3").put("module", "Incident_Report").put("label", "Related Centre").put("api_name", "Related_Centre").put("data_type", "lookup").put("lookup_module", "Centres").put("include", true));
+        f.add(M.createObjectNode().put("id", "FLD-4").put("module", "Incident_Report").put("label", "Reported On").put("api_name", "Reported_On").put("data_type", "date").put("include", true));
+        f.add(M.createObjectNode().put("id", "FLD-5").put("module", "Incident_Report").put("label", "Description").put("api_name", "Description").put("data_type", "textarea").put("required", true).put("include", true));
+        f.add(M.createObjectNode().put("id", "FLD-6").put("module", "Member").put("label", "Initiated Name").put("api_name", "Initiated_Name").put("data_type", "text").put("include", true));
+        f.add(M.createObjectNode().put("id", "FLD-7").put("module", "Incident_Report").put("label", "Zone").put("api_name", "Zone").put("data_type", "picklist").put("include", true));
+        spec.withArray("functions").add(M.createObjectNode().put("id", "FN-1").put("name", "register_incident").put("module", "Incident_Report")
+                .put("trigger", "on create, after the record is saved").put("purpose", "Give the incident its ID").put("code", "input.Description = input.Description.trim();\nif(input.Related_Centre != null)\n{\n\tinfo \"ok\";\n}").put("include", true));
+        spec.withArray("functions").add(M.createObjectNode().put("id", "FN-2").put("name", "helper").put("module", "Incident_Report").put("trigger", "standalone").put("code", "void helper(int id)\n{\n}").put("include", true));
+        spec.withArray("validation_rules").add(M.createObjectNode().put("id", "VAL-1").put("module", "Incident_Report").put("name", "Needs a centre").put("include", true));
+        CreatorDs.Result r = CreatorDs.generate(spec, "Governance Pilot");
+        String ds = r.ds;
+        check("ds: forms inside top-level section blocks", ds.contains("\tsection Centre_Section\n\t{") && ds.contains("\t\tform Centre\n") && !ds.contains("\tforms\n") && !ds.contains("\tweb\n"));
+        check("ds: brackets balance", count(ds, '{') == count(ds, '}') && count(ds, '(') == count(ds, ')') && count(ds, '[') == count(ds, ']'));
+        check("ds: required + unique header, picklist values", ds.contains("must have unique Centre_Name") && ds.contains("values = {\"Outpost\", \"Branch\"}"));
+        check("ds: lookup resolved by label to the form and its first text field", ds.contains("values  = Centre.ID") && ds.contains("displayformat = [Centre_Name]"));
+        check("ds: every list has quickview and detailview", count(ds, "list All_") == 2 && count(ds, "quickview") == 2 && count(ds, "detailview") == 2 && ds.contains("show all rows from Incident_Report"));
+        check("ds: script becomes a form workflow with the right event and moment", r.workflows.size() == 1 && ds.contains("form = Incident_Report") && ds.contains("record event = on add")
+                && ds.contains("\t\t\ton success") && ds.contains("custom deluge script") && ds.contains("type =  form"));
+        check("ds: unverified types are reported", r.unverified.size() == 1 && r.unverified.get(0).startsWith("Incident_Report.Reported_On"));
+        java.util.Set<String> why = new java.util.HashSet<>(); for (String[] sk : r.skipped) why.add(sk[0]);
+        check("ds: left-out items say why (existing form, empty dropdown, standalone function, validation rule)", why.contains("FLD-6") && why.contains("FLD-7") && why.contains("FN-2") && why.contains("VAL-1"));
+        check("ds: link names and mappings", "Partner_Code".equals(CreatorDs.linkName("Partner Code!", "F")) && "F_1st".equals(CreatorDs.linkName("1st", "F"))
+                && "on add or edit".equals(CreatorDs.recordEvent("on create or edit")) && "validate".equals(CreatorDs.moment("before save")) && "phonenumber".equals(CreatorDs.type("phone")[0]));
+        check("ds: nothing to build gives an empty file", CreatorDs.generate(emptySpec(), "X").ds.isEmpty());
+    }
+
+    static int count(String s, char c) { int n = 0; for (int i = 0; i < s.length(); i++) if (s.charAt(i) == c) n++; return n; }
+    static int count(String s, String sub) { int n = 0, i = 0; while ((i = s.indexOf(sub, i)) >= 0) { n++; i += sub.length(); } return n; }
 
     static void creatorAdapter() {
         Product p = Products.byId("creator");
