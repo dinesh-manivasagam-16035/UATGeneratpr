@@ -123,8 +123,8 @@ public final class CrmProduct implements Product {
         // ---- org ----
         c("currency",         "multi-currency / exchange rate",                                 "ui", "API enables multi-currency and adds currencies; builder not written",
             "POST /org/currencies/actions/enable; POST /org/currencies", "ZohoCRM.settings.currencies.CREATE", "planned", "add-currencies"),
-        c("business_hours",   "business hours, shift hours, holidays, fiscal year",             "ui", "APIs exist; builder not written",
-            "POST /settings/business_hours; POST /settings/holidays; PUT /settings/fiscal_year", "ZohoCRM.settings.business_hours.CREATE", "planned", "add-business-hours"),
+        c("business_hours",   "business hours and holidays",                                    "api", "24x7, 24x5 or custom timings per day; holidays added for the dates the org doesn't have. The org's time zone and fiscal year stay as they are (read-only APIs)",
+            "POST /settings/business_hours; POST /settings/holidays", "ZohoCRM.settings.business_hours.CREATE", "builds", "add-business-hours"),
         c("user_unavailability","user unavailability (leave) for assignment",                     "ui", "API exists; builder not written",
             "POST /settings/users_unavailability", "ZohoCRM.settings.users_unavailability.WRITE", "planned", "post-user-unavailability"),
         c("company_details",  "company details, logo, locale, time zone",                       "ui", "no update-org API (logo upload only)",
@@ -239,6 +239,8 @@ public final class CrmProduct implements Product {
             case "settings": {
                 String k = o.path("type").asText();
                 if ("tag".equals(k)) return o.path("values").size() > 0 ? "api" : "rpa";
+                if ("business_hours".equals(k)) return "api";
+                if ("holiday".equals(k)) return o.path("holidays").size() > 0 ? "api" : "rpa";
                 if ("variable".equals(k)) return o.path("name").asText("").isEmpty() ? "rpa" : "api";
                 return o.path("module").asText("").isEmpty() ? "rpa" : "api";
             }
@@ -364,11 +366,14 @@ public final class CrmProduct implements Product {
             + "shared_from (whose records — a role or group; omit when conditions are given), conditions ([{field, comparator, value}] "
             + "for a criteria-based rule), match (and|or), superiors_allowed (bool), permission_type (read | read write | read write delete)}] "
             + "— ONLY when the BRD says who may see or edit whose records; roles and profiles alone go in roles.\n"
-            + "settings: [{type (tag|variable|record_locking), req_ids, and\n"
+            + "settings: [{type (tag|variable|business_hours|holiday|record_locking), req_ids, and\n"
             + "  for \"tag\": module, values (string[] — tag names, max 25 characters each);\n"
             + "  for \"variable\": name, api_name?, data_type (text|integer|decimal|currency|percent|date|datetime|email|phone|"
             + "url|checkbox|textarea), value, group? (variable group name), description? — an org-level constant a rule, "
             + "function or template reads, NOT a field on a record;\n"
+            + "  for \"business_hours\": days (string[] — working days, e.g. Monday…Friday), start and end (\"09:30\", \"18:30\"; "
+            + "omit both for round-the-clock), per_day ([{day, start, end}] only when the days differ), week_starts_on?;\n"
+            + "  for \"holiday\": holidays ([{name, date (YYYY-MM-DD)}] — only the dates the BRD lists);\n"
             + "  for \"record_locking\": module, name, conditions ([{field, comparator, value}] — which records lock; omit for "
             + "manual locking only), match (and|or), lock_existing (bool), excluded_profiles (string[] — profiles that can still "
             + "edit), restricted_actions (string[] — tags|convert|delete|change_owner; update is always restricted)}]\n"

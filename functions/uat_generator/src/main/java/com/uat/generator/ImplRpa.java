@@ -42,7 +42,13 @@ public final class ImplRpa {
                 break;
             case "settings": {
                 String k = o.path("type").asText();
-                if ("tag".equals(k)) {
+                if ("business_hours".equals(k)) {
+                    s.add("Setup → General → Company Details → Business Hours.");
+                    s.add("Days: " + join(o.path("days")) + ", " + o.path("start").asText("09:00") + " to " + o.path("end").asText("18:00") + ".");
+                } else if ("holiday".equals(k)) {
+                    s.add("Setup → General → Company Details → Business Hours → Holidays → New Holiday.");
+                    for (JsonNode x : o.path("holidays")) s.add(x.path("date").asText() + " — " + x.path("name").asText() + ".");
+                } else if ("tag".equals(k)) {
                     s.add(module + " → Tags → Manage Tags → New Tag.");
                     s.add("Add: " + join(o.path("values")) + ".");
                 } else if ("variable".equals(k)) {

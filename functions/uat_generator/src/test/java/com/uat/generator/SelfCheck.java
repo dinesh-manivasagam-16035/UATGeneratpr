@@ -38,6 +38,7 @@ public final class SelfCheck {
         sharingAndTerritories();
         userGroups();
         orgSettings();
+        businessHoursAndHolidays();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -170,6 +171,35 @@ public final class SelfCheck {
         check("crm: all three settings lanes are api", "api".equals(CrmProduct.INSTANCE.laneFor("settings", tag.deepCopy().setAll(st)))
                 && "api".equals(CrmProduct.INSTANCE.laneFor("settings", vr.deepCopy().setAll(st)))
                 && "api".equals(CrmProduct.INSTANCE.laneFor("settings", rl.deepCopy().setAll(st))));
+    }
+
+    static void businessHoursAndHolidays() throws Exception {
+        String reply = "{\"summary\":\"x\",\"settings\":["
+                + "{\"type\":\"business_hours\",\"days\":[\"Monday\",\"Tue\",\"Wednesday\",\"Thursday\",\"Friday\"],\"start\":\"9:30 am\",\"end\":\"6.30 pm\",\"req_ids\":[\"FR-23\"]},"
+                + "{\"type\":\"holiday\",\"holidays\":[{\"name\":\"Republic Day\",\"date\":\"2027-01-26\"},{\"name\":\"Bad, entry\",\"date\":\"26 Jan\"}],\"req_ids\":[\"FR-23\"]}],\"open_questions\":[]}";
+        ImplSpec.Parsed p = ImplSpec.parse(reply, Arrays.asList("settings", "open_questions"));
+        ObjectNode bh = p.items.get("settings").get(0), hol = p.items.get("settings").get(1);
+        check("hours: kinds inferred from the keys", "business_hours".equals(bh.path("type").asText()) && "holiday".equals(hol.path("type").asText()));
+        check("hours: times parsed from loose formats", "09:30".equals(ImplSettings.time("9:30 am")) && "18:30".equals(ImplSettings.time("6.30 pm"))
+                && "18:30".equals(ImplSettings.time("18:30")) && "".equals(ImplSettings.time("half six")));
+        check("hours: day names completed", "Tuesday".equals(ImplSettings.day("Tue")) && "Monday".equals(ImplSettings.day("monday")) && "".equals(ImplSettings.day("xx")));
+        JsonNode b = ImplSettings.businessHours(bh).path("business_hours");
+        check("hours: custom type with daily timing and five days", "custom".equals(b.path("type").asText()) && b.path("same_as_everyday").asBoolean()
+                && "09:30".equals(b.path("daily_timing").get(0).asText()) && "18:30".equals(b.path("daily_timing").get(1).asText())
+                && b.path("business_days").size() == 5 && "Monday".equals(b.path("week_starts_on").asText()));
+        ObjectNode allDay = M.createObjectNode(); allDay.putArray("days").add("Monday").add("Tuesday").add("Wednesday").add("Thursday").add("Friday").add("Saturday").add("Sunday");
+        check("hours: round the clock becomes 24*7", "24*7".equals(ImplSettings.businessHours(allDay).path("business_hours").path("type").asText()));
+        ObjectNode perDay = M.createObjectNode(); perDay.putArray("days").add("Monday").add("Saturday");
+        perDay.putArray("per_day").addObject().put("day", "Saturday").put("start", "10:00").put("end", "14:00");
+        JsonNode pd = ImplSettings.businessHours(perDay).path("business_hours");
+        check("hours: per-day timings", !pd.path("same_as_everyday").asBoolean() && "Saturday".equals(pd.path("custom_timing").get(0).path("days").asText())
+                && "14:00".equals(pd.path("custom_timing").get(0).path("business_timing").get(1).asText()));
+        JsonNode h = ImplSettings.holidays(hol).path("holidays");
+        check("hours: holidays keep valid dates only, names cleaned", h.size() == 1 && "2027-01-26".equals(h.get(0).path("date").asText())
+                && "business_holiday".equals(h.get(0).path("type").asText()));
+        ObjectNode st = M.createObjectNode().put("status", "new");
+        check("crm: hours and holidays lanes are api", "api".equals(CrmProduct.INSTANCE.laneFor("settings", bh.deepCopy().setAll(st)))
+                && "api".equals(CrmProduct.INSTANCE.laneFor("settings", hol.deepCopy().setAll(st))));
     }
 
     static void creatorAdapter() {

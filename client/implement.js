@@ -98,7 +98,9 @@
       case "validation_rules": return `${o.module} · ${o.name}`;
       case "dependencies":     return `${o.module} · ${o.parent} → ${o.child}`;
       case "global_picklists": return o.name;
-      case "settings":         return `${o.type === "tag" ? o.module + " · tags" : o.type === "variable" ? "variable · " + o.name : o.module + " · locking"}`;
+      case "settings":         if (o.type === "business_hours") return "business hours";
+                               if (o.type === "holiday") return `${(o.holidays || []).length} holiday(s)`;
+                               return `${o.type === "tag" ? o.module + " · tags" : o.type === "variable" ? "variable · " + o.name : o.module + " · locking"}`;
       case "sharing":          return `${o.type === "territory" ? "territory" : o.type === "group" ? "group" : o.module} · ${o.name}`;
       case "workflows":        return `${o.type}: ${o.module ? o.module + " · " : ""}${o.name}`;
       case "roles":            return o.name;
@@ -126,7 +128,9 @@
         if (o.profiles && o.profiles.length) parts.push("profiles: " + o.profiles.join(", "));
         break;
       case "settings":
-        if (o.type === "tag") parts.push((o.values || []).join(", "));
+        if (o.type === "business_hours") parts.push(`${(o.days || []).join(", ")}${o.start ? " · " + o.start + "–" + o.end : " · 24 hours"}`);
+        else if (o.type === "holiday") (o.holidays || []).forEach((x) => parts.push(`${x.date} ${x.name}`));
+        else if (o.type === "tag") parts.push((o.values || []).join(", "));
         else if (o.type === "variable") parts.push(`${o.data_type || "text"}${o.value ? " = " + o.value : ""}`);
         else { (o.conditions || []).forEach((c) => parts.push(`${c.field} ${c.comparator} ${c.value}`)); if ((o.excluded_profiles || []).length) parts.push("except " + o.excluded_profiles.join(", ")); }
         break;
@@ -557,7 +561,11 @@
           (!(o.field_updates || []).length && !(o.tasks || []).length && !(o.webhooks || []).length ? (o.actions || []) : []));
         return { title: `${when}${cond && !/all records/i.test(cond) ? `, when ${cond.replace(/^when\s+/i, "")}` : ""}: ${acts.join("; ") || o.name}`, sub: `${o.type || "workflow"} rule “${o.name}” on ${o.module}` };
       }
-      case "settings": return o.type === "tag"
+      case "settings": return o.type === "business_hours"
+        ? { title: `Business hours: ${(o.days || []).join(", ")}${o.start ? ", " + o.start + " to " + o.end : ", round the clock"}`, sub: "company business hours" }
+        : o.type === "holiday"
+          ? { title: `${(o.holidays || []).length} holiday(s): ${(o.holidays || []).map((x) => x.name).join(", ")}`, sub: "holiday list" }
+          : o.type === "tag"
         ? { title: `Tags on ${o.module}: ${(o.values || []).join(", ")}`, sub: "module tags" }
         : o.type === "variable"
           ? { title: `Variable “${o.name}”${o.value ? " = " + o.value : ""}`, sub: `org-level constant · ${o.data_type || "text"}` }

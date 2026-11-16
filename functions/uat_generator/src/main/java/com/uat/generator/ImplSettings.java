@@ -112,6 +112,94 @@ final class ImplSettings {
         return false;
     }
 
+    private static final List<String> DAYS = Arrays.asList("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday");
+
+    /** "mon", "Monday", "MONDAY " → "Monday"; "" when it isn't a day. */
+    static String day(String s) {
+        String t = (s == null ? "" : s).trim().toLowerCase(Locale.ROOT);
+        for (String d : DAYS) if (d.toLowerCase(Locale.ROOT).startsWith(t) && t.length() >= 3) return d;
+        return "";
+    }
+
+    /** "9:30", "09:30", "9.30", "9:30 am", "6:30 pm" → "09:30" / "18:30"; "" when it isn't a time. */
+    static String time(String s) {
+        String t = (s == null ? "" : s).trim().toLowerCase(Locale.ROOT).replace('.', ':').replaceAll("\\s+", " ");
+        boolean pm = t.contains("pm"), am = t.contains("am");
+        t = t.replace("am", "").replace("pm", "").trim();
+        if (!t.matches("\\d{1,2}(:\\d{2})?")) return "";
+        String[] parts = t.split(":");
+        int h = Integer.parseInt(parts[0]);
+        int m = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+        if (pm && h < 12) h += 12;
+        if (am && h == 12) h = 0;
+        if (h > 23 || m > 59) return "";
+        return String.format("%02d:%02d", h, m);
+    }
+
+    /**
+     * {"business_hours":{type, business_days, week_starts_on, same_as_everyday, daily_timing|custom_timing}}
+     * type is 24*7 when every day runs round the clock, 24*5 for five such days, else custom.
+     */
+    static ObjectNode businessHours(JsonNode b) {
+        List<String> days = new ArrayList<>();
+        for (JsonNode d : b.path("days")) { String x = day(d.asText("")); if (!x.isEmpty() && !days.contains(x)) days.add(x); }
+        if (days.isEmpty()) days.addAll(Arrays.asList("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"));
+        String start = time(b.path("start").asText("")), end = time(b.path("end").asText(""));
+        List<JsonNode> perDay = new ArrayList<>();
+        for (JsonNode d : b.path("per_day")) if (!day(d.path("day").asText("")).isEmpty()) perDay.add(d);
+
+        ObjectNode o = MAPPER.createObjectNode();
+        boolean roundTheClock = start.isEmpty() && end.isEmpty() && perDay.isEmpty();
+        o.put("type", roundTheClock ? (days.size() == 7 ? "24*7" : "24*5") : "custom");
+        if (!"24*7".equals(o.path("type").asText())) {
+            ArrayNode arr = o.putArray("business_days");
+            // 24*5 needs exactly five days; trim or pad from the working week.
+            List<String> use = new ArrayList<>(days);
+            if ("24*5".equals(o.path("type").asText())) {
+                while (use.size() > 5) use.remove(use.size() - 1);
+                for (String d : Arrays.asList("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")) if (use.size() < 5 && !use.contains(d)) use.add(d);
+            }
+            for (String d : use) arr.add(d);
+            days = use;
+        }
+        o.put("week_starts_on", day(b.path("week_starts_on").asText("")).isEmpty() ? days.get(0) : day(b.path("week_starts_on").asText("")));
+        if ("custom".equals(o.path("type").asText())) {
+            if (perDay.isEmpty()) {
+                o.put("same_as_everyday", true);
+                ArrayNode t = o.putArray("daily_timing");
+                t.add(start.isEmpty() ? "09:00" : start);
+                t.add(end.isEmpty() ? "18:00" : end);
+            } else {
+                o.put("same_as_everyday", false);
+                ArrayNode ct = o.putArray("custom_timing");
+                for (JsonNode d : perDay) {
+                    ObjectNode one = ct.addObject().put("days", day(d.path("day").asText("")));
+                    ArrayNode t = one.putArray("business_timing");
+                    String ds = time(d.path("start").asText("")), de = time(d.path("end").asText(""));
+                    t.add(ds.isEmpty() ? (start.isEmpty() ? "09:00" : start) : ds);
+                    t.add(de.isEmpty() ? (end.isEmpty() ? "18:00" : end) : de);
+                }
+            }
+        }
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.set("business_hours", o);
+        return payload;
+    }
+
+    /** {"holidays":[{name, date (YYYY-MM-DD), type}]} — entries without a usable date are dropped. */
+    static ObjectNode holidays(JsonNode h) {
+        ObjectNode payload = MAPPER.createObjectNode();
+        ArrayNode arr = payload.putArray("holidays");
+        for (JsonNode d : h.path("holidays")) {
+            String date = d.path("date").asText("").trim();
+            if (!date.matches("\\d{4}-\\d{2}-\\d{2}")) continue;
+            String name = d.path("name").asText("").replaceAll("[~`#%&+=\\[\\]{}|;<>^,]", " ").replaceAll("\\s+", " ").trim();
+            if (name.isEmpty()) continue;
+            arr.addObject().put("name", name).put("date", date).put("type", "business_holiday");
+        }
+        return payload;
+    }
+
     /**
      * {"record_locking_configurations":[{lock_type, locking_rules:[{name, criteria{group_operator,group}}],
      * locked_for, lock_excluded_profiles, excluded_fields, restricted_actions}]}

@@ -242,6 +242,8 @@ public class ImplementApplyServlet extends HttpServlet {
                     String kind = item.path("type").asText();
                     if ("tag".equals(kind)) tags(item, r);
                     else if ("variable".equals(kind)) variable(item, r);
+                    else if ("business_hours".equals(kind)) businessHours(item, r);
+                    else if ("holiday".equals(kind)) holidays(item, r);
                     else recordLocking(item, r);
                     break;
                 }
@@ -740,6 +742,52 @@ public class ImplementApplyServlet extends HttpServlet {
                 if (res.json != null) for (JsonNode g : res.json.path("user_groups")) groupIds.put(ImplSpec.low(g.path("name").asText()), g.path("id").asText());
             } catch (Exception ignored) { /* groups are optional */ }
             return groupIds;
+        }
+
+        /** Business hours through POST settings/business_hours (one configuration per org). */
+        void businessHours(JsonNode b, ObjectNode r) throws Exception {
+            ArrayNode requests = r.putArray("requests");
+            if (crm != null && !dryRun) {
+                CrmClient.Response have = crm.call("GET", "/crm/" + v + "/settings/business_hours", null);
+                if (have.statusCode == 200 && have.json != null && have.json.path("business_hours").size() > 0) {
+                    r.put("result", "skipped");
+                    r.put("detail", "The org already has business hours; change them in Setup → General → Company Details → Business Hours.");
+                    return;
+                }
+            }
+            ObjectNode payload = ImplSettings.businessHours(b);
+            call(requests, "POST", "/crm/" + v + "/settings/business_hours", payload, "business_hours", "business hours");
+            JsonNode made = payload.path("business_hours");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would set " : "Set ") + "business hours: " + made.path("type").asText()
+                    + (made.has("daily_timing") ? " " + made.path("daily_timing").get(0).asText() + "–" + made.path("daily_timing").get(1).asText() : "")
+                    + (made.has("business_days") ? ", " + made.path("business_days").size() + " day(s)" : "")
+                    + ". The org's time zone is used as it is.");
+        }
+
+        /** Holidays through POST settings/holidays — the ones the org doesn't already have that year. */
+        void holidays(JsonNode h, ObjectNode r) throws Exception {
+            ArrayNode requests = r.putArray("requests");
+            ObjectNode payload = ImplSettings.holidays(h);
+            ArrayNode wanted = (ArrayNode) payload.path("holidays");
+            if (wanted.size() == 0) throw new IllegalStateException("No holiday had a usable name and YYYY-MM-DD date.");
+            if (crm != null && !dryRun) {
+                JsonNode live = crm.call("GET", "/crm/" + v + "/settings/holidays", null).json;
+                ArrayNode fresh = MAPPER.createArrayNode();
+                for (JsonNode w : wanted) {
+                    boolean exists = false;
+                    if (live != null) for (JsonNode l : live.path("holidays")) {
+                        if (w.path("date").asText().equals(l.path("date").asText())) exists = true;
+                    }
+                    if (!exists) fresh.add(w);
+                }
+                if (fresh.size() == 0) { r.put("result", "skipped"); r.put("detail", "All " + wanted.size() + " holiday(s) are already in the org."); return; }
+                payload.set("holidays", fresh);
+                wanted = fresh;
+            }
+            call(requests, "POST", "/crm/" + v + "/settings/holidays", payload, "holidays", "holidays");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would add " : "Added ") + wanted.size() + " holiday(s).");
         }
 
         /** Tags on a module through POST settings/tags?module=X — only the ones the module lacks. */

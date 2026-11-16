@@ -268,14 +268,36 @@ public final class ImplSpec {
             }
             case "settings": {
                 // One small org-level setting: tags on a module, a CRM variable, or record locking
-                String type = text(in, "type").toLowerCase(Locale.ROOT);
-                if (!type.equals("tag") && !type.equals("variable") && !type.equals("record_locking")) {
+                String type = text(in, "type").toLowerCase(Locale.ROOT).replace(" ", "_");
+                if (in.path("holidays").size() > 0) type = "holiday";
+                if (in.path("days").size() > 0 || in.path("per_day").size() > 0) type = "business_hours";
+                if (!type.equals("tag") && !type.equals("variable") && !type.equals("record_locking")
+                        && !type.equals("business_hours") && !type.equals("holiday")) {
                     type = in.path("values").size() > 0 ? "tag" : in.path("conditions").size() > 0 ? "record_locking" : "variable";
                 }
                 o.put("type", type);
                 o.put("module", text(in, "module"));
                 o.put("description", text(in, "description"));
-                if (type.equals("tag")) {
+                if (type.equals("business_hours")) {
+                    o.put("name", "Business hours");
+                    copyStrings(in, o, "days");
+                    o.put("start", text(in, "start"));
+                    o.put("end", text(in, "end"));
+                    putIfText(o, "week_starts_on", text(in, "week_starts_on"));
+                    ArrayNode pd = o.putArray("per_day");
+                    for (JsonNode d : in.path("per_day")) {
+                        if (text(d, "day").isEmpty()) continue;
+                        pd.addObject().put("day", text(d, "day")).put("start", text(d, "start")).put("end", text(d, "end"));
+                    }
+                } else if (type.equals("holiday")) {
+                    o.put("name", "Holidays");
+                    ArrayNode hs = o.putArray("holidays");
+                    for (JsonNode d : in.path("holidays")) {
+                        if (text(d, "date").isEmpty()) continue;
+                        hs.addObject().put("name", text(d, "name")).put("date", text(d, "date"));
+                    }
+                    if (hs.size() == 0) return null;
+                } else if (type.equals("tag")) {
                     ArrayNode vals = o.putArray("values");
                     for (String v : strings(in.path("values"))) vals.add(v);
                     if (vals.size() == 0 || o.path("module").asText("").isEmpty()) return null;

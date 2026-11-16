@@ -33,7 +33,7 @@ result is right. "Lane" is what LiftOff does today; the capability sheet
 | FR-20 | Two fields (review date, outcome) | API (field) | The process itself is out of scope — the fields are not |
 | FR-21 | Dashboard | Setup (runner) | No create API; the runner hands it over with the components listed |
 | FR-22 | Email / inventory template | Setup (runner) | Templates have no create API |
-| FR-23 | Business hours and holidays | Setup (runner today; API planned) | Zoho has add-business-hours; the builder is not written yet |
+| FR-23 | Business hours and the holiday list | API (business_hours) | Working days and timings set; holidays added for the dates listed |
 | FR-24 | Record import | Setup (runner today; API planned) | Bulk Write exists; LiftOff does not run imports yet |
 
 ## What to look for in a run
@@ -58,5 +58,7 @@ result is right. "Lane" is what LiftOff does today; the capability sheet
 - FR-18 may create the Blueprint as a Draft when Zoho's activation checks refuse the generated
   chart; the follow-up says where to publish it.
 - FR-8 fails with a plain message when Territory Management is off in the org.
-- FR-23 and FR-24 have APIs Zoho supports but LiftOff doesn't call yet (status "planned" in the
-  capability sheet).
+- FR-24 (record import) has an API Zoho supports but LiftOff doesn't call yet (status "planned" in
+  the capability sheet).
+- FR-23 sets the working week and holidays, but the org's time zone and fiscal year are read-only
+  in the API — if the BRD changes those, they stay Setup work.

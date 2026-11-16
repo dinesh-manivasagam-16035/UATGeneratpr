@@ -182,7 +182,9 @@ public final class ImplPlan {
             case "fields":           return "field " + o.path("module").asText() + "." + o.path("label").asText()
                                             + " (" + o.path("data_type").asText() + ")";
             case "layouts":          return "layout " + o.path("module").asText() + " / " + o.path("name").asText();
-            case "settings":         return ("tag".equals(o.path("type").asText()) ? "tags on " + o.path("module").asText()
+            case "settings":         return ("business_hours".equals(o.path("type").asText()) ? "business hours"
+                                            : "holiday".equals(o.path("type").asText()) ? o.path("holidays").size() + " holiday(s)"
+                                            : "tag".equals(o.path("type").asText()) ? "tags on " + o.path("module").asText()
                                             : "variable".equals(o.path("type").asText()) ? "variable " + o.path("name").asText()
                                             : "record locking on " + o.path("module").asText());
             case "sharing":          return ("territory".equals(o.path("type").asText()) ? "territory " : "group".equals(o.path("type").asText()) ? "user group " : "sharing rule ") + o.path("name").asText();
