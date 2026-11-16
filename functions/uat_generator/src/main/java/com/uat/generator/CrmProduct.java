@@ -54,10 +54,10 @@ public final class CrmProduct implements Product {
             "", "", "runner", ""),
         c("pipeline",         "deal pipeline / stages",                                         "api", "stages are Deals Stage values in order; values the org lacks are added first. New stages' probability and forecast category are a Setup follow-up",
             "POST /settings/pipeline?layout_id=X", "ZohoCRM.settings.pipeline.CREATE", "builds", "create-pipeline"),
-        c("variable",         "CRM variable (org-level constant)",                              "ui", "API exists; builder not written",
-            "POST /settings/variables", "ZohoCRM.settings.variables.CREATE", "planned", "create-variables"),
-        c("tag",              "tags on a module",                                               "ui", "API exists; builder not written",
-            "POST /settings/tags?module=X", "ZohoCRM.settings.tags.CREATE", "planned", "create-tag"),
+        c("variable",         "CRM variable (org-level constant used by rules and templates)",   "api", "created in the variable group the BRD names, else the org's first group",
+            "POST /settings/variables", "ZohoCRM.settings.variables.CREATE", "builds", "create-variables"),
+        c("tag",              "tags on a module",                                               "api", "only the names the module doesn't have yet; an existing tag is left alone",
+            "POST /settings/tags?module=X", "ZohoCRM.settings.tags.CREATE", "builds", "create-tag"),
         c("map_dependency",   "picklist dependency (parent option → allowed child options)",    "api", "both picklists by name, options the org lacks added first, the whole mapping in one call; an already-mapped pair is left as is",
             "POST /settings/layouts/{layout_id}/map_dependency?module=X", "ZohoCRM.settings.map_dependency.CREATE", "builds", "map-dependency"),
         c("module_settings",  "rename / show / hide a module, module settings",                 "ui", "API exists; builder not written",
@@ -66,8 +66,8 @@ public final class CrmProduct implements Product {
             "", "", "runner", ""),
         c("unique_field",     "duplicate check: unique field / dedupe preference",              "api", "unique flag is set on the field; the module-level preference API is not called yet",
             "PATCH /settings/fields/{id} (unique); POST /settings/duplicate_check_preference?module=X", "ZohoCRM.settings.fields.UPDATE", "builds", "enable-duplicate-record-check"),
-        c("record_locking",   "record locking configuration",                                   "ui", "API exists; builder not written",
-            "POST /settings/record_locking_configurations?module=X", "ZohoCRM.settings.record_locking_configurations.CREATE", "planned", "add-record-locking-config"),
+        c("record_locking",   "record locking (lock records matching criteria, exempt profiles)", "api", "one configuration per module: automatic when criteria are given, manual otherwise; update always restricted",
+            "POST /settings/record_locking_configurations?module=X", "ZohoCRM.settings.record_locking_configurations.CREATE", "builds", "add-record-locking-config"),
         // ---- access ----
         c("role",             "role in the hierarchy",                                          "api", "with permissions listed, a profile is cloned and set too (see profile)",
             "POST /settings/roles", "ZohoCRM.settings.roles.CREATE", "builds", "create-role"),
@@ -236,6 +236,12 @@ public final class CrmProduct implements Product {
             case "functions": return "api";          // POST settings/functions publishes Deluge with its code
             case "dependencies": return o.path("mapping").size() > 0 ? "api" : "rpa";
             case "global_picklists": return o.path("values").size() > 0 ? "api" : "rpa";
+            case "settings": {
+                String k = o.path("type").asText();
+                if ("tag".equals(k)) return o.path("values").size() > 0 ? "api" : "rpa";
+                if ("variable".equals(k)) return o.path("name").asText("").isEmpty() ? "rpa" : "api";
+                return o.path("module").asText("").isEmpty() ? "rpa" : "api";
+            }
             case "sharing":
                 if ("group".equals(o.path("type").asText())) return o.path("members").size() > 0 ? "api" : "rpa";
                 return "territory".equals(o.path("type").asText())
@@ -358,6 +364,14 @@ public final class CrmProduct implements Product {
             + "shared_from (whose records — a role or group; omit when conditions are given), conditions ([{field, comparator, value}] "
             + "for a criteria-based rule), match (and|or), superiors_allowed (bool), permission_type (read | read write | read write delete)}] "
             + "— ONLY when the BRD says who may see or edit whose records; roles and profiles alone go in roles.\n"
+            + "settings: [{type (tag|variable|record_locking), req_ids, and\n"
+            + "  for \"tag\": module, values (string[] — tag names, max 25 characters each);\n"
+            + "  for \"variable\": name, api_name?, data_type (text|integer|decimal|currency|percent|date|datetime|email|phone|"
+            + "url|checkbox|textarea), value, group? (variable group name), description? — an org-level constant a rule, "
+            + "function or template reads, NOT a field on a record;\n"
+            + "  for \"record_locking\": module, name, conditions ([{field, comparator, value}] — which records lock; omit for "
+            + "manual locking only), match (and|or), lock_existing (bool), excluded_profiles (string[] — profiles that can still "
+            + "edit), restricted_actions (string[] — tags|convert|delete|change_owner; update is always restricted)}]\n"
             + "open_questions: [{question, context, blocking (bool), req_ids}]\n\n"
             + "A rule that sets a picklist field to a value the org doesn't have is fine: LiftOff adds the option first. "
             + "Record it in assumption.\n"

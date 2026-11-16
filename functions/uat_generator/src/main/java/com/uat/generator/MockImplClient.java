@@ -86,6 +86,7 @@ public final class MockImplClient {
         root.putArray("layouts");
         root.putArray("global_picklists");
         root.putArray("sharing");
+        root.putArray("settings");
         root.putArray("dependencies");
         root.putArray("validation_rules");
         root.putArray("roles");

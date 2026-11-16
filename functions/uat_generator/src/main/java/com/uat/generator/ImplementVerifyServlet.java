@@ -56,7 +56,7 @@ public class ImplementVerifyServlet extends HttpServlet {
 
             ArrayNode results = MAPPER.createArrayNode();
             for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "roles", "validation_rules",
-                                               "workflows", "functions", "sharing"}) {
+                                               "workflows", "functions", "sharing", "settings"}) {
                 for (JsonNode item : spec.path(section)) {
                     if (!item.path("include").asBoolean(true) && !"exists".equals(item.path("status").asText())) continue;
                     ObjectNode r = results.addObject();
@@ -167,6 +167,17 @@ public class ImplementVerifyServlet extends HttpServlet {
                 r.put("verdict", "unverifiable");
                 r.put("actual", "check in Setup");
                 r.put("detail", "Only workflow rules are read back; check " + item.path("type").asText() + "s in Setup.");
+                return;
+            }
+            case "settings": {
+                String kind = item.path("type").asText();
+                r.put("expected", "tag".equals(kind) ? "tags on " + item.path("module").asText()
+                        : "variable".equals(kind) ? "variable " + item.path("name").asText()
+                        : "record locking on " + item.path("module").asText());
+                r.put("verdict", "unverifiable");
+                r.put("actual", "tag".equals(kind) ? "check in the module's tag list"
+                        : "variable".equals(kind) ? "check in Setup → Customization → Variables"
+                        : "check in Setup → Security Control → Record Locking");
                 return;
             }
             case "sharing": {

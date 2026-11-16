@@ -37,6 +37,7 @@ public final class SelfCheck {
         globalPicklists();
         sharingAndTerritories();
         userGroups();
+        orgSettings();
         duplicateFunctions();
         diagnostics();
         recipeParsers();
@@ -131,6 +132,44 @@ public final class SelfCheck {
                 && "U1".equals(body.path("sources").get(0).path("source").path("id").asText()) && !body.path("sources").get(0).has("subordinates")
                 && body.path("sources").get(1).path("subordinates").asBoolean() && "Channel Desk".equals(body.path("name").asText()));
         check("crm: user group lane is api", "api".equals(CrmProduct.INSTANCE.laneFor("sharing", g.deepCopy().put("status", "new"))));
+    }
+
+    static void orgSettings() throws Exception {
+        String reply = "{\"summary\":\"x\",\"settings\":["
+                + "{\"type\":\"tag\",\"module\":\"Leads\",\"values\":[\"Channel\",\"Direct\",\"A really long tag name that goes past the limit\"],\"req_ids\":[\"FR-1\"]},"
+                + "{\"type\":\"variable\",\"name\":\"Escalation Hours\",\"data_type\":\"number\",\"value\":\"24\",\"req_ids\":[\"FR-2\"]},"
+                + "{\"type\":\"record_locking\",\"module\":\"Deals\",\"name\":\"Lock won deals\",\"conditions\":[{\"field\":\"Stage\",\"comparator\":\"equal\",\"value\":\"Closed Won\"}],"
+                + "\"excluded_profiles\":[\"Administrator\"],\"restricted_actions\":[\"delete\",\"change owner\"],\"req_ids\":[\"FR-3\"]}],\"open_questions\":[]}";
+        ImplSpec.Parsed p = ImplSpec.parse(reply, Arrays.asList("settings", "open_questions"));
+        ObjectNode tag = p.items.get("settings").get(0), vr = p.items.get("settings").get(1), rl = p.items.get("settings").get(2);
+        check("settings: three kinds normalised", "tag".equals(tag.path("type").asText()) && "variable".equals(vr.path("type").asText()) && "record_locking".equals(rl.path("type").asText()));
+        ObjectNode live = M.createObjectNode(); live.putArray("tags").addObject().put("name", "Channel");
+        List<String> fresh = ImplSettings.newTags(live, Arrays.asList("Channel", "Direct", "A really long tag name that goes past the limit"));
+        check("settings: existing tag skipped, long name trimmed to 25", fresh.size() == 2 && "Direct".equals(fresh.get(0)) && fresh.get(1).length() <= 25);
+        JsonNode tb = ImplSettings.tags(fresh, "#57B1FD").path("tags").path(0);
+        check("settings: tag payload keeps a valid colour only", "#57B1FD".equals(tb.path("color_code").asText()) && !ImplSettings.tags(fresh, "#123456").path("tags").path(0).has("color_code"));
+        JsonNode vb = ImplSettings.variable(vr, "G1").path("variables").path(0);
+        check("settings: variable type mapped, api name derived, group by id", "integer".equals(vb.path("type").asText())
+                && "Escalation_Hours".equals(vb.path("api_name").asText()) && "G1".equals(vb.path("variable_group").path("id").asText()) && "24".equals(vb.path("value").asText()));
+        ObjectNode groups = M.createObjectNode();
+        ArrayNode ga = groups.putArray("variable_groups");
+        ga.addObject().put("id", "G1").put("name", "General").put("api_name", "General");
+        ga.addObject().put("id", "G2").put("name", "Escalation").put("api_name", "Esc");
+        check("settings: group by name, else the first", "G2".equals(ImplSettings.groupId(groups, "Escalation")) && "G1".equals(ImplSettings.groupId(groups, "")));
+        check("settings: existing variable detected", ImplSettings.hasVariable(M.createObjectNode().set("variables", M.createArrayNode().add(M.createObjectNode().put("name", "Escalation Hours"))), "escalation hours", "X"));
+        java.util.function.Function<String, JsonNode> fieldOf = (api) -> M.createObjectNode().put("api_name", api).put("id", "F_" + api);
+        JsonNode lb = ImplSettings.recordLocking(rl, fieldOf, java.util.Collections.singletonList(new String[]{"P1", "Administrator"})).path("record_locking_configurations").path(0);
+        check("settings: locking automatic with criteria and exempt profile", "automatic".equals(lb.path("lock_type").asText())
+                && "F_Stage".equals(lb.path("locking_rules").get(0).path("criteria").path("group").get(0).path("field").path("id").asText())
+                && "all_profiles_except_excluded_profiles".equals(lb.path("locked_for").asText()) && "P1".equals(lb.path("lock_excluded_profiles").get(0).path("id").asText()));
+        check("settings: update always restricted, words normalised", lb.path("restricted_actions").toString().contains("update")
+                && lb.path("restricted_actions").toString().contains("change_owner"));
+        ObjectNode manual = M.createObjectNode().put("module", "Leads").put("name", "Manual"); manual.putArray("conditions"); manual.putArray("restricted_actions");
+        check("settings: no criteria means manual locking", "manual".equals(ImplSettings.recordLocking(manual, fieldOf, null).path("record_locking_configurations").path(0).path("lock_type").asText()));
+        ObjectNode st = M.createObjectNode().put("status", "new");
+        check("crm: all three settings lanes are api", "api".equals(CrmProduct.INSTANCE.laneFor("settings", tag.deepCopy().setAll(st)))
+                && "api".equals(CrmProduct.INSTANCE.laneFor("settings", vr.deepCopy().setAll(st)))
+                && "api".equals(CrmProduct.INSTANCE.laneFor("settings", rl.deepCopy().setAll(st))));
     }
 
     static void creatorAdapter() {

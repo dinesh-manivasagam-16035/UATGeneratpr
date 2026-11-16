@@ -41,11 +41,11 @@ public final class ImplSpec {
             .configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
 
     public static final List<String> DATA_MODEL = Arrays.asList(
-            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "roles", "sharing", "open_questions");
+            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "roles", "sharing", "settings", "open_questions");
     public static final List<String> AUTOMATION = Arrays.asList(
             "workflows", "functions", "open_questions");
     public static final List<String> SECTIONS = Arrays.asList(
-            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "roles", "sharing",
+            "modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "roles", "sharing", "settings",
             "functions", "open_questions", "plan");
 
     private static final Map<String, String> PREFIX = new LinkedHashMap<>();
@@ -59,6 +59,7 @@ public final class ImplSpec {
         PREFIX.put("workflows", "WF");
         PREFIX.put("roles", "ROLE");
         PREFIX.put("sharing", "SHR");
+        PREFIX.put("settings", "SET");
         PREFIX.put("functions", "FN");
         PREFIX.put("open_questions", "Q");
         PREFIX.put("plan", "TASK");
@@ -263,6 +264,46 @@ public final class ImplSpec {
                 }
                 copyStrings(in, o, "profiles");
                 o.put("notes", text(in, "notes"));
+                break;
+            }
+            case "settings": {
+                // One small org-level setting: tags on a module, a CRM variable, or record locking
+                String type = text(in, "type").toLowerCase(Locale.ROOT);
+                if (!type.equals("tag") && !type.equals("variable") && !type.equals("record_locking")) {
+                    type = in.path("values").size() > 0 ? "tag" : in.path("conditions").size() > 0 ? "record_locking" : "variable";
+                }
+                o.put("type", type);
+                o.put("module", text(in, "module"));
+                o.put("description", text(in, "description"));
+                if (type.equals("tag")) {
+                    ArrayNode vals = o.putArray("values");
+                    for (String v : strings(in.path("values"))) vals.add(v);
+                    if (vals.size() == 0 || o.path("module").asText("").isEmpty()) return null;
+                    o.put("name", "Tags on " + o.path("module").asText());
+                } else if (type.equals("variable")) {
+                    String name = text(in, "name");
+                    if (name.isEmpty()) return null;
+                    o.put("name", name);
+                    putIfText(o, "api_name", text(in, "api_name"));
+                    o.put("data_type", text(in, "data_type").isEmpty() ? text(in, "type_of_value") : text(in, "data_type"));
+                    o.put("value", text(in, "value"));
+                    putIfText(o, "group", text(in, "group"));
+                } else {
+                    if (o.path("module").asText("").isEmpty()) return null;
+                    o.put("name", text(in, "name").isEmpty() ? "Lock " + o.path("module").asText() : text(in, "name"));
+                    o.put("match", "or".equalsIgnoreCase(text(in, "match")) ? "or" : "and");
+                    o.put("lock_existing", in.path("lock_existing").asBoolean(false));
+                    o.put("manual_too", in.path("manual_too").asBoolean(false));
+                    copyStrings(in, o, "restricted_actions");
+                    copyStrings(in, o, "excluded_profiles");
+                    ArrayNode conds = o.putArray("conditions");
+                    for (JsonNode c : in.path("conditions")) {
+                        String field = text(c, "field");
+                        String cmp = text(c, "comparator").toLowerCase(Locale.ROOT);
+                        if (field.isEmpty() || !COMPARATORS.contains(cmp)) continue;
+                        conds.addObject().put("field", field).put("comparator", cmp).put("value", text(c, "value"));
+                    }
+                }
                 break;
             }
             case "sharing": {
@@ -532,6 +573,7 @@ public final class ImplSpec {
             case "validation_rules": return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "dependencies":     return low(o.path("module").asText()) + "|" + low(o.path("parent").asText()) + ">" + low(o.path("child").asText());
             case "global_picklists": return low(o.path("name").asText());
+            case "settings":         return low(o.path("type").asText()) + "|" + low(o.path("module").asText("")) + "|" + low(o.path("name").asText());
             case "sharing":          return low(o.path("type").asText()) + "|" + low(o.path("module").asText("")) + "|" + low(o.path("name").asText());
             case "workflows":        return low(o.path("module").asText()) + "|" + low(o.path("name").asText());
             case "roles":            return low(o.path("name").asText());

@@ -40,6 +40,22 @@ public final class ImplRpa {
                 if (!o.path("notes").asText("").isEmpty()) s.add(o.path("notes").asText());
                 s.add("Save the layout.");
                 break;
+            case "settings": {
+                String k = o.path("type").asText();
+                if ("tag".equals(k)) {
+                    s.add(module + " → Tags → Manage Tags → New Tag.");
+                    s.add("Add: " + join(o.path("values")) + ".");
+                } else if ("variable".equals(k)) {
+                    s.add("Setup → Customization → Variables → New Variable.");
+                    s.add("Name: " + o.path("name").asText() + ", type: " + o.path("data_type").asText("text") + ", value: " + o.path("value").asText("") + ".");
+                } else {
+                    s.add("Setup → Security Control → Record Locking → " + module + " → Configure.");
+                    for (JsonNode c : o.path("conditions")) s.add("Lock when " + c.path("field").asText() + " " + c.path("comparator").asText().replace('_', ' ') + " " + c.path("value").asText() + ".");
+                    if (o.path("excluded_profiles").size() > 0) s.add("Exempt profiles: " + join(o.path("excluded_profiles")) + ".");
+                }
+                s.add("Save.");
+                break;
+            }
             case "sharing":
                 if ("group".equals(o.path("type").asText())) {
                     s.add("Setup → Users and Control → Groups → New Group.");

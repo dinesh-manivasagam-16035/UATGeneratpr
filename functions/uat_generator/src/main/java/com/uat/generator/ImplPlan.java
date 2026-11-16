@@ -100,6 +100,12 @@ public final class ImplPlan {
                     "function listed by GET settings/functions, state active");
         }
 
+        List<JsonNode> settings = included(spec, "settings", "api");
+        if (!settings.isEmpty()) {
+            lastApi = add(tasks, "2. Build via API", "Apply " + settings.size() + " org setting(s)",
+                    names(settings, "name") + ".", "LiftOff", "api", 0.05 * settings.size(), "P2", settings, lastApi,
+                    "tags, variables and locking read back from their settings APIs");
+        }
         List<JsonNode> shares = included(spec, "sharing", "api");
         for (JsonNode sh : shares) {
             boolean terr = "territory".equals(sh.path("type").asText());
@@ -118,7 +124,7 @@ public final class ImplPlan {
         // ---- 3. Setup lane: what the runner walks you through ----
         String lastUi = lastApi;
         List<JsonNode> ui = new ArrayList<>();
-        for (String sct : new String[]{"global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions", "sharing"}) ui.addAll(included(spec, sct, "rpa"));
+        for (String sct : new String[]{"global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions", "sharing", "settings"}) ui.addAll(included(spec, sct, "rpa"));
         for (JsonNode w : included(spec, "workflows", "partial")) {
             if (w.path("other_actions").size() > 0) ui.add(w);
         }
@@ -176,6 +182,9 @@ public final class ImplPlan {
             case "fields":           return "field " + o.path("module").asText() + "." + o.path("label").asText()
                                             + " (" + o.path("data_type").asText() + ")";
             case "layouts":          return "layout " + o.path("module").asText() + " / " + o.path("name").asText();
+            case "settings":         return ("tag".equals(o.path("type").asText()) ? "tags on " + o.path("module").asText()
+                                            : "variable".equals(o.path("type").asText()) ? "variable " + o.path("name").asText()
+                                            : "record locking on " + o.path("module").asText());
             case "sharing":          return ("territory".equals(o.path("type").asText()) ? "territory " : "group".equals(o.path("type").asText()) ? "user group " : "sharing rule ") + o.path("name").asText();
             case "global_picklists": return "shared option set " + o.path("name").asText();
             case "dependencies":     return "picklist dependency " + o.path("parent").asText() + " → " + o.path("child").asText() + " on " + o.path("module").asText();

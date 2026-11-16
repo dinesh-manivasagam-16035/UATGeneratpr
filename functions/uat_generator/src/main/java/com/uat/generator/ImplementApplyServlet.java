@@ -106,7 +106,7 @@ public class ImplementApplyServlet extends HttpServlet {
             ArrayNode rpaQueue = MAPPER.createArrayNode();
 
             for (String section : new String[]{"modules", "global_picklists", "fields", "roles", "layouts", "dependencies", "validation_rules",
-                                               "workflows", "functions", "sharing"}) {
+                                               "workflows", "functions", "sharing", "settings"}) {
                 for (JsonNode item : spec.path(section)) {
                     String id = item.path("id").asText();
                     if (!only.isEmpty() && !only.contains(id)) continue;
@@ -189,7 +189,7 @@ public class ImplementApplyServlet extends HttpServlet {
     /** Module names the given items refer to (their own module and lookup target). */
     static Set<String> modulesOf(JsonNode spec, Set<String> ids) {
         Set<String> out = new LinkedHashSet<>();
-        for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions", "sharing"}) {
+        for (String section : new String[]{"modules", "global_picklists", "fields", "layouts", "dependencies", "validation_rules", "workflows", "functions", "sharing", "settings"}) {
             for (JsonNode item : spec.path(section)) {
                 if (!ids.contains(item.path("id").asText())) continue;
                 out.add("modules".equals(section) ? item.path("api_name").asText() : item.path("module").asText());
@@ -238,6 +238,13 @@ public class ImplementApplyServlet extends HttpServlet {
                 case "layouts": layout(item, r); break;
                 case "dependencies": dependency(item, r); break;
                 case "global_picklists": globalPicklist(item, r); break;
+                case "settings": {
+                    String kind = item.path("type").asText();
+                    if ("tag".equals(kind)) tags(item, r);
+                    else if ("variable".equals(kind)) variable(item, r);
+                    else recordLocking(item, r);
+                    break;
+                }
                 case "sharing": {
                     String kind = item.path("type").asText();
                     if ("territory".equals(kind)) territory(item, r);
@@ -733,6 +740,88 @@ public class ImplementApplyServlet extends HttpServlet {
                 if (res.json != null) for (JsonNode g : res.json.path("user_groups")) groupIds.put(ImplSpec.low(g.path("name").asText()), g.path("id").asText());
             } catch (Exception ignored) { /* groups are optional */ }
             return groupIds;
+        }
+
+        /** Tags on a module through POST settings/tags?module=X — only the ones the module lacks. */
+        void tags(JsonNode t, ObjectNode r) throws Exception {
+            String module = moduleApi(t.path("module").asText());
+            ArrayNode requests = r.putArray("requests");
+            JsonNode live = crm == null || dryRun ? null : crm.call("GET", "/crm/" + v + "/settings/tags?module=" + enc(module), null).json;
+            List<String> wanted = new ArrayList<>();
+            for (JsonNode n : t.path("values")) wanted.add(n.asText(""));
+            List<String> fresh = ImplSettings.newTags(live, wanted);
+            if (fresh.isEmpty()) { r.put("result", "skipped"); r.put("detail", "All " + wanted.size() + " tag(s) already exist on " + module + "."); return; }
+            call(requests, "POST", "/crm/" + v + "/settings/tags?module=" + enc(module), ImplSettings.tags(fresh, null), "tags", "tags");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would add " : "Added ") + fresh.size() + " tag(s) to " + module + ": " + String.join(", ", fresh) + ".");
+        }
+
+        /** CRM variable through POST settings/variables, in the group the spec names (else the first one). */
+        void variable(JsonNode vr, ObjectNode r) throws Exception {
+            ArrayNode requests = r.putArray("requests");
+            String name = vr.path("name").asText();
+            String api = vr.path("api_name").asText("").isEmpty() ? ImplSettings.apiName(name) : ImplSettings.apiName(vr.path("api_name").asText());
+            if (crm != null && !dryRun) {
+                JsonNode live = crm.call("GET", "/crm/" + v + "/settings/variables", null).json;
+                if (ImplSettings.hasVariable(live, name, api)) { r.put("result", "skipped"); r.put("detail", "A variable named \"" + name + "\" already exists."); return; }
+            }
+            String groupId = "<variable group id>";
+            if (crm != null && !dryRun) {
+                JsonNode groups = crm.call("GET", "/crm/" + v + "/settings/variable_groups", null).json;
+                groupId = groups == null ? null : ImplSettings.groupId(groups, vr.path("group").asText(""));
+                if (groupId == null) throw new IllegalStateException("The org has no variable group to put \"" + name + "\" in; create one in Setup → Customization → Variables.");
+            }
+            call(requests, "POST", "/crm/" + v + "/settings/variables", ImplSettings.variable(vr, groupId), "variables", "variable");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would create " : "Created ") + "variable " + api + " (" + ImplSettings.variableType(vr.path("data_type").asText("")) + ")"
+                    + (vr.path("value").asText("").isEmpty() ? "" : " = " + vr.path("value").asText()) + ".");
+        }
+
+        /** Record locking through POST settings/record_locking_configurations?module=X (one config per module). */
+        void recordLocking(JsonNode rl, ObjectNode r) throws Exception {
+            String module = moduleApi(rl.path("module").asText());
+            ArrayNode requests = r.putArray("requests");
+            if (crm != null && !dryRun) {
+                CrmClient.Response have = crm.call("GET", "/crm/" + v + "/settings/record_locking_configurations?module=" + enc(module), null);
+                if (have.statusCode == 200 && have.json != null && have.json.path("record_locking_configurations").size() > 0) {
+                    r.put("result", "skipped");
+                    r.put("detail", module + " already has a record-locking configuration; change it in Setup → Security Control → Record Locking.");
+                    return;
+                }
+            }
+            List<String[]> excluded = new ArrayList<>();
+            for (JsonNode p : rl.path("excluded_profiles")) {
+                String want = p.asText("");
+                String id = dryRun && crm == null ? null : profileIdByName(want);
+                if (id == null && dryRun) id = "<id of profile " + want + ">";
+                if (id == null) { r.put("follow_up", "Profile \"" + want + "\" wasn't found, so it isn't exempt from the lock."); continue; }
+                excluded.add(new String[]{id, want});
+            }
+            final String mod = module;
+            java.util.function.Function<String, JsonNode> fieldOf = (api) -> {
+                JsonNode live = org == null ? null : org.field(mod, api);
+                if (live != null || !dryRun) return live;
+                return MAPPER.createObjectNode().put("api_name", api).put("id", "<id of " + api + ">");
+            };
+            ObjectNode payload = ImplSettings.recordLocking(rl, fieldOf, excluded);
+            call(requests, "POST", "/crm/" + v + "/settings/record_locking_configurations?module=" + enc(module), payload, "record_locking_configurations", "record locking");
+            r.put("result", dryRun ? "would_create" : "created");
+            r.put("detail", (dryRun ? "Would lock " : "Locked ") + module + " records (" + payload.path("record_locking_configurations").path(0).path("lock_type").asText()
+                    + (excluded.isEmpty() ? "" : ", " + excluded.size() + " profile(s) exempt") + ").");
+        }
+
+        Map<String, String> profileNamesById;
+        String profileIdByName(String name) throws Exception {
+            if (profileNamesById == null) {
+                profileNamesById = new LinkedHashMap<>();
+                if (crm != null) {
+                    CrmClient.Response res = crm.call("GET", "/crm/" + v + "/settings/profiles", null);
+                    if (res.json != null) for (JsonNode p : res.json.path("profiles")) {
+                        profileNamesById.put(ImplSpec.low(p.path("name").asText(p.path("display_label").asText(""))), p.path("id").asText());
+                    }
+                }
+            }
+            return profileNamesById.get(ImplSpec.low(name));
         }
 
         /**
