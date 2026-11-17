@@ -212,8 +212,16 @@ public final class ImplRpa {
                 op(r, "confirm", "text", "Complete the " + type + " in Setup — " + what.toString().trim() + " Save and activate, then approve.");
                 break;
             }
-            default:
+            default: {
+                // No scripted screen for this kind: open Setup and hand over with the whole instruction,
+                // so the item still flows through the bot's loop and is reported like any other.
+                List<String> steps = steps(section, o);
+                if (!steps.isEmpty()) {
+                    op(r, "goto", "path", "crm".equals(Products.current().id()) ? "/settings" : "");
+                    op(r, "confirm", "text", String.join(" ", steps) + " Then approve.");
+                }
                 break;
+            }
         }
         return r;
     }

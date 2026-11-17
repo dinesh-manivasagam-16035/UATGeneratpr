@@ -85,18 +85,31 @@ the callback.
 
 ## 4. Reporting back
 
-```
-POST <callback.url>
-Content-Type: application/json
+One endpoint, three shapes — use the simplest one your flow can send. All are `POST <callback.url>`
+(the job's `callback.url`), with JSON, or with the same names as form fields or query parameters
+when a step can't build JSON.
 
-{ "job_id": "<job_id>", "token": "<callback.token>",
-  "results": [ { "id": "VR-1", "status": "done", "note": "", "screenshot_url": "https://…/VR-1.png" } ] }
+| Shape | Body | Use when |
+|---|---|---|
+| Whole job | `{"job_id":"…","token":"…","all":"done"}` | the bot runs the job as one action and reports once. Marks every item that has no result yet. `all` may be `done`, `failed` or `skipped`; add `"note"` to say why. |
+| One item, flat | `{"job_id":"…","token":"…","id":"VAL-1","status":"done","note":""}` | one call per item, easiest to build in a flow step |
+| Several items | `{"job_id":"…","token":"…","results":[{"id":"VAL-1","status":"done","note":"","screenshot_url":""}]}` | the bot collects results and sends them together |
+
+Nothing has to be assembled by hand: the job carries the bodies ready to send —
+`callback.finish_body` and `callback.failed_body` for the whole job, `items[].report_done` and
+`items[].report_failed` per item. The last result per item wins, so reporting an item `failed` and
+later `done` is fine. A call that records nothing answers 400 and lists the job's item ids.
+
+The browser polls `/implement/rpa-status` every 15 s while Build is open; `done` items are ticked as
+"done by Zoho RPA", `failed` items show the note and fall back to the manual steps.
+
+Check the round trip without the bot (replace the three values from a downloaded job file):
+
+```
+curl -s -X POST "<callback.url>" -H "Content-Type: application/json" -d '{"job_id":"<job_id>","token":"<callback.token>","all":"done"}'
 ```
 
-`status` is `done`, `failed` or `skipped`. Send one call per item (preferred, so LiftOff shows
-progress) or one call at the end with all results. The last result per item wins. The browser polls
-`/implement/rpa-status` every 15 s while Build is open; `done` items are ticked as "done by Zoho RPA"
-with the screenshot link, `failed` items show the note and fall back to the manual steps.
+`{"ok":true,"recorded":N,"of":N}` means LiftOff took it; the Build tab ticks the items within 15 s.
 
 ## 5. Where the approval sits
 
@@ -174,14 +187,63 @@ every item, API-less or not, flows through the same loop.
 | `op.text` (confirm) | Human task / approval with screenshot | decline → skipped |
 | `op.text` (expect) | Verify text exists | else failed |
 
-## 8. Building it in RPA Studio (outline)
+## 8. Finishing the bot, in three levels
 
-1. Flow: Webhook trigger (JSON payload; paste a job as the sample so `setup_url`, `callback.*`,
-   `items[]` become variables) → the RPA bot action with the payload as its input.
-2. Bot: implement §7 with a **Loop** over `items` and, inside, a **Loop** over `item.recipe` with a
-   **Decision/Switch** on `op.op`. Record each Web Automation action once with the recorder on your
-   validation-rule screen, then replace the recorded literals with the op fields from the table.
-3. After each item: Screenshot → upload → **HTTP POST** to `job.callback.url` with the result
-   (the same call proven by hand with curl).
-4. Error branch: any unhandled error → result `failed` with the exception text; continue with the
-   next item. Never auto-approve a `confirm`.
+Build level 1 first. It closes the loop today; levels 2 and 3 only add detail and coverage.
+
+### Level 1 — the job runs, LiftOff hears about it (about 15 minutes)
+
+In the Zoho RPA flow that owns the webhook LiftOff posts to:
+
+1. **Trigger:** the incoming webhook you already have. Send one job from LiftOff ("Send to Zoho RPA")
+   and accept it as the sample, so `callback.url`, `callback.finish_body` and `callback.failed_body`
+   appear as variables.
+2. **Action:** your RPA bot, with the payload as input (what you have now).
+3. **After the bot, on success:** add a **Custom function** step and call `report_to_liftoff` with
+   `callback.url` and `callback.finish_body`.
+4. **After the bot, on failure:** the same function with `callback.url` and `callback.failed_body`.
+
+```
+void report_to_liftoff(string callback_url, string body)
+{
+	resp = invokeurl
+	[
+		url :callback_url
+		type :POST
+		parameters:body
+		headers:{"Content-Type":"application/json"}
+	];
+	info resp;
+}
+```
+
+Turn the flow on, send a job, and the Build tab shows "N of N done" when the bot ends. That is the
+status update that was missing.
+
+### Level 2 — progress per item
+
+Inside the bot's loop over `items`, after each item call the same function with `callback.url` and
+that item's `report_done` (or `report_failed` in the error branch). Keep level 1's final call: it
+only fills items that have no result yet, so it never overwrites a failure.
+
+### Level 3 — the generic bot (§7)
+
+1. Loop over `items`; inside, loop over `item.recipe` with a Decision on `op.op`.
+2. Record each web action once with the recorder on the validation-rule screen, then replace the
+   recorded literals with the op fields from the table in §7.
+3. `confirm` is a human task (or absent, with `RPA_AUTO_APPROVE=1`).
+4. Error branch: report the item `failed` with the error text and continue with the next item.
+
+Every item now has a recipe. Kinds LiftOff doesn't script click by click (shared option sets,
+territories, groups, sharing rules, tags, variables, record locking, business hours) carry a
+`goto` to Setup and one `confirm` whose text is the whole instruction — the bot opens the page, a
+person finishes, the bot reports. They only reach the bot when their API build was not possible.
+
+### Environment variables on `uat_generator` (redeploy after changing)
+
+| Variable | Purpose |
+|---|---|
+| `RPA_WEBHOOK_URL` | the flow's incoming-webhook URL, with its key. A secret: never in the repo or in chat. |
+| `RPA_WEBHOOK_TOKEN` | optional; sent as header `X-LiftOff-Token` so the flow can check the caller |
+| `RPA_AUTO_APPROVE` | `1` removes the per-save `confirm` steps; approval moves to the Build gate |
+| `PUBLIC_FUNCTION_BASE` | the function's public base URL when it differs from what the function sees |

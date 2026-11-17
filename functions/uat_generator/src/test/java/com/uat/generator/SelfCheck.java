@@ -27,6 +27,7 @@ public final class SelfCheck {
         lanesAgreeWithMatrix(CreatorProduct.INSTANCE);
         creatorAdapter();
         creatorDsFile();
+        rpaReporting();
         executionPlan();
         functionDefinitions();
         blueprintPayload();
@@ -201,6 +202,26 @@ public final class SelfCheck {
         ObjectNode st = M.createObjectNode().put("status", "new");
         check("crm: hours and holidays lanes are api", "api".equals(CrmProduct.INSTANCE.laneFor("settings", bh.deepCopy().setAll(st)))
                 && "api".equals(CrmProduct.INSTANCE.laneFor("settings", hol.deepCopy().setAll(st))));
+    }
+
+    static void rpaReporting() {
+        ObjectNode stored = M.createObjectNode();
+        ArrayNode items = stored.putObject("job").putArray("items");
+        for (String id : new String[]{"VAL-1", "LAY-2", "SET-3"}) items.addObject().put("id", id);
+        stored.putArray("results");
+        ObjectNode one = M.createObjectNode().put("id", "VAL-1").put("status", "Done").put("note", "ok");
+        check("rpa: flat id + status records one item", ImplementRpaServlet.applyResults(stored, one) == 1 && "done".equals(stored.path("results").get(0).path("status").asText()));
+        ObjectNode arr = M.createObjectNode(); arr.putArray("results").addObject().put("id", "VAL-1").put("status", "failed").put("note", "no Save button");
+        ImplementRpaServlet.applyResults(stored, arr);
+        check("rpa: last result per item wins", stored.path("results").size() == 1 && "failed".equals(stored.path("results").get(0).path("status").asText()));
+        check("rpa: all=done fills only the items without a result", ImplementRpaServlet.applyResults(stored, M.createObjectNode().put("all", "done")) == 2
+                && stored.path("results").size() == 3 && "failed".equals(stored.path("results").get(0).path("status").asText()));
+        check("rpa: unknown status or empty call records nothing", ImplementRpaServlet.applyResults(stored, M.createObjectNode().put("id", "X").put("status", "maybe")) == 0
+                && ImplementRpaServlet.applyResults(stored, M.createObjectNode()) == 0);
+        ObjectNode grp = M.createObjectNode().put("type", "group").put("name", "Channel Desk"); grp.putArray("members").add("asha@x.com");
+        ArrayNode rec = ImplRpa.recipe("sharing", grp);
+        check("rpa: an unscripted kind still gets goto + confirm with the instruction", rec.size() == 2 && "goto".equals(rec.get(0).path("op").asText())
+                && "confirm".equals(rec.get(1).path("op").asText()) && rec.get(1).path("text").asText().contains("Channel Desk"));
     }
 
     static void creatorDsFile() {
