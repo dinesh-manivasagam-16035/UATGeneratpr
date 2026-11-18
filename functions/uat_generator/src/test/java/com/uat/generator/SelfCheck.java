@@ -220,6 +220,10 @@ public final class SelfCheck {
                 && ImplementRpaServlet.applyResults(stored, M.createObjectNode()) == 0);
         check("rpa: a refused push says what to fix and never echoes the URL", ImplementRpaServlet.pushProblem(410, "{\"message\":\"Invalid Oauth Token\"}").contains("no longer valid")
                 && ImplementRpaServlet.pushProblem(400, "").contains("switched on") && !ImplementRpaServlet.pushProblem(404, "").contains("http"));
+        check("rpa: Setup address from the client's data centre and the org's domain", "https://crm.zoho.in/crm/crmtestzx".equals(
+                ImplementRpaServlet.setupUrlFor(CrmClient.withAccessToken("https://www.zohoapis.in", "x"), "crmtestzx", "60012", "crm"))
+                && "https://crm.zoho.com/crm/org60012".equals(ImplementRpaServlet.setupUrlFor(null, "", "60012", "crm"))
+                && "https://desk.zoho.eu".equals(ImplementRpaServlet.setupUrlFor(CrmClient.withAccessToken("https://www.zohoapis.eu", "x"), "d", "1", "desk")));
         ObjectNode grp = M.createObjectNode().put("type", "group").put("name", "Channel Desk"); grp.putArray("members").add("asha@x.com");
         ArrayNode rec = ImplRpa.recipe("sharing", grp);
         check("rpa: an unscripted kind still gets goto + confirm with the instruction", rec.size() == 2 && "goto".equals(rec.get(0).path("op").asText())

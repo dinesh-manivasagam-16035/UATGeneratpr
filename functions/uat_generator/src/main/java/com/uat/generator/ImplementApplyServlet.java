@@ -171,6 +171,8 @@ public class ImplementApplyServlet extends HttpServlet {
                 o.put("production_allowed", org.productionAllowed);
                 o.put("zgid", org.zgid);
                 o.put("domain", org.domain);
+                // Where this org's Setup lives, for the runner, the RPA job and the browser-agent hand-off.
+                o.put("setup_url", ImplementRpaServlet.setupUrlFor(crm, org.domain, org.zgid, Products.current().id()));
             }
             Map<String, Integer> counts = new LinkedHashMap<>();
             for (JsonNode r : results) counts.merge(r.path("result").asText(), 1, Integer::sum);

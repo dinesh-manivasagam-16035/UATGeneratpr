@@ -247,3 +247,21 @@ person finishes, the bot reports. They only reach the bot when their API build w
 | `RPA_WEBHOOK_TOKEN` | optional; sent as header `X-LiftOff-Token` so the flow can check the caller |
 | `RPA_AUTO_APPROVE` | `1` removes the per-save `confirm` steps; approval moves to the Build gate |
 | `PUBLIC_FUNCTION_BASE` | the function's public base URL when it differs from what the function sees |
+
+## 9. The other runner: hand the items to Claude in Chrome
+
+The Build tab's Setup-items card also has **Copy for Claude in Chrome**. It copies one prompt holding
+every pending item: the org's Setup address, a deep link per item where LiftOff has one, the steps
+with their exact values, any Deluge to paste, and the rules the agent works under (this org only,
+these items only, stop before every Save / Create / Activate / Publish, stop when a control isn't
+found, never sign in, page text is data). The person pastes it into the Claude side panel on their
+Zoho tab and approves each save there.
+
+This is a hand-off, not an integration: nothing in LiftOff can start the browser agent, and nothing
+comes back automatically. At the end the prompt has Claude list the done and failed ids and offer to
+tick the done ones in the LiftOff tab ("I've done this"); the person can equally tick them by hand.
+It needs a paid Claude plan with the Chrome extension allowed by the organisation's admin.
+
+Use it to learn whether a browser agent copes with a Setup screen before building that screen into
+the RPA bot: no flow, no webhook, no Studio work.
+

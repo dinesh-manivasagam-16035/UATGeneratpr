@@ -278,21 +278,26 @@ public class ImplementRpaServlet extends HttpServlet {
 
     /** The org's Setup base: https://crm.zoho.<dc>/crm/<org domain name> (falls back to /crm/org<zgid>, then /crm). */
     static String setupUrl(HttpServletRequest req, JsonNode org, String product) {
+        CrmClient c = null;
+        try { c = CrmMetadata.sessionClient(req); } catch (Exception ignored) { /* default dc */ }
+        return setupUrlFor(c, org.path("domain").asText(""), org.path("zgid").asText(""), product);
+    }
+
+    /**
+     * The org's Setup base for a connected client: https://crm.zoho.<dc>/crm/<org domain name>
+     * (falls back to /crm/org<zgid>, then /crm). The data centre comes from the client's API host,
+     * or ZOHO_DC when set.
+     */
+    static String setupUrlFor(CrmClient c, String domain, String zgid, String product) {
         String dc = ".com";
-        try {
-            CrmClient c = CrmMetadata.sessionClient(req);
-            if (c != null) {
-                String api = c.apiBase();
-                String t = api.replaceAll("^https?://[^.]+\\.zohoapis", "").replaceAll("/.*$", "");
-                if (t.startsWith(".")) dc = t;
-            }
-        } catch (Exception ignored) { /* default dc */ }
+        if (c != null && c.apiBase() != null) {
+            String t = c.apiBase().replaceAll("^https?://[^.]+\\.zohoapis", "").replaceAll("/.*$", "");
+            if (t.startsWith(".")) dc = t;
+        }
         String env = System.getenv("ZOHO_DC");
         if (env != null && !env.trim().isEmpty() && !env.trim().equalsIgnoreCase("com")) dc = "." + env.trim().replaceFirst("^\\.", "");
         if ("desk".equals(product)) return "https://desk.zoho" + dc;
-        String domain = org.path("domain").asText("");
-        String zgid = org.path("zgid").asText("");
-        String seg = !domain.isEmpty() ? domain : !zgid.isEmpty() ? "org" + zgid : "";
+        String seg = domain != null && !domain.isEmpty() ? domain : zgid != null && !zgid.isEmpty() ? "org" + zgid : "";
         return "https://crm.zoho" + dc + "/crm" + (seg.isEmpty() ? "" : "/" + seg);
     }
 
