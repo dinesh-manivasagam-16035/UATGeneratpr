@@ -346,7 +346,7 @@ body.is-busy { overflow: hidden; }
 .busy-steps li.is-done .busy-dot { background: var(--ok); border-color: var(--ok); }
 .busy-steps li.is-failed .busy-dot { background: var(--err); border-color: var(--err); }
 .busy-steps li.is-skipped .busy-dot { background: var(--border-strong); }
-.busy-step-state { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; }
+.busy-step-state { font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; padding-right: 2px; }
 .busy-steps li.is-working .busy-step-state, .busy-steps li.is-running .busy-step-state { color: var(--accent); font-weight: 600; }
 .busy-steps li.is-failed .busy-step-state { color: var(--err); font-weight: 600; }
 .busy-step-err { grid-column: 2 / -1; font-size: 12.5px; color: var(--err); }
@@ -512,6 +512,8 @@ details.fold .impl-run, details.fold #impl-spec, details.fold .card { box-shadow
 .busy-steps li:nth-child(2) { animation-delay: .05s; } .busy-steps li:nth-child(3) { animation-delay: .1s; } .busy-steps li:nth-child(4) { animation-delay: .15s; } .busy-steps li:nth-child(n+5) { animation-delay: .2s; }
 @keyframes lo-row { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 .busy-steps li .busy-dot { display: none; }
+.busy-step-label { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.busy-steps li.is-queued .busy-step-label, .busy-steps li.is-pending .busy-step-label, .busy-steps li.is-skipped .busy-step-label { color: var(--text-secondary); }
 .busy-steps li.is-done .busy-step-label { color: var(--text-secondary); }
 .busy-steps li.is-working .busy-step-label, .busy-steps li.is-running .busy-step-label { font-weight: 600; }
 .busy-steps li.is-working .busy-step-state::after, .busy-steps li.is-running .busy-step-state::after { content: "…"; display: inline-block; width: 1.2em; text-align: left; animation: lo-ellipsis 1.2s steps(4, end) infinite; overflow: hidden; vertical-align: bottom; }
