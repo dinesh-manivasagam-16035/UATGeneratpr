@@ -181,30 +181,57 @@ public class ImplementRpaServlet extends HttpServlet {
         String hook = System.getenv("RPA_WEBHOOK_URL");
         if (hook != null && !hook.trim().isEmpty()) {
             try {
-                int code = push(hook.trim(), job);
-                out.put("pushed", code >= 200 && code < 300);
+                String[] res = push(hook.trim(), job);
+                int code = Integer.parseInt(res[0]);
+                boolean ok = code >= 200 && code < 300;
+                out.put("pushed", ok);
                 out.put("push_status", code);
-                stored.put("pushed", code >= 200 && code < 300);
+                if (!ok) out.put("push_error", pushProblem(code, res[1]));
+                stored.put("pushed", ok);
                 JobStore.put(jobId, MAPPER.writeValueAsString(stored));
             } catch (Exception e) {
                 out.put("pushed", false);
-                out.put("push_error", ImplementServlet.trim(e.getMessage(), 300));
+                out.put("push_error", "Couldn't reach the RPA webhook: " + ImplementServlet.trim(e.getMessage(), 200)
+                        + ". Check that RPA_WEBHOOK_URL on uat_generator is the flow's current webhook URL.");
             }
         } else {
             out.put("pushed", false);
-            out.put("push_error", "RPA_WEBHOOK_URL isn't set on uat_generator; download the job and start the bot by hand.");
+            out.put("push_error", "RPA_WEBHOOK_URL isn't set on uat_generator. Add the flow's webhook URL as that environment variable in the Catalyst console and redeploy the function.");
         }
         return out;
     }
 
-    static int push(String url, ObjectNode job) throws Exception {
+    /** Why the webhook refused the job, in words a person can act on. Never echoes the URL (it carries a key). */
+    static String pushProblem(int code, String body) {
+        String b = body == null ? "" : body.toLowerCase();
+        String what;
+        if (code == 410 || b.contains("invalid oauth") || b.contains("zapikey")) {
+            what = "the webhook key in RPA_WEBHOOK_URL is no longer valid. Copy the current URL from the flow's Webhook trigger into RPA_WEBHOOK_URL and redeploy uat_generator";
+        } else if (code == 404) {
+            what = "the webhook address wasn't found. The flow may have been deleted or RPA_WEBHOOK_URL is mistyped";
+        } else if (code == 401 || code == 403) {
+            what = "the webhook refused the call. Check the key in RPA_WEBHOOK_URL and, if set, RPA_WEBHOOK_TOKEN";
+        } else if (code == 400) {
+            what = "the flow didn't accept the job. Make sure the flow is switched on and has at least one action after the trigger";
+        } else if (code >= 500) {
+            what = "Zoho RPA answered with a server error. Try again in a minute";
+        } else {
+            what = "the flow didn't accept the job";
+        }
+        String detail = body == null || body.trim().isEmpty() ? "" : " Zoho said: " + ImplementServlet.trim(body.replaceAll("\\s+", " ").trim(), 160);
+        return "Zoho RPA answered HTTP " + code + ": " + what + "." + detail;
+    }
+
+
+    /** Posts the job to the flow's webhook; returns {status code, response body}. */
+    static String[] push(String url, ObjectNode job) throws Exception {
         RequestConfig cfg = RequestConfig.custom().setResponseTimeout(Timeout.ofSeconds(15)).setConnectionRequestTimeout(Timeout.ofSeconds(10)).build();
         try (CloseableHttpClient http = HttpClients.custom().setDefaultRequestConfig(cfg).build()) {
             HttpPost post = new HttpPost(url);
             String tok = System.getenv("RPA_WEBHOOK_TOKEN");
             if (tok != null && !tok.isEmpty()) post.setHeader("X-LiftOff-Token", tok);
             post.setEntity(new StringEntity(MAPPER.writeValueAsString(job), ContentType.APPLICATION_JSON));
-            return http.execute(post, r -> { EntityUtils.consume(r.getEntity()); return r.getCode(); });
+            return http.execute(post, r -> new String[]{String.valueOf(r.getCode()), r.getEntity() == null ? "" : EntityUtils.toString(r.getEntity())});
         }
     }
 

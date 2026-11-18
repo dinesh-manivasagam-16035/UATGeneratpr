@@ -1874,7 +1874,7 @@
       impl.rpaJob = { id: data.job_id, created_at: new Date().toISOString(), pushed: !!data.pushed, push_error: data.push_error || "", auto_approve: !!(data.job && data.job.auto_approve), items: queue.map((q) => q.id), results: [] };
       save();
       if (!data.pushed) download(`liftoff-rpa-job-${data.job_id}.json`, data.job);
-      L.setStatus("build", data.pushed ? `Job ${data.job_id} sent to Zoho RPA. Results appear here as the bot finishes each item.` : `Job ${data.job_id} created and downloaded (no RPA_WEBHOOK_URL set). Start the bot with this file.`, data.pushed ? "ok" : "warn");
+      L.setStatus("build", data.pushed ? `Job ${data.job_id} sent to Zoho RPA. Results appear here as the bot finishes each item.` : `Job ${data.job_id} was not delivered to Zoho RPA, so it was downloaded instead. ${data.push_error || ""}`, data.pushed ? "ok" : "warn");
       renderGuideBuild();
       rpaJobPoll(true);
     } catch (e) {

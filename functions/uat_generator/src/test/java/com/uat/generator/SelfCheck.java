@@ -218,6 +218,8 @@ public final class SelfCheck {
                 && stored.path("results").size() == 3 && "failed".equals(stored.path("results").get(0).path("status").asText()));
         check("rpa: unknown status or empty call records nothing", ImplementRpaServlet.applyResults(stored, M.createObjectNode().put("id", "X").put("status", "maybe")) == 0
                 && ImplementRpaServlet.applyResults(stored, M.createObjectNode()) == 0);
+        check("rpa: a refused push says what to fix and never echoes the URL", ImplementRpaServlet.pushProblem(410, "{\"message\":\"Invalid Oauth Token\"}").contains("no longer valid")
+                && ImplementRpaServlet.pushProblem(400, "").contains("switched on") && !ImplementRpaServlet.pushProblem(404, "").contains("http"));
         ObjectNode grp = M.createObjectNode().put("type", "group").put("name", "Channel Desk"); grp.putArray("members").add("asha@x.com");
         ArrayNode rec = ImplRpa.recipe("sharing", grp);
         check("rpa: an unscripted kind still gets goto + confirm with the instruction", rec.size() == 2 && "goto".equals(rec.get(0).path("op").asText())
