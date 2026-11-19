@@ -481,8 +481,10 @@ public class ImplementServlet extends HttpServlet {
     }
 
     /**
-     * A Deluge function that serves the same requirement on the same module as a workflow rule the API
-     * can build is code where a rule will do: exclude it (the person can include it again in Blueprint).
+     * A Deluge function that serves the same requirement on the same module as a workflow rule — one the
+     * API will build, or one the org already has from an earlier run — is code where a rule will do:
+     * exclude it (the person can include it again in Blueprint). Without the "already has" half, running
+     * the same BRD a second time kept the function: its twin rule was no longer an included item.
      */
     static void excludeDuplicateFunctions(ObjectNode spec) {
         for (JsonNode fn : spec.path("functions")) {
@@ -491,7 +493,7 @@ public class ImplementServlet extends HttpServlet {
             java.util.Set<String> reqs = new java.util.HashSet<>(ImplSpec.strings(f.path("req_ids")));
             String module = ImplSpec.low(f.path("module").asText(""));
             java.util.List<JsonNode> twins = new java.util.ArrayList<>();
-            for (JsonNode w : spec.path("workflows")) if (w.path("include").asBoolean(true)) twins.add(w);
+            for (JsonNode w : spec.path("workflows")) if (w.path("include").asBoolean(true) || "exists".equals(w.path("status").asText())) twins.add(w);
             for (JsonNode v : spec.path("validation_rules")) if (v.path("include").asBoolean(true)) twins.add(v);
             for (JsonNode w : twins) {
                 boolean sameReq = !reqs.isEmpty() && ImplSpec.strings(w.path("req_ids")).stream().anyMatch(reqs::contains);
@@ -500,8 +502,9 @@ public class ImplementServlet extends HttpServlet {
                     boolean rule = w.has("trigger_type") || w.has("type");
                     f.put("include", false);
                     f.put("executor", "none");
+                    boolean inOrg = "exists".equals(w.path("status").asText());
                     f.put("note", "Duplicates " + (rule ? "workflow rule" : "validation rule") + " \"" + w.path("name").asText()
-                            + "\" for the same requirement — code where a rule will do; excluded.");
+                            + "\"" + (inOrg ? ", which is already in the org," : "") + " for the same requirement — code where a rule will do; excluded.");
                     break;
                 }
             }

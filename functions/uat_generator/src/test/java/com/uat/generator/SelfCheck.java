@@ -42,6 +42,9 @@ public final class SelfCheck {
         orgSettings();
         businessHoursAndHolidays();
         duplicateFunctions();
+        lanesAreAskedNow();
+        buildStamp();
+        showcaseBrd();
         diagnostics();
         recipeParsers();
         deskFieldMapping();
@@ -532,6 +535,98 @@ public final class SelfCheck {
         check("empty workflow: excluded with a pointer to the validation rule", !spec2.path("workflows").get(0).path("include").asBoolean(true) && spec2.path("workflows").get(0).path("note").asText().contains("validation rule"));
     }
 
+    /** A rule the org already has still makes its twin function a duplicate; lanes are read from the code, not the item. */
+    static void lanesAreAskedNow() throws Exception {
+        // second run of the same BRD: the rule exists (excluded as "in the org"), the function must not come back
+        ObjectNode spec = emptySpec();
+        ObjectNode w = M.createObjectNode().put("id", "WF-1").put("type", "workflow").put("module", "Leads").put("name", "Flag leads without PIDG code")
+                .put("status", "exists").put("executor", "none").put("include", false);
+        w.putArray("req_ids").add("FR-2");
+        spec.withArray("workflows").add(w);
+        ObjectNode fn = M.createObjectNode().put("id", "FN-1").put("module", "Leads").put("name", "set_lead_status_pidg_pending").put("include", true);
+        fn.putArray("req_ids").add("FR-2");
+        spec.withArray("functions").add(fn);
+        ImplementServlet.excludeDuplicateFunctions(spec);
+        check("dupes: function twinning a rule already in the org is excluded", !spec.path("functions").get(0).path("include").asBoolean(true));
+        check("dupes: the note says the rule is already in the org", spec.path("functions").get(0).path("note").asText().contains("already in the org"));
+        // a rule the person switched off is not a twin
+        ObjectNode spec2 = emptySpec();
+        ObjectNode off = M.createObjectNode().put("id", "WF-1").put("type", "workflow").put("module", "Leads").put("name", "Rule").put("status", "new").put("include", false);
+        off.putArray("req_ids").add("FR-2");
+        spec2.withArray("workflows").add(off);
+        ObjectNode fn2 = M.createObjectNode().put("id", "FN-1").put("module", "Leads").put("name", "f").put("include", true);
+        fn2.putArray("req_ids").add("FR-2");
+        spec2.withArray("functions").add(fn2);
+        ImplementServlet.excludeDuplicateFunctions(spec2);
+        check("dupes: a rule switched off by hand is not a twin", spec2.path("functions").get(0).path("include").asBoolean(false));
+
+        // a blueprint saved when functions had no API: the stored lane says "rpa", the code says "api"
+        ObjectNode stale = (ObjectNode) M.readTree("{\"id\":\"FN-1\",\"name\":\"recalc_tier\",\"module\":\"Accounts\",\"trigger\":\"automation\","
+                + "\"code\":\"info 1;\",\"status\":\"new\",\"executor\":\"rpa\",\"include\":true}");
+        check("lanes: a stored 'rpa' on a function is ignored — the API builds it", "api".equals(ImplSpec.laneNow("functions", stale)));
+        check("lanes: an item already in the org has nothing to build", "none".equals(ImplSpec.laneNow("functions", stale.deepCopy().put("status", "exists"))));
+        ObjectNode vr = (ObjectNode) M.readTree("{\"id\":\"VAL-1\",\"module\":\"Leads\",\"name\":\"Gate\",\"status\":\"new\",\"executor\":\"api\",\"include\":true}");
+        check("lanes: a stored 'api' on a validation rule is ignored — Setup does it", "rpa".equals(ImplSpec.laneNow("validation_rules", vr)));
+        ObjectNode s3 = emptySpec();
+        s3.withArray("functions").add(stale); s3.withArray("validation_rules").add(vr);
+        JsonNode lanes = ImplSpec.lanes(s3);
+        check("lanes: one entry per build item, keyed by id", lanes.size() == 2 && "api".equals(lanes.path("FN-1").asText()) && "rpa".equals(lanes.path("VAL-1").asText()));
+        check("lanes: Build walks every build section", Arrays.asList(ImplSpec.BUILD_SECTIONS).containsAll(Arrays.asList("modules", "global_picklists", "fields", "roles",
+                "layouts", "dependencies", "validation_rules", "workflows", "functions", "sharing", "settings")));
+    }
+
+    /** The page and both functions carry one build id; a job status says which build of the worker wrote it. */
+    static void buildStamp() throws Exception {
+        check("build: version looks like a date plus a letter", BuildInfo.VERSION.matches("\\d{8}[a-z]"));
+        java.io.File index = new java.io.File("../../client/index.html");
+        if (index.isFile()) {
+            String html = new String(java.nio.file.Files.readAllBytes(index.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\?v=([\\w.-]+)").matcher(html);
+            java.util.Set<String> seen = new java.util.TreeSet<>();
+            while (m.find()) seen.add(m.group(1));
+            check("build: client/index.html ?v= values (" + seen + ") all equal BuildInfo.VERSION (" + BuildInfo.VERSION + ")",
+                    seen.size() == 1 && seen.contains(BuildInfo.VERSION));
+        }
+        ObjectNode queued = M.createObjectNode().put("state", "queued").put("build", BuildInfo.VERSION);
+        JobQueue.flagWorkerBuild(queued);
+        check("build: a queued job (not yet picked up) is never flagged", !queued.has("worker_stale") && BuildInfo.VERSION.equals(queued.path("server_build").asText()));
+        ObjectNode old = M.createObjectNode().put("state", "running");
+        JobQueue.flagWorkerBuild(old);
+        check("build: a worker status with no build is flagged stale", old.path("worker_stale").asBoolean(false));
+        ObjectNode same = M.createObjectNode().put("state", "done").put("build", BuildInfo.VERSION);
+        JobQueue.flagWorkerBuild(same);
+        check("build: a worker on the same build is not flagged", !same.has("worker_stale"));
+        check("build: the stale note gives the full deploy command", JobQueue.staleWorkerNote("").contains("build-for-deploy.sh")
+                && JobQueue.staleWorkerNote("").contains("functions:impl_worker"));
+    }
+
+    /** samples/liftoff-showcase-brd.txt: four requirements; three build through the API, one is Setup work (docs/SHOWCASE.md). */
+    static void showcaseBrd() throws Exception {
+        java.io.File f = new java.io.File("../../samples/liftoff-showcase-brd.txt");
+        if (f.isFile()) {
+            String brd = new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            List<Requirements.Requirement> reqs = ImplementStageServlet.requirements(brd);
+            java.util.List<String> ids = new java.util.ArrayList<>();
+            for (Requirements.Requirement r : reqs) ids.add(r.id);
+            check("showcase: the BRD yields FR-1 to FR-4 (" + ids + ")", ids.equals(Arrays.asList("FR-1", "FR-2", "FR-3", "FR-4")));
+        }
+        JsonNode pick = M.readTree("{\"module\":\"Leads\",\"label\":\"Buying Interest\",\"data_type\":\"picklist\",\"picklist_values\":[\"Hot\",\"Warm\",\"Cold\"],\"status\":\"new\"}");
+        JsonNode seats = M.readTree("{\"module\":\"Leads\",\"label\":\"Expected Seats\",\"data_type\":\"integer\",\"status\":\"new\"}");
+        JsonNode rule = M.readTree("{\"type\":\"workflow\",\"module\":\"Leads\",\"name\":\"Priority follow-up for hot leads\",\"trigger_type\":\"create\","
+                + "\"conditions\":[{\"field\":\"Buying_Interest\",\"comparator\":\"equal\",\"value\":\"Hot\"}],\"field_updates\":[{\"field\":\"Lead_Status\",\"value\":\"Priority Follow-up\"}],"
+                + "\"tasks\":[{\"subject\":\"Call within 4 hours\",\"due_in_days\":0,\"priority\":\"High\"}],\"webhooks\":[],\"other_actions\":[],\"status\":\"new\"}");
+        ObjectNode gate = (ObjectNode) M.readTree("{\"module\":\"Leads\",\"name\":\"Expected Seats must be 1 or more\",\"condition\":\"Expected Seats is less than 1\","
+                + "\"error_message\":\"Expected Seats must be 1 or more.\",\"status\":\"new\"}");
+        check("showcase: both fields and the rule build through the API", "api".equals(ImplSpec.laneNow("fields", pick)) && "api".equals(ImplSpec.laneNow("fields", seats))
+                && "api".equals(ImplSpec.laneNow("workflows", rule)));
+        check("showcase: the validation rule is Setup work", "rpa".equals(ImplSpec.laneNow("validation_rules", gate)));
+        String rec = ImplRpa.recipe("validation_rules", gate).toString();
+        check("showcase: its recipe picks the field, '<' and 1, then types the message", rec.contains("\"option\":\"Expected Seats\"") && rec.contains("\"option\":\"<\"")
+                && rec.contains("\"value\":\"1\"") && rec.contains("Expected Seats must be 1 or more."));
+        check("showcase: the step quotes the message exactly, with nothing after the closing quote",
+                ImplRpa.steps("validation_rules", gate).contains("Alert message, exactly: \"Expected Seats must be 1 or more.\""));
+    }
+
     static void diagnostics() throws Exception {
         ObjectNode body = M.createObjectNode();
         ImplDiagnose.StepFailure sf = new ImplDiagnose.StepFailure("field update: HTTP 400: the value given seems to be invalid",
@@ -557,6 +652,23 @@ public final class SelfCheck {
         java.lang.reflect.Method cs = ImplRpa.class.getDeclaredMethod("conditions", String.class); cs.setAccessible(true);
         @SuppressWarnings("unchecked") java.util.List<String[]> parts = (java.util.List<String[]>) cs.invoke(null, "Lead Status is 'Qualified' and PIDG Code is empty");
         check("recipe: two conditions parsed", parts.size() == 2 && "Qualified".equals(parts.get(0)[2]) && "is empty".equals(parts.get(1)[1]));
+        // comparisons written in words — the usual shape of a numeric validation rule
+        String[][] worded = {
+                {"Expected Seats is less than 1", "Expected Seats", "<", "1"},
+                {"Expected Seats < 1", "Expected Seats", "<", "1"},
+                {"Expected Seats less than 1", "Expected Seats", "<", "1"},
+                {"Discount is greater than 40", "Discount", ">", "40"},
+                {"Annual Revenue is at least 500000", "Annual Revenue", ">=", "500000"},
+                {"No of Employees is at most 10", "No of Employees", "<=", "10"},
+                {"Lead Status is not 'Junk Lead'", "Lead Status", "is not", "Junk Lead"},
+                {"Referral Code starts with 'TEST'", "Referral Code", "starts with", "TEST"},
+                {"Email does not contain '@'", "Email", "doesn't contain", "@"},
+        };
+        for (String[] w : worded) {
+            @SuppressWarnings("unchecked") java.util.List<String[]> got = (java.util.List<String[]>) cs.invoke(null, w[0]);
+            check("recipe: '" + w[0] + "' → " + w[1] + " | " + w[2] + " | " + w[3],
+                    got.size() == 1 && w[1].equals(got.get(0)[0]) && w[2].equals(got.get(0)[1]) && w[3].equals(got.get(0)[2]));
+        }
         ObjectNode vr2 = M.createObjectNode().put("module", "Leads").put("name", "Block").put("condition", "Lead Status is 'Qualified' and PIDG Code is empty").put("error_message", "Enter the PIDG code");
         String rec = ImplRpa.recipe("validation_rules", vr2).toString();
         check("recipe: deep link to the module's validation rules", rec.contains("/settings/modules/Leads/validation-rules"));

@@ -649,6 +649,34 @@ public final class ImplSpec {
         return Products.current().laneFor(section, o);
     }
 
+    /** Build sections, in the order Build walks them. */
+    static final String[] BUILD_SECTIONS = {"modules", "global_picklists", "fields", "roles", "layouts", "dependencies",
+            "validation_rules", "workflows", "functions", "sharing", "settings"};
+
+    /**
+     * The lane an item is in with the code that is running now. A blueprint lives in the browser between
+     * steps, so the lane stored on an item can be older than this build (a kind that had no API when the
+     * blueprint was made, a lane edited by hand): Build, the RPA queue and the lane pills all ask here
+     * rather than trust it. An item already in the org has nothing to build. An excluded item still has a
+     * lane (the one it would take if the person included it again); Build skips it on "include", not here.
+     */
+    static String laneNow(String section, JsonNode o) {
+        if ("exists".equals(o.path("status").asText())) return "none";
+        return executorFor(section, o);
+    }
+
+    /** {id: lane} for every build item of a spec. */
+    static ObjectNode lanes(JsonNode spec) {
+        ObjectNode out = MAPPER.createObjectNode();
+        for (String s : BUILD_SECTIONS) {
+            for (JsonNode o : spec.path(s)) {
+                String id = o.path("id").asText("");
+                if (!id.isEmpty()) out.put(id, laneNow(s, o));
+            }
+        }
+        return out;
+    }
+
     /** CRM-style api name from a label: "Lead Score %" -> "Lead_Score". */
     public static String apiName(String label) {
         String s = label == null ? "" : label.trim().replaceAll("[^A-Za-z0-9]+", "_").replaceAll("^_+|_+$", "");

@@ -352,6 +352,13 @@ public class ImplementStageServlet extends HttpServlet {
             }
             String p = JobStore.get(ImplJob.planKey(key));
             if (p != null) jobPlan = MAPPER.readTree(p);
+            // The parts were written by impl_worker: say so when it isn't on this function's build.
+            String st = JobStore.get(ImplJob.statusKey(key));
+            if (st != null) {
+                ObjectNode s = (ObjectNode) MAPPER.readTree(st);
+                JobQueue.flagWorkerBuild(s);
+                if (s.path("worker_stale").asBoolean(false)) warnings.add(JobQueue.staleWorkerNote(s.path("worker_build").asText("")));
+            }
         } else {
             for (JsonNode r : body.path("results")) results.add(r);
         }

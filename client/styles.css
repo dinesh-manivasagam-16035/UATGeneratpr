@@ -1,84 +1,47 @@
 /* ================================================================
-   LiftOff — Two-theme design system
-   ▸ Light "Frost"    — clean, crisp, professional daylight mode
-   ▸ Dark  "Midnight" — rich, deep, true near-black night mode
+   LiftOff — theme tokens
+   data-theme on <html> is the mode (light | dark) and carries the two base themes below.
+   data-palette picks one of the extra themes in shell.css (Sand, Lavender, Ocean, Graphite, Plum),
+   each a full token set on top of its mode. Every pair of text and surface tokens is held to
+   WCAG AA (4.5:1) — muted text included.
    ================================================================ */
 
 :root,
 :root[data-theme="light"] {
-  /* ── Surfaces ── */
-  --bg:          #F4F6FA;
-  --bg-elevated: #FFFFFF;
-  --bg-subtle:   #EEF1F7;
-  --bg-hover:    #E4E8F2;
-
-  /* ── Text ── */
-  --text:           #0F1729;
-  --text-secondary: #4A5568;
-  --text-muted:     #8896AB;
-
-  /* ── Accent — Zoho royal blue, modernised ── */
-  --accent:          #1559D0;
-  --accent-hover:    #0F47AB;
-  --accent-active:   #0B3A8A;
-  --accent-soft:     #EBF2FF;
-  --accent-line:     #B3CEFB;
-  --accent-gradient: linear-gradient(135deg, #1559D0 0%, #2E72ED 55%, #5E9FFF 100%);
-
-  /* ── Borders ── */
-  --border:        #DDE3EE;
-  --border-strong: #B8C5D8;
-  --divider:       #EEF1F7;
-
-  /* ── Semantic ── */
-  --ok: #047857;   --ok-bg: #ECFDF5;   --ok-border: #A7F3D0;
-  --warn: #B45309; --warn-bg: #FFFBEB; --warn-border: #FDE68A;
-  --err: #B91C1C;  --err-bg: #FEF2F2;  --err-border: #FECACA;
-
-  /* ── Shadows ── */
-  --shadow-sm:     0 1px 2px rgba(15,23,42,.06), 0 1px 1px rgba(15,23,42,.04);
-  --shadow-md:     0 4px 6px -1px rgba(15,23,42,.08), 0 2px 4px -2px rgba(15,23,42,.05);
-  --shadow-lg:     0 10px 15px -3px rgba(15,23,42,.10), 0 4px 6px -4px rgba(15,23,42,.05);
-  --shadow-accent: 0 4px 14px rgba(21,89,208,.30);
+  --bg: #F4F6FA; --bg-elevated: #FFFFFF; --bg-subtle: #EEF1F7; --bg-hover: #E4E8F2;
+  --text: #0F1729; --text-secondary: #4A5568; --text-muted: #5A6980;
+  --accent: #1559D0; --accent-hover: #0F47AB; --accent-active: #0B3A8A;
+  --accent-soft: #EBF2FF; --accent-line: #B3CEFB; --on-accent: #FFFFFF;
+  --accent-gradient: linear-gradient(135deg, #1559D0 0%, #1F63DC 55%, #2E6FE6 100%);
+  --border: #DDE3EE; --border-strong: #B8C5D8; --divider: #EEF1F7;
+  --ok: #047857; --ok-bg: #ECFDF5; --ok-border: #A7F3D0; --on-ok: #FFFFFF;
+  --warn: #A04A08; --warn-bg: #FFFBEB; --warn-border: #FDE68A;
+  --err: #B91C1C; --err-bg: #FEF2F2; --err-border: #FECACA; --on-err: #FFFFFF;
+  --side-bg: #0B1B3A; --side-bg-2: #13284F; --side-text: #C7D2E3; --side-muted: #8FA1BD; --side-accent: #8FB4FF;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,.06), 0 1px 1px rgba(15,23,42,.04); --shadow-md: 0 4px 6px -1px rgba(15,23,42,.08), 0 2px 4px -2px rgba(15,23,42,.05);
+  --shadow-lg: 0 10px 15px -3px rgba(15,23,42,.10), 0 4px 6px -4px rgba(15,23,42,.05);
 }
 
-/* ─── Night Mode ─── */
+/* ─── Night ─── */
 :root[data-theme="dark"] {
-  /* ── Surfaces ── */
-  --bg:          #0A0A10;
-  --bg-elevated: #14141E;
-  --bg-subtle:   #1C1C2A;
-  --bg-hover:    #22222E;
-
-  /* ── Text ── */
-  --text:           #EEF0F8;
-  --text-secondary: #9499B8;
-  --text-muted:     #525470;
-
-  /* ── Accent — soft violet, pops beautifully on dark ── */
-  --accent:          #7C85F7;
-  --accent-hover:    #9CA5FF;
-  --accent-active:   #5D66F0;
-  --accent-soft:     #18183A;
-  --accent-line:     #2D2D68;
-  --accent-gradient: linear-gradient(135deg, #5D66F0 0%, #7C85F7 55%, #9CA5FF 100%);
-
-  /* ── Borders ── */
-  --border:        #22222E;
-  --border-strong: #32324A;
-  --divider:       #171720;
-
-  /* ── Semantic ── */
-  --ok: #34D399;   --ok-bg: #022C1A;   --ok-border: #065F46;
-  --warn: #FBBF24; --warn-bg: #1A1000; --warn-border: #78350F;
-  --err: #F87171;  --err-bg: #1C0505;  --err-border: #7F1D1D;
-
-  /* ── Shadows ── */
-  --shadow-sm:     0 1px 3px rgba(0,0,0,.45);
-  --shadow-md:     0 4px 12px -2px rgba(0,0,0,.55);
-  --shadow-lg:     0 12px 28px -6px rgba(0,0,0,.70), 0 0 0 1px rgba(255,255,255,.04);
-  --shadow-accent: 0 4px 18px rgba(124,133,247,.32);
+  --bg: #0A0A10; --bg-elevated: #14141E; --bg-subtle: #1C1C2A; --bg-hover: #262636;
+  --text: #EEF0F8; --text-secondary: #B3B7D0; --text-muted: #9195B3;
+  --accent: #7C85F7; --accent-hover: #9CA5FF; --accent-active: #5D66F0;
+  --accent-soft: #1B1B40; --accent-line: #34347A; --on-accent: #0B0B1A;
+  --accent-gradient: linear-gradient(135deg, #7C85F7 0%, #8A92F9 55%, #9CA5FF 100%);
+  --border: #262634; --border-strong: #3A3A54; --divider: #1A1A26;
+  --ok: #34D399; --ok-bg: #04261A; --ok-border: #0B5E45; --on-ok: #04180F;
+  --warn: #FBBF24; --warn-bg: #211503; --warn-border: #7A4A10;
+  --err: #F87171; --err-bg: #260A0A; --err-border: #7F2424; --on-err: #210606;
+  --side-bg: #0E1320; --side-bg-2: #19213A; --side-text: #C7D2E3; --side-muted: #8FA1BD; --side-accent: #A9B0FF;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.45); --shadow-md: 0 4px 12px -2px rgba(0,0,0,.55);
+  --shadow-lg: 0 12px 28px -6px rgba(0,0,0,.70), 0 0 0 1px rgba(255,255,255,.04);
 }
+
+/* Text that sits on a filled accent / ok / err surface uses --on-accent / --on-ok / --on-err, so a theme
+   can have a light accent with dark text (the dark themes) or a dark accent with white text (the light ones).
+   The accent shadow follows whichever accent the theme sets. */
+:root { --shadow-accent: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent); }
 
 /* Night-mode native control styling (scrollbars, checkboxes, etc.) */
 :root[data-theme="dark"] { color-scheme: dark; }
@@ -165,8 +128,11 @@
 [data-theme="dark"] .hint code       { background: var(--bg); color: var(--accent-hover); border-color: var(--border); }
 
 /* Buttons */
-[data-theme="dark"] button:not(.primary):not([disabled]) { color: var(--text-secondary); border-color: var(--border); }
-[data-theme="dark"] button.ghost                         { color: var(--text-muted); border-color: transparent; }
+/* One selector list inside the second :not() keeps this rule at its original weight. The classes in it have
+   their own colours: sidebar steps, filter chips, the Now buttons and the filled buttons (sign-in, primary
+   links) — this rule used to grey their labels out on the accent fill. */
+[data-theme="dark"] button:not(.primary):not([disabled], .tab, .mode-btn, .platform-btn, .btn-now, .btn-primary, .login-signin-btn, .zoho-signin-btn, .project-link-btn, .theme-option) { color: var(--text-secondary); border-color: var(--border); }
+[data-theme="dark"] button.ghost                         { color: var(--text-secondary); border-color: transparent; }
 [data-theme="dark"] button.ghost:hover:not(:disabled)    { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text); }
 
 /* Analysis + tabs */
@@ -273,7 +239,7 @@ header .brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--on-accent);
   box-shadow: var(--shadow-accent);
   transition: transform var(--t-base) var(--ease-spring);
   overflow: hidden;
@@ -414,8 +380,6 @@ header .brand-mark:hover { transform: scale(1.1) rotate(-6deg); }
   border: 2px solid rgba(255,255,255,0.15);
   flex-shrink: 0;
 }
-.swatch-light { background: radial-gradient(circle at 35% 35%, #ffffff 0%, #d6e2f8 100%); border-color: rgba(21,89,208,0.20); }
-.swatch-dark  { background: radial-gradient(circle at 35% 35%, #22222E 0%, #0A0A10 100%); border-color: rgba(124,133,247,0.25); }
 
 /* ---- CRM connected pulse animation ---- */
 @keyframes crmConnectedPulse {
@@ -654,13 +618,13 @@ header .live-pill::before {
 
 .tab.active .tab-num {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   transform: scale(1.05);
 }
 
 .tab.done:not(.active) .tab-num {
   background: var(--ok);
-  color: white;
+  color: var(--on-ok);
 }
 
 .tab.done .tab-num::before {
@@ -807,7 +771,7 @@ textarea {
 .module-chip.selected {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: var(--on-accent);
   box-shadow: var(--shadow-accent);
 }
 
@@ -1053,7 +1017,7 @@ button:disabled {
 button.primary {
   background: var(--accent-gradient);
   border-color: var(--accent);
-  color: white;
+  color: var(--on-accent);
   box-shadow: var(--shadow-accent);
   position: relative;
   overflow: hidden;
@@ -1074,9 +1038,13 @@ button.primary:hover:not(:disabled)::before {
   left: 100%;
 }
 
+/* Keep the accent fill on hover: the generic button hover above swaps the background for --bg-hover,
+   which left a primary button's label unreadable while the pointer was on it. */
 button.primary:hover:not(:disabled) {
+  background: var(--accent-gradient);
+  border-color: var(--accent);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0, 82, 204, 0.32);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 button.primary:active:not(:disabled) {
@@ -1410,7 +1378,7 @@ button.ghost:hover:not(:disabled) {
   margin-top: 10px;
   padding: 7px 18px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 600;
@@ -2120,7 +2088,7 @@ footer { display: none; }
 .btn-primary {
   background: var(--accent-gradient, var(--accent));
   border-color: transparent;
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: var(--shadow-accent);
 }
 .btn-primary:hover {
@@ -2720,7 +2688,7 @@ footer { display: none; }
   width: 100%;
   padding: 13px 20px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
   border-radius: var(--radius-md);
   font-size: 15px;
@@ -2730,10 +2698,12 @@ footer { display: none; }
   box-shadow: var(--shadow-accent);
   margin-top: 0.25rem;
 }
-.zoho-signin-btn:hover {
+/* button.… and :not(:disabled) so this out-ranks the generic button hover, which swapped the fill for --bg-hover */
+button.zoho-signin-btn:hover:not(:disabled) {
   background: var(--accent-hover);
+  color: var(--on-accent);
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(76, 154, 255, 0.35);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .zoho-signin-btn:active {
   background: var(--accent-active);
@@ -2836,7 +2806,7 @@ footer { display: none; }
   width: 100%;
   padding: 12px 20px;
   background: var(--accent-gradient);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
   border-radius: var(--radius-md);
   font-size: 15px;
@@ -2848,9 +2818,11 @@ footer { display: none; }
   font-family: inherit;
 }
 
-.login-signin-btn:hover {
+.login-signin-btn:hover, button.login-signin-btn:hover:not(:disabled) {
+  background: var(--accent-gradient);
+  color: var(--on-accent);
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(0, 82, 204, 0.38);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
 .login-signin-btn svg {
@@ -3613,7 +3585,7 @@ footer { display: none; }
 .ip-step.is-done .ip-icon::after { content: ""; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px;
   border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .ip-step.is-failed .ip-icon { background: var(--err); border-color: var(--err); }
-.ip-step.is-failed .ip-icon::after { content: "!"; position: absolute; inset: 0; color: #fff; font-size: 11px; font-weight: 700;
+.ip-step.is-failed .ip-icon::after { content: "!"; position: absolute; inset: 0; color: var(--on-err); font-size: 11px; font-weight: 700;
   line-height: 14px; text-align: center; }
 .ip-step.is-failed .ip-state { color: var(--err); }
 .ip-step.is-failed .ip-detail { color: var(--err); white-space: normal; }

@@ -6,6 +6,11 @@
     ? "http://localhost:9000/uat_generator"
     : "/server/uat_generator";
 
+  // The build this page belongs to: the ?v= on its own script tag. The functions report theirs (BuildInfo.java);
+  // when they differ, a deploy shipped only part of the app and the page says so (checkBuild below).
+  const CLIENT_BUILD = (((document.currentScript && document.currentScript.src) || "").match(/[?&]v=([\w.-]+)/) || [])[1] || "";
+  const DEPLOY_CMD = "functions/uat_generator/build-for-deploy.sh && catalyst deploy --only functions:uat_generator,functions:impl_worker,client";
+
   const TABS = ["input", "cases", "execute", "push", "blueprint", "build", "verify"];
   const IMPL_TABS = ["blueprint", "build", "verify"];   // Implementation mode (implement.js)
 
@@ -200,46 +205,80 @@
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   }
 
-  // ---- Theme toggle ----
-  const VALID_THEMES = new Set(["light", "dark"]);
+  // ---- Themes ----
+  // data-theme on <html> is the mode (light | dark); data-palette is the theme itself. The colours live in
+  // styles.css (Light, Night) and shell.css (the rest); the three colours here only draw the menu swatches.
+  const THEMES = [
+    { id: "light", label: "Light", mode: "light", side: "#0B1B3A", bg: "#FFFFFF", accent: "#1559D0" },
+    { id: "sand", label: "Sand", mode: "light", side: "#2A2018", bg: "#FFFDF9", accent: "#0B6B63" },
+    { id: "lavender", label: "Lavender", mode: "light", side: "#1D1537", bg: "#FFFFFF", accent: "#6D3FD1" },
+    { id: "dark", label: "Night", mode: "dark", side: "#0E1320", bg: "#14141E", accent: "#7C85F7" },
+    { id: "ocean", label: "Ocean", mode: "dark", side: "#040C15", bg: "#0D1D2D", accent: "#38BDF8" },
+    { id: "graphite", label: "Graphite", mode: "dark", side: "#0A0B0C", bg: "#18191C", accent: "#78B4FF" },
+    { id: "plum", label: "Plum", mode: "dark", side: "#0D0711", bg: "#1C1222", accent: "#E58CF5" },
+  ];
   function getTheme() {
     try {
       const t = localStorage.getItem("testpilot_theme") || "light";
-      return VALID_THEMES.has(t) ? t : "light";
+      return THEMES.some((x) => x.id === t) ? t : "light";
     } catch (e) { return "light"; }
   }
-  const THEMES = [
-    { id: "light", label: "Light", swatchBg: "radial-gradient(circle at 35% 35%, #ffffff 0%, #d6e2f8 100%)", swatchBorder: "rgba(21,89,208,0.20)" },
-    { id: "dark",  label: "Night", swatchBg: "radial-gradient(circle at 35% 35%, #22222E 0%, #0A0A10 100%)", swatchBorder: "rgba(124,133,247,0.25)" },
-  ];
+  function paintSwatch(el, meta) {
+    if (!el) return;
+    el.style.setProperty("--sw-side", meta.side);
+    el.style.setProperty("--sw-bg", meta.bg);
+    el.style.setProperty("--sw-accent", meta.accent);
+  }
   function setTheme(theme) {
-    document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem("testpilot_theme", theme); } catch (e) {}
-    const meta = THEMES.find(t => t.id === theme) || THEMES[0];
-    if (els.themeSwatchPreview) {
-      els.themeSwatchPreview.style.background = meta.swatchBg;
-      if (meta.swatchBorder) els.themeSwatchPreview.style.borderColor = meta.swatchBorder;
-    }
+    const meta = THEMES.find((t) => t.id === theme) || THEMES[0];
+    const root = document.documentElement;
+    root.dataset.theme = meta.mode;
+    root.dataset.palette = meta.id;
+    try {
+      localStorage.setItem("testpilot_theme", meta.id);
+      localStorage.setItem("testpilot_theme_mode", meta.mode);   // read before first paint in index.html
+    } catch (e) {}
+    paintSwatch(els.themeSwatchPreview, meta);
     if (els.themePickerLabel) els.themePickerLabel.textContent = meta.label;
-    // update active state in dropdown
-    document.querySelectorAll(".theme-option").forEach(opt => {
-      opt.classList.toggle("active", opt.dataset.themePick === theme);
+    const bar = document.querySelector('meta[name="theme-color"]');
+    if (bar) bar.setAttribute("content", meta.side);
+    document.querySelectorAll(".theme-option").forEach((opt) => {
+      const on = opt.dataset.themePick === meta.id;
+      opt.classList.toggle("active", on);
+      opt.setAttribute("aria-checked", on ? "true" : "false");
     });
   }
   const themePickerBtn = document.getElementById("theme-picker-btn");
   const themeDropdown  = document.getElementById("theme-dropdown");
   if (themePickerBtn && themeDropdown) {
+    const group = (title, mode) => `<p class="theme-group">${title}</p>` + THEMES.filter((t) => t.mode === mode).map((t) =>
+      `<button type="button" class="theme-option" role="menuitemradio" aria-checked="false" data-theme-pick="${t.id}">`
+      + `<span class="theme-swatch" style="--sw-side:${t.side};--sw-bg:${t.bg};--sw-accent:${t.accent}"></span>${t.label}`
+      + `<svg class="theme-check" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7"/></svg></button>`).join("");
+    themeDropdown.innerHTML = group("Light", "light") + group("Dark", "dark");
+    const openMenu = (open) => {
+      themeDropdown.hidden = !open;
+      themePickerBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    };
     themePickerBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      themeDropdown.hidden = !themeDropdown.hidden;
+      openMenu(themeDropdown.hidden);
+      if (!themeDropdown.hidden) { const cur = themeDropdown.querySelector(".theme-option.active"); if (cur) cur.focus(); }
     });
     themeDropdown.addEventListener("click", (e) => {
       const opt = e.target.closest(".theme-option");
       if (!opt) return;
-      const picked = opt.dataset.themePick;
-      if (picked) { setTheme(picked); themeDropdown.hidden = true; }
+      e.stopPropagation();
+      if (opt.dataset.themePick) { setTheme(opt.dataset.themePick); openMenu(false); themePickerBtn.focus(); }
     });
-    document.addEventListener("click", () => { themeDropdown.hidden = true; });
+    themeDropdown.addEventListener("keydown", (e) => {
+      const opts = Array.from(themeDropdown.querySelectorAll(".theme-option"));
+      const i = opts.indexOf(document.activeElement);
+      if (e.key === "Escape") { openMenu(false); themePickerBtn.focus(); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); opts[(i + 1) % opts.length].focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); opts[(i - 1 + opts.length) % opts.length].focus(); }
+    });
+    document.addEventListener("click", () => openMenu(false));
   }
   // Apply saved theme on load (updates picker label + swatch).
   setTheme(getTheme());
@@ -2000,6 +2039,7 @@
         const { res, data } = await postJson(path, { stage: "status", job_key: key }, 30_000, "Status", path === "/execute");
         if (res.ok) last = data;
         else if (res.status === 404 || res.status === 400) throw Object.assign(new Error(data.error || "The job was lost."), { fatal: true });
+        if (res.ok && data.worker_build !== undefined) checkBuild(data.worker_build, "impl_worker");
       } catch (e) {
         if (e.fatal) throw e;               // a missed poll isn't fatal
       }
@@ -2378,6 +2418,7 @@
     try {
       const res  = await fetch(FUNCTION_BASE + "/crm/status", { credentials: "include" });
       const data = await res.json();
+      checkBuild(data.build, "uat_generator");
       state.crmAuthorized  = data.authorized === true;
       state.oauthAvailable = data.oauth_available === true;
       if (data.email && !state.crmEmail) state.crmEmail = data.email;
@@ -3155,8 +3196,35 @@
     saveStateToStorage();
   }
 
+  // ---- Build check ----
+  // who: "uat_generator" (from /crm/status, /implement/lanes, a dry run) or "impl_worker" (from a job status).
+  // An older server sends no build at all: that counts as behind.
+  const buildSeen = {};
+  function checkBuild(build, who) {
+    if (!CLIENT_BUILD) return;                      // opened without ?v= (a local file): nothing to compare
+    buildSeen[who || "uat_generator"] = build || "";
+    const el = document.getElementById("build-notice");
+    if (!el) return;
+    const off = Object.keys(buildSeen).filter((w) => buildSeen[w] !== CLIENT_BUILD);
+    if (!off.length) { el.hidden = true; el.innerHTML = ""; return; }
+    const behind = off.some((w) => !buildSeen[w] || buildSeen[w] < CLIENT_BUILD);
+    const list = off.map((w) => `${w} is on ${buildSeen[w] ? "build " + buildSeen[w] : "an older build"}`).join(" and ");
+    el.innerHTML = behind
+      ? `<strong>The server is behind this page.</strong><span>This page is build <code>${escapeHtml(CLIENT_BUILD)}</code>; ${escapeHtml(list)}. Until both functions are redeployed, items can land in the wrong lane and newer builders don't run. From the repo folder: <code class="cmd">${escapeHtml(DEPLOY_CMD)}</code></span><button type="button" class="ghost small" data-build-act="copy">Copy command</button>`
+      : `<strong>This page is older than the server.</strong><span>This page is build <code>${escapeHtml(CLIENT_BUILD)}</code>; ${escapeHtml(list)}. Reload to get the current page.</span><button type="button" class="ghost small" data-build-act="reload">Reload</button>`;
+    el.hidden = false;
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-build-act]");
+    if (!b) return;
+    if (b.dataset.buildAct === "reload") { location.reload(); return; }
+    const done = () => { b.textContent = "Copied"; setTimeout(() => { b.textContent = "Copy command"; }, 1600); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(DEPLOY_CMD).then(done, () => {});
+  });
+
   // Hooks for implement.js (kept small on purpose).
   window.LiftOff = {
+    checkBuild, CLIENT_BUILD,
     orbitHtml, orbitSet,
     plainBrd,
     busy,

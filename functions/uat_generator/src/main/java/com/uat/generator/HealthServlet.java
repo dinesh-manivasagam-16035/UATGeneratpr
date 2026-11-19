@@ -11,6 +11,6 @@ public class HealthServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json");
         resp.setStatus(HttpServletResponse.SC_OK);
-        resp.getWriter().write("{\"status\":\"ok\",\"service\":\"uat_generator\"}");
+        resp.getWriter().write("{\"status\":\"ok\",\"service\":\"uat_generator\",\"build\":\"" + BuildInfo.VERSION + "\"}");
     }
 }

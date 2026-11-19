@@ -250,7 +250,8 @@ person finishes, the bot reports. They only reach the bot when their API build w
 
 ## 9. The other runner: hand the items to Claude in Chrome
 
-The Build tab's Setup-items card also has **Copy for Claude in Chrome**. It copies one prompt holding
+The Build tab's Setup-items card also has **Copy for Claude in Chrome** (and so does the UI work queue
+under "Show details"). It copies one prompt holding
 every pending item: the org's Setup address, a deep link per item where LiftOff has one, the steps
 with their exact values, any Deluge to paste, and the rules the agent works under (this org only,
 these items only, stop before every Save / Create / Activate / Publish, stop when a control isn't
@@ -265,3 +266,5 @@ It needs a paid Claude plan with the Chrome extension allowed by the organisatio
 Use it to learn whether a browser agent copes with a Setup screen before building that screen into
 the RPA bot: no flow, no webhook, no Studio work.
 
+`samples/liftoff-showcase-brd.txt` is the small BRD for trying this end to end — three items the API
+builds and one validation rule for Claude in Chrome; `docs/SHOWCASE.md` is the script.

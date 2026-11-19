@@ -40,9 +40,6 @@
     workflows: "workflow", functions: "Deluge function" };
   const STATUS_LABEL = { new: "New", exists: "Already in org", needs_update: "Needs update", conflict: "Conflict",
     not_compared: "Not compared", created: "Created", open: "Open" };
-  const API_TRIGGERS = ["create", "edit", "create_or_edit", "field_update", "delete"];   // ImplSpec.API_TRIGGERS
-  const API_FIELD_TYPES = ["text", "textarea", "email", "phone", "website", "picklist", "multiselectpicklist",
-    "date", "datetime", "integer", "bigint", "decimal", "currency", "percent", "boolean", "lookup"];
 
   const CLAUDE_TIP = "Copies one prompt with every pending Setup item. Paste it into the Claude in Chrome side panel on your Zoho tab; Claude stops before each save for your OK.";
   let rpaTimer = null;   // Zoho RPA job polling (declared early: renderBuild runs on restore)
@@ -192,28 +189,40 @@
     return null;
   }
 
-  function executorFor(section, o) {
-    if (section === "modules") return o.kind === "standard" || o.status === "exists" ? "none" : "api";
-    if (o.status === "exists") return "none";
-    if (section === "fields") return API_FIELD_TYPES.includes(o.data_type) ? "api" : "rpa";
-    if (section === "roles") return (o.permissions || []).length ? "partial" : "api";
-    if (section === "workflows") {
-      if (o.type === "assignment") {
-        const entries = o.rule_entries || [];
-        return entries.length && entries.every((e) => (e.conditions || []).length && (e.assign_to || []).length) ? "api" : "rpa";
-      }
-      const apiRule = o.type === "workflow" && API_TRIGGERS.includes(o.trigger_type || "")
-        && ((o.field_updates || []).length || (o.tasks || []).length || (o.webhooks || []).length);
-      if (!apiRule) return "rpa";
-      return (o.other_actions || []).length ? "partial" : "api";
-    }
-    if (section === "layouts") {
-      const hasFields = (o.sections || []).some((sc) => (sc.fields || []).length);
-      return hasFields && !(o.profiles || []).length ? "api" : "rpa";
-    }
-    if (section === "open_questions") return "review";
-    if (section === "plan") return "projects";
-    return "rpa";
+  // Lanes come from the server's capability matrix, never from a copy of the rules here (the copy that
+  // used to live in this file fell behind: it still sent Deluge functions to Setup after the API could
+  // build them). lanes = {id: "api" | "partial" | "rpa" | "none"}. Returns {moved, touched}: moved counts
+  // items that are part of the build; an excluded item gets its lane too (so "Include anyway" builds it
+  // the right way) but changing it is not news and doesn't invalidate a dry run.
+  function applyLanes(lanes) {
+    let moved = 0, touched = 0;
+    Object.keys(lanes || {}).forEach((id) => {
+      const f = impl.spec && findItem(id);
+      if (!f || !lanes[id] || f.item.executor === lanes[id]) return;
+      f.item.executor = lanes[id];
+      touched++;
+      if (f.item.include !== false) moved++;
+    });
+    return { moved, touched };
+  }
+  // Ask the server which lane every item is in now: after an edit, and when a saved blueprint is restored
+  // (it may have been made by an older build). A dry run made with the old lanes is dropped.
+  async function refreshLanes(reason) {
+    if (!impl.spec || running) return 0;
+    let data;
+    try { data = await post("/implement/lanes", { spec: impl.spec }, 20_000, "Lanes"); }
+    catch (e) { return 0; }   // an older server has no /implement/lanes; the next dry run still corrects the lanes
+    if (data.build && L.checkBuild) L.checkBuild(data.build, "uat_generator");
+    const { moved: n, touched } = applyLanes(data.lanes);
+    if (touched && !n) { save(); render(); }
+    if (!n) return 0;
+    const hadRun = !!(impl.dryRun || impl.build);
+    if (!running) { impl.dryRun = null; impl.build = null; els.run.innerHTML = ""; }
+    save();
+    render();
+    renderGuideBuild();
+    if (reason !== "edit") L.setStatus("build", `${n} item(s) moved lane with the current server build${hadRun ? " — run the dry run again" : ""}.`, "ok");
+    return n;
   }
 
   function blockingOpen() {
@@ -480,14 +489,16 @@
     const org = data.org || {};
     const tile = (cls, label, value, sub) => `<div class="tile ${cls}"><p class="tile-label">${label}</p><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ""}</div>`;
     const orgKind = !org.id ? "not connected" : org.sandbox
-      ? (org.production_allowed ? (org.type || "production") + " · IMPL_ALLOW_PRODUCTION" : org.allow_listed ? "test org · allow-listed" : "sandbox")
-      : (org.type || "production") + " · not a sandbox";
-    const idsNote = `id <code>${esc(org.id || "")}</code>${org.zgid ? ` · zgid <code>${esc(org.zgid)}</code>` : ""}`;
+      ? (org.production_allowed ? (org.type || "production") + " org, allowed by a server setting" : org.allow_listed ? "test org, allow-listed" : "sandbox")
+      : (org.type || "production") + " org, not a sandbox";
+    // ids on their own line, in small type: long numbers and setting names used to push past the tile's edge
+    const idsNote = `<span class="tile-ids">id <code>${esc(org.id || "")}</code>${org.zgid ? `<br>zgid <code>${esc(org.zgid)}</code>` : ""}</span>`;
     const orgTile = !org.id
       ? tile("warn", "Target org", "None", "connect CRM on the Brief step to apply")
       : org.sandbox
-        ? tile(org.production_allowed ? "warn" : "ok", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply allowed · ${idsNote}`)
-        : tile("warn", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply is off · ${idsNote}. Add either id to IMPL_BUILD_ORG_IDS on uat_generator (or set IMPL_ALLOW_PRODUCTION=1), redeploy the function, then dry-run again.`);
+        ? tile(org.production_allowed ? "warn" : "ok", "Target org", esc(org.name || org.id),
+            `<span${org.production_allowed ? ` title="IMPL_ALLOW_PRODUCTION=1 is set on uat_generator"` : ""}>${esc(orgKind)} · Apply allowed</span>${idsNote}`)
+        : tile("warn", "Target org", esc(org.name || org.id), `${esc(orgKind)} · Apply is off. Add either id to IMPL_BUILD_ORG_IDS on uat_generator (or set IMPL_ALLOW_PRODUCTION=1), redeploy the function, then dry-run again.${idsNote}`);
     const tiles = `<div class="tiles tiles-4">
       ${orgTile}
       ${tile("info", data.dry_run ? "Will create via API" : "Created via API", String(api), `${calls} API call(s), in order`)}
@@ -522,6 +533,7 @@
     const doneCount = queue.filter((q) => { const f = findItem(q.id); return f && f.item.manual_done; }).length;
     return `<section class="card" id="impl-rpa"><div class="card-head"><h3>UI work queue <span class="muted">· no create API</span></h3>
         <div class="impl-toolbar-actions"><span class="pill ${doneCount === queue.length ? "ok" : "warn"}">${doneCount} of ${queue.length} done</span>
+          <button class="ghost small" type="button" data-rpa="claude" title="${esc(CLAUDE_TIP)}">Copy for Claude in Chrome</button>
           <button class="ghost small" type="button" data-rpa="script" title="A Playwright script that opens CRM Setup in your own browser profile, shows each item's steps and pauses for you to do or confirm them">Export runner script</button>
           <button class="ghost small" type="button" data-rpa="json">Download JSON</button></div></div>
       <ul class="impl-manual">` + queue.map((q) => {
@@ -765,7 +777,7 @@
   // Guide actions (buttons inside Now / Needs cards)
   document.addEventListener("click", async (e) => {
     const rpaBtn = e.target.closest("button[data-rpa]");
-    if (rpaBtn && !rpaBtn.closest("#impl-run") && impl.spec) { if (rpaBtn.dataset.rpa === "script") rpaScript(); else rpaQueue(); return; }
+    if (rpaBtn && !rpaBtn.closest("#impl-run") && impl.spec) { if (rpaBtn.dataset.rpa === "script") rpaScript(); else if (rpaBtn.dataset.rpa === "claude") claudeCopy(); else rpaQueue(); return; }
     const t = e.target.closest("[data-guide-act]");
     if (!t || !impl.spec) return;
     const act = t.dataset.guideAct, id = t.dataset.id;
@@ -956,6 +968,7 @@
     while (Date.now() - t0 < LIMIT_MS) {
       try {
         last = await post("/implement/stage", { stage: "status", job_key: key }, 30_000, "Status");
+        if (last.worker_build !== undefined && L.checkBuild) L.checkBuild(last.worker_build, "impl_worker");
       } catch (e) {
         last = last || { state: "queued" };   // a missed poll isn't fatal
       }
@@ -1100,6 +1113,11 @@
     L.busy.start("Dry run", "Comparing every blueprint item with the org and previewing the API calls. Nothing is written.");
     try {
       impl.dryRun = await post("/implement/apply", { spec: impl.spec, dry_run: true }, 90_000, "Dry run");
+      // The server decides each item's lane when it runs; copy that back so the blueprint agrees with the run.
+      const lanes = {};
+      (impl.dryRun.results || []).forEach((r) => { if (r.executor) lanes[r.id] = r.executor; });
+      const { moved } = applyLanes(lanes);
+      if (impl.dryRun.build && L.checkBuild) L.checkBuild(impl.dryRun.build, "uat_generator");
       impl.applied = null;
       impl.build = null;
       save();
@@ -1109,7 +1127,7 @@
       L.setStatus("build", o && !o.sandbox
         ? `Dry run against ${o.name || o.id}. It isn't a sandbox, so Apply stays off — connect a sandbox org, or add this org's id (${o.id}) to IMPL_BUILD_ORG_IDS on uat_generator if it is a test org.`
         : o
-        ? `Dry run against ${o.name || o.id}. Check the requests, then Apply.`
+        ? `Dry run against ${o.name || o.id}. Check the requests, then Apply.${moved ? ` ${moved} item(s) changed lane with the current server build.` : ""}`
         : "Dry run done (no CRM connected — connect CRM to apply).", "ok");
     } catch (e) {
       L.setStatus("build", "Dry run failed: " + e.message, "err");
@@ -1387,7 +1405,7 @@
 
   els.run.addEventListener("click", async (e) => {
     const rpa = e.target.closest("button[data-rpa]");
-    if (rpa) { if (rpa.dataset.rpa === "script") rpaScript(); else rpaQueue(); return; }
+    if (rpa) { if (rpa.dataset.rpa === "script") rpaScript(); else if (rpa.dataset.rpa === "claude") claudeCopy(); else rpaQueue(); return; }
     const copy = e.target.closest("button[data-copy]");
     if (copy) {
       const q = ((impl.dryRun && impl.dryRun.rpa_queue) || []).find((x) => x.id === copy.dataset.copy);
@@ -2136,11 +2154,12 @@ await browser.close();
       try {
         const next = JSON.parse(ed.querySelector("textarea").value);
         next.id = id;   // ids are stable references (plan spec_refs, apply item_ids)
-        next.executor = executorFor(f.section, next);
+        next.executor = f.item.executor;   // kept until the server answers (refreshLanes below)
         impl.spec[f.section][f.index] = next;
         changed();
         render();
         L.setStatus("blueprint", `${id} updated.`, "ok");
+        refreshLanes("edit");
       } catch (err) {
         L.setStatus("blueprint", `${id}: not valid JSON — ${err.message}`, "err");
       }
@@ -2214,6 +2233,8 @@ await browser.close();
     else if (impl.dryRun) renderRun("Dry run — nothing was changed", impl.dryRun, "apply");
     renderVerify();
     render();
+    // A saved blueprint can be older than the server that is running: ask it for the lanes once the page has settled.
+    setTimeout(() => { refreshLanes("restore"); }, 1200);
   } else {
     refreshButtons();
   }

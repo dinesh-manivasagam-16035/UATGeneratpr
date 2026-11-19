@@ -223,6 +223,7 @@ public final class ImplJob {
         if (label != null) s.put("label", label);
         if (error != null) s.put("error", ImplementServlet.trim(error, 400));
         s.put("updated", System.currentTimeMillis());
+        s.put("build", BuildInfo.VERSION);   // which build of the worker wrote this (see BuildInfo)
         JobStore.put(statusKey(key), MAPPER.writeValueAsString(s));
     }
 }

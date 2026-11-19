@@ -49,6 +49,12 @@ date and `status = "planned"` (the lane stays `ui` so the item still reaches the
 builder in `ImplementApplyServlet`, switch `laneFor` for that kind, and flip the row to `api`/`builds`.
 One edit moves the sheet, the agent's brief and the build lane together.
 
+The lane is asked at run time, not stored. A blueprint lives in the browser between steps, so the
+`executor` saved on an item can be older than the code that is running. Build, the Setup queue and
+the page's lane tags all take the lane from `ImplSpec.laneNow` — the dry run returns it per item and
+`POST /implement/lanes` returns it for a whole blueprint. The page has no copy of the lane rules: a
+new builder reaches blueprints that were made before it existed as soon as the function is deployed.
+
 `Products.use(body)` picks the adapter from the request's `platform` (the browser sends it with every
 call; the job worker gets it in the job input). `Products.current()` is what the pipeline asks.
 

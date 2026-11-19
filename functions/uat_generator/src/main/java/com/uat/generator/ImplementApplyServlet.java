@@ -33,13 +33,14 @@ import java.util.logging.Logger;
  * A real run also requires spec.approved == true (set in the UI after human review), and
  * only ever writes to a sandbox org: production is read-only here (dry runs still work).
  *
- * What runs where:
- *   api / partial — custom modules, custom fields, roles: created through the CRM settings REST APIs
- *          (partial items also get a "finish by hand" entry in rpa_queue),
- *          in that order (fields can target modules created in the same run).
- *   rpa  — layouts, validation rules, workflows/blueprints/assignment/approvals, Deluge
- *          functions, and field types the field API doesn't create: returned in rpa_queue
- *          with step-by-step instructions for an RPA bot or a consultant.
+ * What runs where is decided per item by the product's capability matrix (Product.laneFor), asked at
+ * run time (ImplSpec.laneNow) rather than read from the lane stored on the item:
+ *   api / partial — everything with a create API (modules, picklists, fields, layouts, rules, functions,
+ *          roles, sharing, settings …), in dependency order; a partial item also gets a "finish by
+ *          hand" entry in rpa_queue.
+ *   rpa  — what has no create API (validation rules, templates, reports …): returned in rpa_queue with
+ *          step-by-step instructions and a recipe for the runner, Zoho RPA or Claude in Chrome.
+ * Each result line carries the lane used ("executor"), and "lane_was" when it differs from the stored one.
  * Every item is re-compared with the org at apply time (ImplCompare): already there →
  * skipped; a picklist missing values → those values are added (PATCH); a type or lookup
  * conflict → result "conflict" and nothing is sent. Every item gets a result line;
@@ -105,8 +106,7 @@ public class ImplementApplyServlet extends HttpServlet {
             ArrayNode results = MAPPER.createArrayNode();
             ArrayNode rpaQueue = MAPPER.createArrayNode();
 
-            for (String section : new String[]{"modules", "global_picklists", "fields", "roles", "layouts", "dependencies", "validation_rules",
-                                               "workflows", "functions", "sharing", "settings"}) {
+            for (String section : ImplSpec.BUILD_SECTIONS) {
                 for (JsonNode item : spec.path(section)) {
                     String id = item.path("id").asText();
                     if (!only.isEmpty() && !only.contains(id)) continue;
@@ -115,13 +115,16 @@ public class ImplementApplyServlet extends HttpServlet {
                     r.put("id", id);
                     r.put("section", section);
                     r.put("label", ImplPlan.describe(section, item));
-                    r.put("executor", item.path("executor").asText());
+                    // The lane as this build computes it, not the one stored when the blueprint was made
+                    // (see ImplSpec.laneNow); the browser copies it back onto the item.
+                    String executor = ImplSpec.laneNow(section, item);
+                    r.put("executor", executor);
+                    if (!executor.equals(item.path("executor").asText(executor))) r.put("lane_was", item.path("executor").asText());
                     if ("exists".equals(item.path("status").asText())) {
                         r.put("result", "skipped");
                         r.put("detail", "Already in the org.");
                         continue;
                     }
-                    String executor = item.path("executor").asText();
                     if ("api".equals(executor) || "partial".equals(executor)) {
                         try {
                             run.apply(section, item, r);
@@ -140,7 +143,7 @@ public class ImplementApplyServlet extends HttpServlet {
                             ImplRpa.followUp(section, item).forEach(steps::add);
                             q.set("item", item);
                         }
-                    } else if ("rpa".equals(item.path("executor").asText())) {
+                    } else if ("rpa".equals(executor)) {
                         r.put("result", "queued_for_rpa");
                         ObjectNode q = rpaQueue.addObject();
                         q.put("id", id);
@@ -161,6 +164,7 @@ public class ImplementApplyServlet extends HttpServlet {
 
             ObjectNode out = MAPPER.createObjectNode();
             out.put("dry_run", dryRun);
+            out.put("build", BuildInfo.VERSION);
             if (org != null) {
                 ObjectNode o = out.putObject("org");
                 o.put("id", org.orgId);

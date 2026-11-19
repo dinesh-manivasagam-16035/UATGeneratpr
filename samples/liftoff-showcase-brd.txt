@@ -1,0 +1,51 @@
+BRD: Lead sizing and priority follow-up
+Product: Zoho CRM · Module: Leads
+Prepared for: CRM implementation team
+
+Purpose
+Sales wants to know, the moment a lead arrives, how keen the lead is and how large the deal
+could be — and to react to the keenest leads the same day. This document states what the CRM
+must do.
+
+Background
+Today a new lead shows only a name and a source. Reps open every lead to find out whether it
+is worth a call, hot leads wait in the same queue as everyone else, and leads are sometimes
+saved with a seat count of zero, which breaks the sizing report.
+
+Functional requirements
+
+FR-1: Buying Interest
+- Add a pick list "Buying Interest" to the Leads module with the values Hot, Warm and Cold.
+- The field is optional and has no default value.
+
+FR-2: Expected Seats
+- Add a whole-number field "Expected Seats" to the Leads module: the number of users the lead
+  expects to buy for.
+- The field is optional.
+
+FR-3: Priority follow-up for hot leads
+- When a lead is created with Buying Interest "Hot":
+  - set its Lead Status to "Priority Follow-up", and
+  - create a task for the lead owner with the subject "Call within 4 hours", priority High,
+    due the same day.
+- "Priority Follow-up" is a new Lead Status value.
+- A lead created as Warm or Cold keeps the Lead Status it was created with and gets no task.
+
+FR-4: Expected Seats must be a real number of seats
+- A lead must not be saved with Expected Seats less than 1.
+- Show the message: "Expected Seats must be 1 or more."
+- An empty Expected Seats is allowed.
+- This must be enforced on the Leads form itself (a validation rule), not by an automation
+  that runs after the save.
+
+Acceptance criteria
+A. Create a lead with Buying Interest "Hot" → Lead Status is "Priority Follow-up" and the lead
+   owner has an open task "Call within 4 hours" with priority High.
+B. Create a lead with Buying Interest "Warm" and Lead Status "Contacted" → Lead Status stays
+   "Contacted" and no task is created.
+C. Save a lead with Expected Seats 0 → the save is rejected with the message in FR-4.
+D. Save the same lead with Expected Seats 25 → the save succeeds.
+
+Out of scope
+- Reports, dashboards and email notifications.
+- Changes to Contacts, Accounts or Deals.

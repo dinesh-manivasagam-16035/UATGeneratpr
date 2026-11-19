@@ -80,6 +80,13 @@ if [ -d "$WORKER" ]; then
 fi
 
 echo
+# The page compares this id with its own (?v= in client/index.html) and warns when they differ.
+BUILD="$(sed -n 's/.*VERSION = "\([^"]*\)".*/\1/p' src/main/java/com/uat/generator/BuildInfo.java | head -1)"
+PAGE="$(sed -n 's/.*app\.js?v=\([A-Za-z0-9._-]*\).*/\1/p' ../../client/index.html | head -1)"
+echo "Build $BUILD (page $PAGE)"
+if [ -n "$PAGE" ] && [ "$BUILD" != "$PAGE" ]; then
+  echo "WARNING: BuildInfo.VERSION and the ?v= in client/index.html differ — the app will show a build notice."
+fi
 echo "Ready: $(ls lib/*.jar | wc -l | tr -d ' ') jars in lib/, runtime in $found"
 if [ -d "$WORKER" ]; then
   echo "Deploy with:  catalyst deploy --only functions:uat_generator,functions:impl_worker,client"

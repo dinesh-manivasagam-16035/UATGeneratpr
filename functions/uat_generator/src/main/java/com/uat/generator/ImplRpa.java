@@ -98,7 +98,7 @@ public final class ImplRpa {
                 s.add(Products.current().setupRoot("validation_rules") + " → " + module + " → Validation Rules → Create Rule.");
                 s.add("Name: " + o.path("name").asText() + ".");
                 s.add("Condition (reject when): " + o.path("condition").asText() + ".");
-                s.add("Alert message: \"" + o.path("error_message").asText() + "\".");
+                s.add("Alert message, exactly: \"" + o.path("error_message").asText() + "\"");   // no full stop after the quote: the text inside is typed as is
                 s.add("Save.");
                 break;
             case "workflows": {
@@ -251,8 +251,12 @@ public final class ImplRpa {
             String word = conditionWord(part);
             String value = "";
             if (!word.isEmpty() && !word.endsWith("empty")) {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:is not|is|equals|==|!=|<>|>=|<=|>|<|contains)\\s*['\"“”]?([^'\"“”]+?)['\"“”]?\\s*$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(part);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:\\b(?:is not|isn't|is|equals|does not contain|doesn't contain|contains|starts with|ends with"
+                        + "|less than|fewer than|greater than|more than|at least|at most|below|above|exceeds)\\b|==|!=|<>|>=|<=|>|<)"   // whole words: the "is" in "Discount" is not a comparison
+                        + "\\s*['\"“”]?([^'\"“”]+?)['\"“”]?\\s*$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(part);
                 if (m.find()) value = m.group(1).trim();
+                // "is less than 1" was caught at "is": drop the comparison words so the value is "1"
+                value = value.replaceFirst("(?i)^(?:(?:less|fewer|greater|more) than(?: or equal to)?|at least|at most|below|above|equal to|not equal to)\\s+", "").trim();
             }
             out.add(new String[]{field, word, value});
         }
@@ -271,7 +275,7 @@ public final class ImplRpa {
     /** "PIDG Code is empty" → "PIDG Code"; "Amount > 1000" → "Amount". */
     static String fieldLabel(String condition) {
         String c = condition == null ? "" : condition.trim().replaceAll("^(when|if)\\s+", "");
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\"?([A-Za-z][A-Za-z0-9 _/()%-]*?)\"?\\s*(is\\b|==|!=|<>|>=|<=|=|>|<|contains\\b|equals\\b|starts\\b|ends\\b|not\\b)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(c);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\"?([A-Za-z][A-Za-z0-9 _/()%-]*?)\"?\\s*(is\\b|isn't\\b|==|!=|<>|>=|<=|=|>|<|contains\\b|equals\\b|starts\\b|ends\\b|not\\b|does\\b|doesn't\\b|less\\b|fewer\\b|greater\\b|more\\b|below\\b|above\\b|exceeds\\b|at\\s+(?:least|most)\\b)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(c);
         return m.find() ? m.group(1).trim() : "";
     }
 
@@ -279,12 +283,16 @@ public final class ImplRpa {
         String c = condition == null ? "" : condition.toLowerCase(Locale.ROOT);
         if (c.contains("is not empty") || c.contains("is not blank") || c.contains("not null")) return "is not empty";
         if (c.contains("is empty") || c.contains("is blank") || c.contains("is null")) return "is empty";
-        if (c.contains("not equal") || c.contains("!=") || c.contains("<>")) return "is not";
+        // comparisons written in words ("is less than 1", "at least 5") as well as in symbols
+        if (c.contains(">=") || c.contains("at least") || c.contains("greater than or equal") || c.contains("more than or equal")) return ">=";
+        if (c.contains("<=") || c.contains("at most") || c.contains("less than or equal") || c.contains("fewer than or equal")) return "<=";
+        if (c.contains("not equal") || c.contains("!=") || c.contains("<>") || c.contains(" is not ") || c.contains(" isn't ")) return "is not";
+        if (c.contains("doesn't contain") || c.contains("does not contain")) return "doesn't contain";
         if (c.contains("contains")) return "contains";
-        if (c.contains(">=")) return ">=";
-        if (c.contains("<=")) return "<=";
-        if (c.contains(">") || c.contains("greater")) return ">";
-        if (c.contains("<") || c.contains("less")) return "<";
+        if (c.contains("starts with")) return "starts with";
+        if (c.contains("ends with")) return "ends with";
+        if (c.contains(">") || c.contains("greater") || c.contains("more than") || c.contains("above") || c.contains("exceeds")) return ">";
+        if (c.contains("<") || c.contains("less") || c.contains("fewer") || c.contains("below")) return "<";
         if (c.contains(" is ") || c.contains("=") || c.contains("equals")) return "is";
         return "";
     }

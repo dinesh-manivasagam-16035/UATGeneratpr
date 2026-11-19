@@ -26,6 +26,7 @@ public class CrmConsentServlet extends HttpServlet {
         ObjectNode out = MAPPER.createObjectNode();
         boolean oauthAvailable = notEmpty(System.getenv("ZOHO_CLIENT_ID"));
         out.put("oauth_available", oauthAvailable);
+        out.put("build", BuildInfo.VERSION);   // the page compares this with its own build
 
         // Server-side credentials (ZOHO_REFRESH_TOKEN / Catalyst Connection) are for
         // Zoho Projects push. They used to be reported as "authorized" here, which

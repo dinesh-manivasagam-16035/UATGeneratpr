@@ -82,6 +82,7 @@ final class JobQueue {
         String s = JobStore.get(ImplJob.statusKey(key));
         if (s == null) return error(404, "No such job, or it has expired.");
         ObjectNode st = (ObjectNode) MAPPER.readTree(s);
+        flagWorkerBuild(st);
         // Still "queued" but the worker may have crashed before writing anything: ask Catalyst.
         if ("queued".equals(st.path("state").asText()) && st.hasNonNull("job_id")) {
             String catalyst = catalystState(st.path("job_id").asText());
@@ -97,6 +98,28 @@ final class JobQueue {
         }
         return st;
     }
+
+    /**
+     * Once the worker has picked a job up, its status carries the worker's build. When that differs from
+     * this function's (or is missing: a worker from before build stamps), the two were deployed apart and
+     * the worker is running other prompts and section lists than the ones this function merges.
+     */
+    static void flagWorkerBuild(ObjectNode st) {
+        st.put("server_build", BuildInfo.VERSION);
+        if ("queued".equals(st.path("state").asText("queued"))) return;   // written by this function, not the worker
+        String worker = st.path("build").asText("");
+        st.put("worker_build", worker);
+        if (!BuildInfo.VERSION.equals(worker)) st.put("worker_stale", true);
+    }
+
+    /** One sentence for the blueprint's notes when the worker that wrote it is on another build. */
+    static String staleWorkerNote(String workerBuild) {
+        return "The background worker (impl_worker) is on build " + (workerBuild.isEmpty() ? "unknown (older)" : workerBuild)
+                + " while uat_generator is on " + BuildInfo.VERSION + ", so this blueprint was written with the worker's older "
+                + "prompts and section list. Deploy both together: " + DEPLOY;
+    }
+
+    static final String DEPLOY = "functions/uat_generator/build-for-deploy.sh && catalyst deploy --only functions:uat_generator,functions:impl_worker,client";
 
     /** Catalyst's own status for a job id (e.g. "Failed"), or null when it can't be read. */
     private static String catalystState(String jobId) {

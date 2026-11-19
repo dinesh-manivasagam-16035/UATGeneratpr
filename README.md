@@ -133,18 +133,20 @@ function lacks Catalyst context (e.g. running outside `catalyst serve`).
 ## Build & deploy
 
 ```bash
-# Build the function .war
-cd functions/uat_generator
-mvn clean package
-cd ../..
-
-# Deploy everything (function + client)
-catalyst deploy
-
-# Or deploy individually
-catalyst deploy --only functions
-catalyst deploy --only client
+# From the repo folder: compile the classes into lib/uat-classes.jar, give impl_worker the same
+# jars, then deploy both functions and the client together.
+functions/uat_generator/build-for-deploy.sh && catalyst deploy --only functions:uat_generator,functions:impl_worker,client
 ```
+
+Run the build script before **every** deploy. `lib/` is not in git, so `catalyst deploy` on its
+own ships whatever `lib/uat-classes.jar` was built last — the page updates and the server does not.
+`impl_worker` runs the same classes (it writes the blueprint parts), so deploy it with
+`uat_generator`, never one without the other.
+
+The app checks this for you. The page, `uat_generator` and `impl_worker` each carry a build id
+(`BuildInfo.VERSION`, the `?v=` in `client/index.html`); when they differ, LiftOff shows a notice
+at the top naming the part that is behind and the command above. `GET /server/uat_generator/health`
+returns the server's build.
 
 After deploy, the web client is served from your Catalyst app domain, and the
 function is reachable at `/server/uat_generator/{generate,push,health}`.
@@ -411,6 +413,9 @@ The [`samples/`](samples/) folder has two ready-to-paste BRDs and a golden outpu
   requirement should become, which lane it belongs in and how to check it
 - [`samples/pidg-rpa-brd.txt`](samples/pidg-rpa-brd.txt) — small BRD with one Setup-only item, for
   testing the guided runner / Zoho RPA path
+- [`samples/liftoff-showcase-brd.txt`](samples/liftoff-showcase-brd.txt) — the five-minute
+  demonstration: three requirements LiftOff builds through the API and one that Claude in Chrome
+  does in Setup. [`docs/SHOWCASE.md`](docs/SHOWCASE.md) is the script for it
 
 Open the web client, pick the matching module, paste the BRD body, and click
 **Generate UAT cases**.

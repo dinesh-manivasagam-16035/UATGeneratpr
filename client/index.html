@@ -12,18 +12,21 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=20261118c" />
-  <link rel="stylesheet" href="shell.css?v=20261118c" />
+  <link rel="stylesheet" href="styles.css?v=20261119a" />
+  <link rel="stylesheet" href="shell.css?v=20261119a" />
   <!-- Catalyst Web SDK — must load before app.js uses catalyst.auth -->
   <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0/catalystWebSDK.js"></script>
   <script src="/__catalyst/sdk/init.js"></script>
   <script>
-    // Set theme before stylesheet paints to avoid flash.
+    // Set the theme before the stylesheets paint, to avoid a flash. data-theme is the mode (light | dark),
+    // data-palette the theme itself; app.js stores both when a theme is picked.
     (function () {
+      var root = document.documentElement;
       try {
         var t = localStorage.getItem("testpilot_theme") || "light";
-        document.documentElement.dataset.theme = t;
-      } catch (e) {}
+        root.dataset.theme = localStorage.getItem("testpilot_theme_mode") || (t === "dark" ? "dark" : "light");
+        root.dataset.palette = t;
+      } catch (e) { root.dataset.theme = "light"; }
     })();
   </script>
 </head>
@@ -197,19 +200,12 @@
       </div>
         <div class="side-foot-row">
       <div class="theme-picker-wrap" id="theme-picker-wrap">
-        <button class="theme-picker-btn" id="theme-picker-btn" aria-label="Choose theme" title="Choose theme">
+        <button class="theme-picker-btn" id="theme-picker-btn" type="button" aria-label="Choose theme" title="Choose theme" aria-haspopup="menu" aria-expanded="false">
           <span class="theme-swatch-small" id="theme-swatch-preview"></span>
           <span id="theme-picker-label">Theme</span>
           <svg viewBox="0 0 10 6" width="10" height="6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
         </button>
-        <div class="theme-dropdown" id="theme-dropdown" hidden>
-          <div class="theme-option" data-theme-pick="light">
-            <span class="theme-swatch swatch-light"></span> Light
-          </div>
-          <div class="theme-option" data-theme-pick="dark">
-            <span class="theme-swatch swatch-dark"></span> Night
-          </div>
-        </div>
+        <div class="theme-dropdown" id="theme-dropdown" role="menu" aria-label="Theme" hidden></div>
       </div>
           <span class="live-pill">Live</span>
         </div>
@@ -217,6 +213,8 @@
     </aside>
 
   <main hidden>
+    <!-- Shown only when this page and the server functions are on different builds (app.js checkBuild) -->
+    <div class="build-notice" id="build-notice" role="status" hidden></div>
 
     <!-- Step 1: Brief -->
     <section class="tab-panel active" data-panel="input" id="panel-input" role="tabpanel" aria-labelledby="tab-input">
@@ -960,8 +958,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261118c"></script>
-  <script src="implement.js?v=20261118c"></script>
+  <script src="app.js?v=20261119a"></script>
+  <script src="implement.js?v=20261119a"></script>
 
   <!-- ConvoKraft Bot Widget — hidden by default, toggle via FAB -->
   <script src="https://console.catalyst.zoho.in/convokraft/assets/js/convokraft-chat-sdk.js"></script>
